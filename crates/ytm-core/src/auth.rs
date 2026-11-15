@@ -64,12 +64,25 @@ fn parse_json_auth(trimmed: &str) -> Result<AuthCredentials, CoreError> {
     credentials_from_header_map(map)
 }
 
+fn is_header_key_line(line: &str) -> bool {
+    !line.is_empty()
+        && !line.contains(':')
+        && !line.contains('=')
+        && !line.contains(' ')
+        && line
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 fn parse_header_text_auth(trimmed: &str) -> Result<AuthCredentials, CoreError> {
     let mut map: HashMap<String, String> = HashMap::new();
     let mut has_header_lines = false;
+    let lines: Vec<&str> = trimmed.lines().map(str::trim).collect();
+    let mut i = 0usize;
 
-    for line in trimmed.lines() {
-        let line = line.trim();
+    while i < lines.len() {
+        let line = lines[i];
+        i += 1;
         if line.is_empty() || line.starts_with(':') {
             continue;
         }
@@ -84,6 +97,18 @@ fn parse_header_text_auth(trimmed: &str) -> Result<AuthCredentials, CoreError> {
                 has_header_lines = true;
                 map.insert(key, val);
             }
+        } else if is_header_key_line(line) {
+            // Support Chrome DevTools alternating `header-name\nheader-value` copy format.
+            if let Some(val) = lines.get(i).copied().filter(|v| !v.is_empty()) {
+                has_header_lines = true;
+                map.insert(line.to_ascii_lowercase(), val.to_string());
+                i += 1;
+            }
+        } else if !map.contains_key("cookie")
+            && (line.contains("SAPISID=") || line.contains("__Secure-3PAPISID="))
+        {
+            has_header_lines = true;
+            map.insert("cookie".to_string(), line.to_string());
         }
     }
 
@@ -269,5 +294,11 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "Cookie" && v.contains("SOCS=CAI"))
         );
+
+        let chrome_two_line = "cookie\nSAPISID=chrome_sap; __Secure-3PAPISID=chrome_3p\nuser-agent\nChromeTest/1.0\nx-goog-authuser\n1\nx-goog-visitor-id\nVis123\n";
+        let creds3 = parse_auth_input(chrome_two_line).expect("parse chrome 2-line headers");
+        assert_eq!(creds3.user_agent, "ChromeTest/1.0");
+        assert_eq!(creds3.x_goog_authuser.as_deref(), Some("1"));
+        assert_eq!(creds3.x_goog_visitor_id.as_deref(), Some("Vis123"));
     }
 }

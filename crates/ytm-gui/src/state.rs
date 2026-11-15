@@ -1,0 +1,304 @@
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use ytm_core::{ClientConfig, Playlist, PlaylistSummary, SessionStatus};
+use ytm_enrich::{EnrichmentConfig, GenreSplitPlan};
+use ytm_ops::{
+    DedupeConfig, DedupePlan, DiffPlan, HealthReport, KeeperStrategy, MatchMode, SetAlgebraOp,
+    SortDirection, SortField, SortKey, SortPlan, SortSpec,
+};
+use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
+
+/// Explicit state machine preventing invalid parallel boolean flags.
+#[derive(Debug, Clone, Default)]
+pub enum AsyncState<T> {
+    #[default]
+    Idle,
+    Loading(String),
+    Ready(T),
+    Failed(String),
+}
+
+impl<T> AsyncState<T> {
+    #[must_use]
+    pub fn is_loading(&self) -> bool {
+        matches!(self, Self::Loading(_))
+    }
+
+    #[must_use]
+    pub fn data(&self) -> Option<&T> {
+        match self {
+            Self::Ready(val) => Some(val),
+            _ => None,
+        }
+    }
+}
+
+/// Top-level workspace tabs in `ytm-gui`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuiTab {
+    Inspector,
+    Dedupe,
+    Sort,
+    SetOps,
+    Health,
+    GenreSplit,
+    Snapshots,
+    Auth,
+}
+
+impl GuiTab {
+    pub const ALL: [Self; 8] = [
+        Self::Inspector,
+        Self::Dedupe,
+        Self::Sort,
+        Self::SetOps,
+        Self::Health,
+        Self::GenreSplit,
+        Self::Snapshots,
+        Self::Auth,
+    ];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Inspector => "Inspector",
+            Self::Dedupe => "Dedupe",
+            Self::Sort => "Sort (LIS)",
+            Self::SetOps => "Set Algebra",
+            Self::Health => "Health",
+            Self::GenreSplit => "Genre Split",
+            Self::Snapshots => "Snapshots",
+            Self::Auth => "Auth",
+        }
+    }
+}
+
+/// Persisted TOML application settings loaded from `config.toml`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GuiAppConfig {
+    pub innertube: ClientConfig,
+    pub enrichment: EnrichmentConfig,
+}
+
+/// Confirmed remote write actions gated behind the modal dialog.
+#[derive(Debug, Clone)]
+pub enum ConfirmedMutation {
+    Dedupe(DedupePlan),
+    Sort(SortPlan),
+    SetInsert {
+        target_id: String,
+        video_ids: Vec<String>,
+    },
+    Health {
+        playlist: Playlist,
+        prune_unavailable: bool,
+        upgrade: bool,
+        report: HealthReport,
+    },
+    GenreSplit {
+        source_playlist: Playlist,
+        plan: GenreSplitPlan,
+    },
+    RestoreSnapshot {
+        snapshot_id: String,
+    },
+}
+
+/// Confirmation dialog payload displayed before any remote InnerTube mutation.
+#[derive(Debug, Clone)]
+pub struct PendingMutation {
+    pub title: String,
+    pub summary: String,
+    pub action: ConfirmedMutation,
+}
+
+/// Form parameters for Dedupe view.
+#[derive(Debug, Clone)]
+pub struct DedupeForm {
+    pub threshold: f64,
+    pub duration_tol: u32,
+    pub ignore_duration: bool,
+    pub exact_only: bool,
+    pub keep: KeeperStrategy,
+}
+
+impl Default for DedupeForm {
+    fn default() -> Self {
+        let d = DedupeConfig::default();
+        Self {
+            threshold: d.fuzzy_threshold,
+            duration_tol: d.duration_tolerance_sec,
+            ignore_duration: d.ignore_duration,
+            exact_only: d.exact_only,
+            keep: d.keep,
+        }
+    }
+}
+
+/// Form parameters for LIS minimal-move Sort view.
+#[derive(Debug, Clone)]
+pub struct SortForm {
+    pub keys: Vec<SortKey>,
+    pub artist_spread: bool,
+    pub use_seed: bool,
+    pub seed: u64,
+}
+
+impl Default for SortForm {
+    fn default() -> Self {
+        Self {
+            keys: vec![
+                SortKey {
+                    field: SortField::Artist,
+                    direction: SortDirection::Asc,
+                },
+                SortKey {
+                    field: SortField::Title,
+                    direction: SortDirection::Asc,
+                },
+            ],
+            artist_spread: false,
+            use_seed: true,
+            seed: 42,
+        }
+    }
+}
+
+impl SortForm {
+    #[must_use]
+    pub fn to_spec(&self) -> SortSpec {
+        let has_shuffle = self.keys.iter().any(|k| k.field == SortField::Shuffle);
+        SortSpec {
+            keys: self.keys.clone(),
+            artist_spread: self.artist_spread || has_shuffle,
+            seed: if has_shuffle && self.use_seed {
+                Some(self.seed)
+            } else {
+                None
+            },
+        }
+    }
+}
+
+/// Form parameters for Set Algebra view.
+#[derive(Debug, Clone)]
+pub struct SetOpsForm {
+    pub op: SetAlgebraOp,
+    pub playlist_a: String,
+    pub playlist_b: String,
+    pub fuzzy: bool,
+    pub target_playlist: String,
+}
+
+impl Default for SetOpsForm {
+    fn default() -> Self {
+        Self {
+            op: SetAlgebraOp::Diff,
+            playlist_a: "LM".to_string(),
+            playlist_b: String::new(),
+            fuzzy: true,
+            target_playlist: String::new(),
+        }
+    }
+}
+
+/// Form parameters for Health Scanner view.
+#[derive(Debug, Clone)]
+pub struct HealthForm {
+    pub find_official: bool,
+    pub prune_unavailable: bool,
+    pub upgrade: bool,
+}
+
+impl Default for HealthForm {
+    fn default() -> Self {
+        Self {
+            find_official: true,
+            prune_unavailable: true,
+            upgrade: true,
+        }
+    }
+}
+
+/// Form parameters for Genre Split view.
+#[derive(Debug, Clone)]
+pub struct GenreSplitForm {
+    pub min_tracks: usize,
+    pub custom_genres_toml: String,
+}
+
+impl Default for GenreSplitForm {
+    fn default() -> Self {
+        Self {
+            min_tracks: 5,
+            custom_genres_toml: String::new(),
+        }
+    }
+}
+
+/// Commands dispatched from UI thread to Tokio background worker.
+#[derive(Debug, Clone)]
+pub enum WorkerCmd {
+    Bootstrap,
+    RefreshLibrary,
+    ImportAuth(String),
+    LoadPlaylist(String),
+    BackupPlaylist {
+        target: String,
+        format: ExportFormat,
+        out_dir: PathBuf,
+    },
+    PlanDedupe {
+        playlist_id: String,
+        config: DedupeConfig,
+    },
+    PlanSort {
+        playlist_id: String,
+        spec: SortSpec,
+    },
+    PlanSetOp {
+        op: SetAlgebraOp,
+        mode: MatchMode,
+        playlist_a: String,
+        playlist_b: String,
+        target: Option<String>,
+    },
+    ScanHealth {
+        playlist_id: String,
+        find_official: bool,
+    },
+    PlanGenreSplit {
+        playlist_id: String,
+        min_tracks: usize,
+        custom_genres_path: Option<PathBuf>,
+    },
+    RefreshSnapshots,
+    LoadSnapshot(String),
+    ExecuteMutation(ConfirmedMutation),
+}
+
+/// Events emitted from Tokio background worker back to UI thread.
+#[derive(Debug, Clone)]
+pub enum WorkerEvent {
+    SessionLoaded(Result<SessionStatus, String>),
+    LibraryLoaded(Result<Vec<PlaylistSummary>, String>),
+    PlaylistLoaded(Result<Playlist, String>),
+    DedupePlanned(Result<DedupePlan, String>),
+    SortPlanned(Result<SortPlan, String>),
+    SetOpPlanned(Result<DiffPlan, String>),
+    HealthScanned(Result<HealthReport, String>),
+    GenreSplitPlanned(Result<(Playlist, GenreSplitPlan), String>),
+    SnapshotsLoaded(Result<Vec<SnapshotMetadata>, String>),
+    SnapshotDetailLoaded(Result<Snapshot, String>),
+    StatusToast {
+        ok: bool,
+        message: String,
+    },
+    MutationFinished {
+        ok: bool,
+        message: String,
+        reload_playlist_id: Option<String>,
+    },
+}

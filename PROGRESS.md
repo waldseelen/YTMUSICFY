@@ -12,12 +12,26 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 2 (Ops & Enrich)`: **PASS** `ytm-ops` & `ytm-enrich` 15 tests PASS, 0 warnings (`31/31` workspace tests PASS)
 - `Gate 3 (CLI & TUI)`: **PASS** `ytm-cli` wired across all 11 commands & 5-tab Ratatui TUI, `32/32` workspace tests PASS, 0 warnings
 - `Gate 4 (E2E QA, Docs & Release)`: **PASS** E2E suite, `TestBackend` TUI render, `README.md`, and release build PASS (`34/34` workspace tests PASS, 0 warnings)
+- `Gate 5 (Desktop GUI - ytm-gui)`: **PASS** `eframe`/`egui` cross-platform desktop studio + Chrome 2-line header parser, `35/35` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 34/34 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit + 2 integration)
-- `cargo build --release`: **PASS** exit 0 (`57.65s`, binary `./target/release/ytm`)
-- `wc -l crates/*/src/**/*.rs crates/*/src/*.rs`: **PASS** 45 files, 7277 lines total, max 390 lines (`crates/ytm-enrich/src/splitter.rs`), all <= 400
+- `cargo test --workspace`: **PASS** exit 0, 35/35 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 1 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`58.21s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
+- `wc -l crates/ytm-gui/src/**/*.rs crates/ytm-gui/src/*.rs`: **PASS** 13 files, 2497 lines total, max 394 lines (`crates/ytm-gui/src/app.rs`), all <= 400
+
+---
+
+## 2026-11-15 — Wave 5 Pure-Rust Desktop GUI (`ytm-gui`)
+
+- **Touched areas (`path›symbol`)**:
+  - `Cargo.toml`, `Cargo.lock`: added `crates/ytm-gui`, pinned `eframe = "0.31"` and `egui_extras = "0.31"`
+  - `crates/ytm-core/src/auth.rs`: `is_header_key_line`, `parse_header_text_auth` support for Chrome DevTools alternating 2-line `key\nvalue` paste format + unit test
+  - `crates/ytm-gui/src/{main.rs,app.rs,state.rs,worker.rs,worker_exec.rs}`: 60 FPS `eframe` shell, `AsyncState<T>`, `PendingMutation` modal confirmation gate, Tokio worker thread with mandatory `save_snapshot` before every remote mutation
+  - `crates/ytm-gui/src/views/{mod,inspect,dedupe,sort,set_ops,health,genres_snapshots,auth}.rs`: 8 visual tabs covering Inspector/Backup, Dedupe, LIS Minimal-Move Sort, Set Algebra, Health & Official ATV Upgrades, Genre Split, Snapshots Time-Machine, and Auth Import
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (35/35 PASS), and `cargo build --release --bin ytm-gui --bin ytm` (58.21s) exited 0 with 0 warnings.
+- **Remaining gaps**: Manual desktop launch of `./target/release/ytm-gui` on user's Wayland/X11 display.
 
 ---
 

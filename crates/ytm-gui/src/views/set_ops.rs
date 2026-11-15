@@ -1,0 +1,159 @@
+use std::sync::mpsc::Sender;
+
+use eframe::egui;
+use egui_extras::{Column, TableBuilder};
+use ytm_core::PlaylistSummary;
+use ytm_ops::{DiffPlan, MatchMode, SetAlgebraOp};
+
+use crate::state::{AsyncState, ConfirmedMutation, PendingMutation, SetOpsForm, WorkerCmd};
+use crate::views::async_banner;
+
+fn playlist_picker(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    label: &str,
+    value: &mut String,
+    playlists: &[PlaylistSummary],
+) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let selected_label = playlists
+            .iter()
+            .find(|p| &p.id == value)
+            .map_or_else(|| value.as_str(), |p| p.title.as_str());
+        egui::ComboBox::from_id_salt(id_salt)
+            .selected_text(if selected_label.is_empty() {
+                "Select..."
+            } else {
+                selected_label
+            })
+            .show_ui(ui, |ui| {
+                for pl in playlists {
+                    ui.selectable_value(value, pl.id.clone(), format!("{} ({})", pl.title, pl.id));
+                }
+            });
+    });
+}
+
+pub fn show(
+    ui: &mut egui::Ui,
+    playlists: &[PlaylistSummary],
+    form: &mut SetOpsForm,
+    plan_state: &mut AsyncState<DiffPlan>,
+    pending_modal: &mut Option<PendingMutation>,
+    cmd_tx: &Sender<WorkerCmd>,
+) {
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut form.op, SetAlgebraOp::Diff, "Diff (A \\ B)");
+        ui.radio_value(&mut form.op, SetAlgebraOp::Intersect, "Intersect (A ∩ B)");
+        ui.radio_value(&mut form.op, SetAlgebraOp::Merge, "Merge (A ∪ B)");
+        ui.checkbox(&mut form.fuzzy, "Fuzzy normalized");
+    });
+
+    playlist_picker(
+        ui,
+        "set_pl_a",
+        "Playlist A:",
+        &mut form.playlist_a,
+        playlists,
+    );
+    playlist_picker(
+        ui,
+        "set_pl_b",
+        "Playlist B:",
+        &mut form.playlist_b,
+        playlists,
+    );
+    playlist_picker(
+        ui,
+        "set_pl_target",
+        "Target (--into, optional):",
+        &mut form.target_playlist,
+        playlists,
+    );
+
+    ui.horizontal(|ui| {
+        let ready =
+            !form.playlist_a.is_empty() && !form.playlist_b.is_empty() && !plan_state.is_loading();
+        if ui
+            .add_enabled(ready, egui::Button::new("Compute Set Plan (Dry-Run)"))
+            .clicked()
+        {
+            *plan_state = AsyncState::Loading("Computing set operation...".to_string());
+            let target = (!form.target_playlist.is_empty()).then(|| form.target_playlist.clone());
+            let _ = cmd_tx.send(WorkerCmd::PlanSetOp {
+                op: form.op,
+                mode: if form.fuzzy {
+                    MatchMode::FuzzyNormalized
+                } else {
+                    MatchMode::ExactVideoId
+                },
+                playlist_a: form.playlist_a.clone(),
+                playlist_b: form.playlist_b.clone(),
+                target,
+            });
+        }
+
+        if let Some(plan) = plan_state.data()
+            && !form.target_playlist.is_empty()
+            && !plan.add_video_ids.is_empty()
+            && ui.button("Insert Into Target...").clicked()
+        {
+            *pending_modal = Some(PendingMutation {
+                title: "Confirm Set Insertion".to_string(),
+                summary: format!(
+                    "Save snapshot of target '{}' and add {} tracks?",
+                    form.target_playlist,
+                    plan.add_video_ids.len()
+                ),
+                action: ConfirmedMutation::SetInsert {
+                    target_id: form.target_playlist.clone(),
+                    video_ids: plan.add_video_ids.clone(),
+                },
+            });
+        }
+    });
+
+    let (loading, error) = match plan_state {
+        AsyncState::Loading(m) => (Some(m.as_str()), None),
+        AsyncState::Failed(e) => (None, Some(e.as_str())),
+        _ => (None, None),
+    };
+    async_banner(ui, loading, error);
+    ui.separator();
+
+    let Some(plan) = plan_state.data() else {
+        ui.label("Select Playlist A & B and click Compute Set Plan.");
+        return;
+    };
+
+    ui.label(format!("Result tracks: {}", plan.result_tracks.len()));
+    TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .column(Column::exact(42.0))
+        .column(Column::initial(170.0).clip(true))
+        .column(Column::remainder())
+        .header(22.0, |mut header| {
+            for h in ["#", "Artist", "Title"] {
+                header.col(|ui| {
+                    ui.strong(h);
+                });
+            }
+        })
+        .body(|body| {
+            body.rows(20.0, plan.result_tracks.len(), |mut row| {
+                let idx = row.index();
+                let t = &plan.result_tracks[idx];
+                row.col(|ui| {
+                    ui.label((idx + 1).to_string());
+                });
+                row.col(|ui| {
+                    ui.label(t.primary_artist_name().unwrap_or("-"));
+                });
+                row.col(|ui| {
+                    ui.label(&t.title);
+                });
+            });
+        });
+}
