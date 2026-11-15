@@ -1,0 +1,99 @@
+# Hierarchical genre taxonomy rules for `ytm split-genre`
+# Longest / most-specific pattern wins; matching is case-insensitive.
+
+default_genre = "Other"
+min_bucket_tracks = 5
+
+[[rules]]
+parent = "Rock"
+patterns = [
+  "alternative rock",
+  "indie rock",
+  "post-punk",
+  "progressive rock",
+  "classic rock",
+  "hard rock",
+  "punk rock",
+  "anatolian rock",
+  "rock",
+  "grunge",
+  "shoegaze",
+]
+
+[[rules]]
+parent = "Metal"
+patterns = [
+  "progressive metal",
+  "melodic death metal",
+  "thrash metal",
+  "heavy metal",
+  "black metal",
+  "death metal",
+  "doom metal",
+  "nu metal",
+  "metalcore",
+  "metal",
+]
+
+[[rules]]
+parent = "Electronic"
+patterns = [
+  "synthwave",
+  "drum and bass",
+  "deep house",
+  "tech house",
+  "ambient",
+  "electro",
+  "electronic",
+  "techno",
+  "trance",
+  "house",
+  "idm",
+  "edm",
+]
+
+[[rules]]
+parent = "Hip-Hop"
+patterns = [
+  "turkish hip hop",
+  "turkish rap",
+  "boom bap",
+  "hip hop",
+  "hip-hop",
+  "trap",
+  "rap",
+  "drill",
+]
+
+[[rules]]
+parent = "Pop"
+patterns = [
+  "synthpop",
+  "indie pop",
+  "dream pop",
+  "turkish pop",
+  "k-pop",
+  "pop",
+]
+
+[[rules]]
+parent = "Jazz"
+patterns = [
+  "jazz fusion",
+  "nu jazz",
+  "bebop",
+  "jazz",
+  "blues",
+  "soul",
+  "funk",
+]
+
+[[rules]]
+parent = "Classical"
+patterns = [
+  "contemporary classical",
+  "neoclassical",
+  "orchestral",
+  "classical",
+  "soundtrack",
+]

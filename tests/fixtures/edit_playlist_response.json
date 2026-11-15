@@ -1,0 +1,19 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [{ "key": "logged_in", "value": "1" }]
+      }
+    ]
+  },
+  "status": "STATUS_SUCCEEDED",
+  "playlistEditResults": [
+    {
+      "playlistEditVideoAddedResultData": {
+        "videoId": "vid_atv_001",
+        "setVideoId": "SET_ID_NEW_001"
+      }
+    }
+  ]
+}

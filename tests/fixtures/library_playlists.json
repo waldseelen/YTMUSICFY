@@ -1,0 +1,109 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [{ "key": "logged_in", "value": "1" }]
+      }
+    ]
+  },
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "gridRenderer": {
+                      "items": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "New playlist" }] },
+                            "navigationEndpoint": { "createPlaylistEndpoint": {} }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Liked Music",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": { "browseId": "VLLM" }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": { "runs": [{ "text": "Auto playlist" }] },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLLM",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Synth Classics",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": { "browseId": "VLPLTestPlaylist01" }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                { "text": "Demo Listener" },
+                                { "text": " • " },
+                                { "text": "4 tracks" }
+                              ]
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": [
+                                  {
+                                    "menuNavigationItemRenderer": {
+                                      "navigationEndpoint": {
+                                        "playlistEditorEndpoint": {
+                                          "playlistId": "PLTestPlaylist01"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLTestPlaylist01",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

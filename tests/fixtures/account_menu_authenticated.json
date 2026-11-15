@@ -1,0 +1,39 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "CSI",
+        "params": [
+          { "key": "c", "value": "WEB_REMIX" },
+          { "key": "yt_li", "value": "1" }
+        ]
+      },
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          { "key": "logged_in", "value": "1" }
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "openPopupAction": {
+        "popup": {
+          "multiPageMenuRenderer": {
+            "header": {
+              "activeAccountHeaderRenderer": {
+                "accountName": {
+                  "runs": [{ "text": "Demo Listener" }]
+                },
+                "channelHandle": {
+                  "runs": [{ "text": "@demolistener" }]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

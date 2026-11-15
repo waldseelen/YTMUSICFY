@@ -1,0 +1,17 @@
+[innertube]
+client_name = "WEB_REMIX"
+client_version = "1.20261115.01.00"
+hl = "en"
+gl = "US"
+max_pagination_pages = 500
+mutation_chunk_size = 50
+mutation_delay_ms = 600
+max_retries = 4
+
+[enrichment]
+cache_ttl_days = 30
+musicbrainz_user_agent = "ytm-architect/0.1.0 (https://github.com/ytm-architect/ytm-architect)"
+musicbrainz_interval_ms = 1100
+enable_deezer_fallback = true
+enable_listenbrainz_fallback = false
+# lastfm_api_key = "" # Or set YTM_LASTFM_API_KEY env var

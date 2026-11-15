@@ -1,0 +1,51 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "CSI",
+        "params": [
+          { "key": "c", "value": "WEB_REMIX" },
+          { "key": "yt_li", "value": "0" }
+        ]
+      },
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          { "key": "logged_in", "value": "0" }
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "openPopupAction": {
+        "popup": {
+          "multiPageMenuRenderer": {
+            "sections": [
+              {
+                "multiPageMenuSectionRenderer": {
+                  "items": [
+                    {
+                      "compactLinkRenderer": {
+                        "title": {
+                          "runs": [{ "text": "Sign in" }]
+                        },
+                        "navigationEndpoint": {
+                          "signInEndpoint": {
+                            "nextEndpoint": {
+                              "urlEndpoint": { "url": "https://music.youtube.com/" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+/target/
+/.refs/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+auth.json
+browser.json
+headers_auth.json
+.env
