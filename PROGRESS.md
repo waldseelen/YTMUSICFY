@@ -8,11 +8,33 @@ Sole authority for dates, verification gate statuses, and operational session hi
 
 - `Gate 0A (Reference Audit)`: **PASS** `.refs/RESEARCH_NOTES.md` and 7 sanitized fixtures in `tests/fixtures/` verified; `.refs/` gitignored
 - `Gate 0B (Workspace & Contract Lock)`: **PASS** exit 0, 0 warnings
+- `Gate 1 (Core Infrastructure)`: **PASS** `ytm-core` & `ytm-store` 15 tests PASS, 0 warnings
+- `Gate 2 (Ops & Enrich)`: **PASS** `ytm-ops` & `ytm-enrich` 15 tests PASS, 0 warnings (`31/31` workspace tests PASS)
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 20/20 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3, `ytm-enrich`: 1, `ytm-cli`: 1)
-- `wc -l crates/*/src/**/*.rs`: **PASS** max 309 lines (`crates/ytm-core/src/parser/playlist.rs`), all <= 400
+- `cargo test --workspace`: **PASS** exit 0, 31/31 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 1)
+- `wc -l crates/*/src/**/*.rs`: **PASS** max 390 lines (`crates/ytm-enrich/src/splitter.rs`), all <= 400
+
+---
+
+## 2026-11-15 — Wave 2 Algorithms & Metadata Enrichment (`ytm-ops` & `ytm-enrich`)
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-ops/src/normalize.rs`: `normalize_track` (`NFKC`, `UGC` `"Artist - Title"` splitting, `&` -> `and`, noise-tag stripping)
+  - `crates/ytm-ops/src/dedupe.rs`: `keeper_score`, `plan_dedupe` (Pass 1 exact `video_id`, Pass 2 Jaro-Winkler + duration guard, `KeeperStrategy`, `skipped_without_set_id`)
+  - `crates/ytm-ops/src/sort.rs`: `compute_minimal_moves` (`O(N log N)` Patience LIS + reverse suffix emit), `apply_move_actions`, `plan_sort` (multi-key comparator + deterministic `artist_spread` shuffle)
+  - `crates/ytm-ops/src/set_ops.rs`: `plan_set_op` (`Diff`, `Intersect`, `Merge` under `ExactVideoId` & `FuzzyNormalized`)
+  - `crates/ytm-ops/src/health.rs`: `scan_playlist_health` (unavailable flags, missing `setVideoId`, `UGC/OMV -> ATV` upgrade candidates)
+  - `crates/ytm-ops/tests/ops_algorithms_test.rs`: 5 integration tests (`5! = 120` permutations, 100-item LIS, deterministic artist-spread shuffle, UGC/ATV dedupe, set algebra + health)
+  - `crates/ytm-enrich/src/rate_limit.rs`: `PacedLimiter` (`tokio::time` interval enforcement)
+  - `crates/ytm-enrich/src/taxonomy.rs`: `GenreMatcher` (`genres.toml` longest-pattern-first compiler & `classify`)
+  - `crates/ytm-enrich/src/providers.rs`: `EnrichmentHttp`, `ReqwestEnrichmentHttp`, `MockEnrichmentHttp`, MusicBrainz/Last.fm/Deezer/ListenBrainz parsers
+  - `crates/ytm-enrich/src/splitter.rs`: `EnrichmentService` (`MetadataProvider` with SQLite TTL cache before HTTP) and idempotent `plan_genre_split`
+  - `crates/ytm-enrich/tests/enrich_test.rs`: 6 integration tests (0-HTTP cache hit, cache miss -> MusicBrainz -> SQLite reuse, Deezer fallback, `PacedLimiter`, `GenreMatcher`, idempotent genre split)
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p ytm-ops -p ytm-enrich`, and `cargo test --workspace` (31/31 PASS) exited 0 with 0 warnings.
+- **Remaining gaps**: Ready to execute Wave 3 (`ytm-cli` & Ratatui TUI).
 
 ---
 
