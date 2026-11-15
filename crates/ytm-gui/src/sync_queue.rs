@@ -146,6 +146,26 @@ impl SyncQueue {
         self.entries.len() != before
     }
 
+    #[must_use]
+    pub fn last_entry_id(&self) -> Option<u64> {
+        self.entries.last().map(|e| e.id)
+    }
+
+    /// Moves a staged entry one slot up (`delta < 0`) or down (`delta > 0`).
+    pub fn move_entry(&mut self, id: u64, delta: isize) -> bool {
+        let Some(idx) = self.entries.iter().position(|e| e.id == id) else {
+            return false;
+        };
+        let Some(target) = idx.checked_add_signed(delta) else {
+            return false;
+        };
+        if target >= self.entries.len() {
+            return false;
+        }
+        self.entries.swap(idx, target);
+        true
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
     }

@@ -6,7 +6,10 @@ pub mod models;
 pub mod parser;
 pub mod traits;
 
-pub use auth::{build_auth_headers, compute_sapisidhash, extract_sapisid, parse_auth_input};
+pub use auth::{
+    build_auth_headers, compute_sapisidhash, extract_sapisid, netscape_cookies_to_header,
+    parse_auth_input,
+};
 pub use client::InnerTubeClient;
 pub use error::CoreError;
 pub use http::{MockTransport, RecordedRequest, ReqwestTransport};

@@ -4,7 +4,8 @@ use eframe::egui;
 use ytm_core::{Playlist, Track};
 use ytm_ops::compute_minimal_moves;
 
-use crate::state::{AsyncState, InspectColumn, InspectSortState};
+use crate::navigation::ToastState;
+use crate::state::{AsyncState, DragTrackPayload, InspectColumn, InspectSortState};
 use crate::sync_queue::{StagedOp, SyncQueue};
 
 pub fn show_selection_bar(
@@ -13,7 +14,7 @@ pub fn show_selection_bar(
     editable: bool,
     sync_queue: &mut SyncQueue,
     selected_positions: &mut HashSet<usize>,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
 ) {
     if selected_positions.is_empty() {
         return;
@@ -31,13 +32,16 @@ pub fn show_selection_bar(
                 .cloned()
                 .collect();
             let cnt = picked.len();
-            sync_queue.push(StagedOp::RemoveTracks {
+            let eid = sync_queue.push(StagedOp::RemoveTracks {
                 playlist_id: pl.id.clone(),
                 playlist_title: pl.title.clone(),
                 tracks: picked,
             });
             selected_positions.clear();
-            *toast = Some((true, format!("Staged -{cnt} track removal(s) in Sync.")));
+            *toast = Some(ToastState::staged(
+                format!("Staged -{cnt} track removal(s) in Sync."),
+                Some(eid),
+            ));
         }
         if ui.button("Clear Selection").clicked() {
             selected_positions.clear();
@@ -52,7 +56,7 @@ pub fn show_sort_stage_bar(
     playlist_cache: &HashMap<String, Playlist>,
     sync_queue: &mut SyncQueue,
     sort_state: &mut InspectSortState,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
 ) {
     if sort_state.column == InspectColumn::Position && sort_state.asc {
         return;
@@ -84,9 +88,12 @@ pub fn show_sort_stage_bar(
                 match sync_queue.stage_reorder(&pl.id, &pl.title, target_sids, playlist_cache) {
                     Ok(n) => {
                         *sort_state = InspectSortState::default();
-                        *toast = Some((true, format!("Staged {n} LIS move(s) in Sync.")));
+                        *toast = Some(ToastState::staged(
+                            format!("Staged {n} LIS move(s) in Sync."),
+                            sync_queue.last_entry_id(),
+                        ));
                     }
-                    Err(e) => *toast = Some((false, e)),
+                    Err(e) => *toast = Some(ToastState::info(false, e)),
                 }
             }
         }
@@ -102,7 +109,7 @@ pub fn show_quick_search_results(
     editable: bool,
     search_results: &AsyncState<Vec<Track>>,
     sync_queue: &mut SyncQueue,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
 ) {
     let Some(found) = search_results.data() else {
         return;
@@ -111,9 +118,22 @@ pub fn show_quick_search_results(
         return;
     }
     ui.group(|ui| {
-        ui.strong("Quick Search Results:");
-        for t in found.iter().take(5) {
+        ui.strong("Quick Search Results (drag ⋮⋮ to any playlist or + Stage Add):");
+        for (idx, t) in found.iter().take(5).enumerate() {
             ui.horizontal(|ui| {
+                let drag = ui
+                    .dnd_drag_source(
+                        egui::Id::new(("quick_search_drag", idx, &t.video_id)),
+                        DragTrackPayload {
+                            source_playlist_id: "__SEARCH__".to_string(),
+                            tracks: vec![t.clone()],
+                        },
+                        |ui| ui.small("⋮⋮"),
+                    )
+                    .response;
+                if drag.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
                 ui.label(format!(
                     "{} - {} ({})",
                     t.primary_artist_name().unwrap_or("-"),
@@ -125,13 +145,16 @@ pub fn show_quick_search_results(
                     .add_enabled(editable, egui::Button::new("+ Stage Add"))
                     .clicked()
                 {
-                    sync_queue.push(StagedOp::AddTracks {
+                    let eid = sync_queue.push(StagedOp::AddTracks {
                         playlist_id: pl.id.clone(),
                         playlist_title: pl.title.clone(),
                         tracks: vec![t.clone()],
                         allow_duplicates: false,
                     });
-                    *toast = Some((true, format!("Staged '+' '{}' in Sync.", t.title)));
+                    *toast = Some(ToastState::staged(
+                        format!("Staged '+' '{}' in Sync.", t.title),
+                        Some(eid),
+                    ));
                 }
             });
         }
@@ -218,19 +241,23 @@ pub fn compute_drop_reorder(
         return None;
     }
     let dragged_set: HashSet<&str> = dragged_sids.iter().map(String::as_str).collect();
-    let target_sid = all_sids.get(target_pos).cloned()?;
-    if dragged_set.contains(target_sid.as_str()) {
-        return None;
-    }
     let remaining: Vec<String> = all_sids
         .iter()
         .filter(|sid| !dragged_set.contains(sid.as_str()))
         .cloned()
         .collect();
-    let insert_at = remaining
-        .iter()
-        .position(|sid| sid == &target_sid)
-        .unwrap_or(remaining.len());
+    let insert_at = if target_pos >= all_sids.len() {
+        remaining.len()
+    } else {
+        let target_sid = all_sids.get(target_pos)?;
+        if dragged_set.contains(target_sid.as_str()) {
+            return None;
+        }
+        remaining
+            .iter()
+            .position(|sid| sid == target_sid)
+            .unwrap_or(remaining.len())
+    };
     let mut out = Vec::with_capacity(all_sids.len());
     out.extend_from_slice(&remaining[..insert_at]);
     out.extend(
@@ -251,5 +278,48 @@ pub fn format_duration(total_secs: u64) -> String {
         format!("{hrs:02}:{mins:02}:{secs:02}")
     } else {
         format!("{mins:02}:{secs:02}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ytm_core::{MusicVideoType, PlaylistPrivacy, TrackAvailability};
+
+    use super::*;
+
+    fn mk_track(vid: &str, sid: &str, pos: usize) -> Track {
+        Track {
+            video_id: vid.to_string(),
+            set_video_id: Some(sid.to_string()),
+            position: pos,
+            title: vid.to_string(),
+            artists: Vec::new(),
+            album: None,
+            duration_sec: Some(120),
+            release_year: None,
+            music_video_type: MusicVideoType::AudioTrack,
+            availability: TrackAvailability::Available,
+        }
+    }
+
+    #[test]
+    fn compute_drop_reorder_moves_to_middle_and_end() {
+        let pl = Playlist {
+            id: "PL1".to_string(),
+            title: "Mix".to_string(),
+            description: None,
+            privacy: PlaylistPrivacy::Private,
+            owned: true,
+            track_count: 3,
+            tracks: vec![
+                mk_track("V1", "S1", 0),
+                mk_track("V2", "S2", 1),
+                mk_track("V3", "S3", 2),
+            ],
+        };
+        let to_end = compute_drop_reorder(&pl, &["S1".to_string()], 3).expect("move to end");
+        assert_eq!(to_end, vec!["S2", "S3", "S1"]);
+        let to_top = compute_drop_reorder(&pl, &["S3".to_string()], 0).expect("move to top");
+        assert_eq!(to_top, vec!["S3", "S1", "S2"]);
     }
 }

@@ -11,9 +11,8 @@ use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
 
 use crate::state::{GuiAppConfig, WorkerCmd, WorkerEvent};
-use crate::worker_exec::{
-    backup_inner, emit_progress, import_auth_inner, load_playlist, run_confirmed_mutation,
-};
+use crate::worker_auth::{import_auth_inner, import_browser_auth_inner};
+use crate::worker_exec::{backup_inner, emit_progress, load_playlist, run_confirmed_mutation};
 use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
@@ -168,6 +167,28 @@ async fn handle_cmd(
                     let _ = tx.send(WorkerEvent::StatusToast {
                         ok: false,
                         message: format!("Auth import failed: {e}"),
+                    });
+                }
+            }
+        }
+        WorkerCmd::ImportBrowserAuth(browser) => {
+            match import_browser_auth_inner(&state.paths, &state.config, browser).await {
+                Ok((client, status)) => {
+                    state.client = Some(client);
+                    let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
+                    let _ = tx.send(WorkerEvent::StatusToast {
+                        ok: true,
+                        message: format!("Imported session from {} and saved.", browser.label()),
+                    });
+                    if let Some(c) = &state.client {
+                        let libs = c.get_library_playlists().await.map_err(|e| e.to_string());
+                        let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(WorkerEvent::StatusToast {
+                        ok: false,
+                        message: format!("Browser import failed: {e}"),
                     });
                 }
             }

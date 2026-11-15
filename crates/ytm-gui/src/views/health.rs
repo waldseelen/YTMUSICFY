@@ -5,6 +5,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::Playlist;
 use ytm_ops::{HealthIssueKind, HealthReport};
 
+use crate::navigation::ToastState;
 use crate::state::{AsyncState, HealthForm, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
@@ -17,7 +18,7 @@ pub fn show(
     form: &mut HealthForm,
     report_state: &mut AsyncState<HealthReport>,
     sync_queue: &mut SyncQueue,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
@@ -48,6 +49,7 @@ pub fn show(
             && ui.button("Stage Cleanup / Upgrades to Sync").clicked()
         {
             let mut staged = 0usize;
+            let mut last_id = None;
             if form.prune_unavailable {
                 let removals: Vec<_> = report
                     .issues
@@ -59,11 +61,11 @@ pub fn show(
                     .map(|i| i.track.clone())
                     .collect();
                 if !removals.is_empty() {
-                    sync_queue.push(StagedOp::RemoveTracks {
+                    last_id = Some(sync_queue.push(StagedOp::RemoveTracks {
                         playlist_id: pl.id.clone(),
                         playlist_title: pl.title.clone(),
                         tracks: removals,
-                    });
+                    }));
                     staged += 1;
                 }
             }
@@ -73,19 +75,19 @@ pub fn show(
                     .iter()
                     .map(|c| (c.source_track.clone(), c.official_atv.clone()))
                     .collect();
-                sync_queue.push(StagedOp::UpgradeTracks {
+                last_id = Some(sync_queue.push(StagedOp::UpgradeTracks {
                     playlist_id: pl.id.clone(),
                     playlist_title: pl.title.clone(),
                     upgrades,
-                });
+                }));
                 staged += 1;
             }
-            *toast = Some((
-                true,
+            *toast = Some(ToastState::staged(
                 format!(
                     "Staged {staged} health action(s) for '{}' in Sync.",
                     pl.title
                 ),
+                last_id,
             ));
         }
     });

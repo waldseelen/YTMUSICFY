@@ -32,14 +32,19 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             views::inspect::show(
                 ui,
                 draft_active.as_ref(),
+                &mut app.selected_playlist_id,
                 is_loading,
                 load_err,
                 playlists,
+                &app.library,
                 &mut app.loading_playlists,
                 &mut app.playlist_cache,
                 &mut app.sync_queue,
                 &mut app.inspect_sort,
                 &mut app.inspect_selected,
+                &mut app.inspect_last_clicked,
+                &mut app.inspect_focused_row,
+                &mut app.inspect_jump_input,
                 &mut app.inspect_search,
                 &mut app.ytm_query,
                 &app.search_results,
@@ -48,6 +53,7 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 &mut app.split_state,
                 &mut app.drop_prompt,
                 &mut app.toast,
+                app.focus_search_once,
                 &app.cmd_tx,
             );
         }
@@ -111,6 +117,12 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             &mut app.pending_modal,
             &mut app.toast,
         ),
-        GuiTab::Auth => views::auth::show(ui, &app.session, &mut app.auth_raw_input, &app.cmd_tx),
+        GuiTab::Auth => views::auth::show(
+            ui,
+            &app.session,
+            &mut app.auth_raw_input,
+            &mut app.auth_browser,
+            &app.cmd_tx,
+        ),
     }
 }

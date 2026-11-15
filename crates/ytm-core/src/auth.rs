@@ -241,6 +241,52 @@ pub fn build_auth_headers(
     Ok(headers)
 }
 
+/// Convert Netscape `cookies.txt` (including `#HttpOnly_` lines from `yt-dlp`) into a `Cookie:` header.
+pub fn netscape_cookies_to_header(netscape_txt: &str) -> Result<String, CoreError> {
+    let mut cookies: Vec<(String, String)> = Vec::new();
+    for raw_line in netscape_txt.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let line = if let Some(rest) = trimmed.strip_prefix("#HttpOnly_") {
+            rest
+        } else if trimmed.starts_with('#') {
+            continue;
+        } else {
+            trimmed
+        };
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        let domain = parts[0].trim().trim_start_matches('.').to_ascii_lowercase();
+        if domain != "youtube.com" && !domain.ends_with(".youtube.com") {
+            continue;
+        }
+        let name = parts[5].trim();
+        let val = parts[6].trim();
+        if !name.is_empty() && !val.is_empty() {
+            if let Some(existing) = cookies.iter_mut().find(|(k, _)| k == name) {
+                existing.1 = val.to_string();
+            } else {
+                cookies.push((name.to_string(), val.to_string()));
+            }
+        }
+    }
+
+    if cookies.is_empty() {
+        return Err(CoreError::MissingCookie);
+    }
+    let header = cookies
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    extract_sapisid(&header)?;
+    Ok(format!("Cookie: {header}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +346,21 @@ mod tests {
         assert_eq!(creds3.user_agent, "ChromeTest/1.0");
         assert_eq!(creds3.x_goog_authuser.as_deref(), Some("1"));
         assert_eq!(creds3.x_goog_visitor_id.as_deref(), Some("Vis123"));
+    }
+
+    #[test]
+    fn netscape_cookies_to_header_preserves_httponly_and_filters_youtube() {
+        let netscape = "\
+# Netscape HTTP Cookie File
+.google.com\tTRUE\t/\tTRUE\t1900000000\tIGNORE_ME\tfoo
+.youtube.com\tTRUE\t/\tTRUE\t1900000000\tSAPISID\tsap_val
+#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1900000000\t__Secure-1PSID\tpsid_val
+music.youtube.com\tFALSE\t/\tTRUE\t1900000000\t__Secure-3PAPISID\t3p_val
+";
+        let header = netscape_cookies_to_header(netscape).expect("netscape cookies");
+        assert!(header.contains("SAPISID=sap_val"));
+        assert!(header.contains("__Secure-1PSID=psid_val"));
+        assert!(header.contains("__Secure-3PAPISID=3p_val"));
+        assert!(!header.contains("IGNORE_ME"));
     }
 }

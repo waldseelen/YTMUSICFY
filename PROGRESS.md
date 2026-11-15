@@ -14,12 +14,26 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 4 (E2E QA, Docs & Release)`: **PASS** E2E suite, `TestBackend` TUI render, `README.md`, and release build PASS (`34/34` workspace tests PASS, 0 warnings)
 - `Gate 5 (Desktop GUI - ytm-gui)`: **PASS** `eframe`/`egui` cross-platform desktop studio + Chrome 2-line header parser, `35/35` workspace tests PASS, 0 warnings
 - `Gate 6 (Sync Queue, Split-Diff, Drag-Drop & Bugfixes)`: **PASS** Central `Sync` queue + Kubuntu Copy/Move popup + Inspector column sort & LIS staging + Split Diff view + `LM`/localized count fix + MusicBrainz backoff/fallback, `38/38` workspace tests PASS, 0 warnings
+- `Gate 7 (Runtime Auth, Browser Import & 20-Item UX/DnD Upgrade)`: **PASS** Runtime `INNERTUBE_API_KEY` discovery + `yt-dlp` Netscape `#HttpOnly_` browser import (`Brave`/`Chrome`/`Chromium`/`Firefox`) + 20-item DnD, auto-scroll, keyboard/accessibility, toast/undo, and resizable Split Diff upgrades, `44/44` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 38/38 tests passed (`ytm-core`: 6 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 2 unit)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`7.43s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
-- `wc -l`: **PASS** all touched `.rs` files <= 369 lines (`max = 369` in `crates/ytm-gui/src/state.rs`)
+- `cargo test --workspace`: **PASS** exit 0, 44/44 tests passed (`ytm-core`: 7 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 7 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`3.62s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
+- `wc -l`: **PASS** all `.rs` files <= 392 lines (`max = 392` in `crates/ytm-gui/src/state.rs`)
+
+---
+
+## 2026-11-15 — Wave 7 Runtime Auth, Browser Import & 20-Item UX/DnD Upgrade
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-core/src/{http.rs,auth.rs,lib.rs}`: `ReqwestTransport::resolve_params` runtime `INNERTUBE_API_KEY` extraction from `music.youtube.com` (`OnceCell`), `netscape_cookies_to_header` (`#HttpOnly_` preservation + domain filter + `SAPISID` verification) + `netscape_cookies_to_header_preserves_httponly_and_filters_youtube`
+  - `crates/ytm-gui/src/{main.rs,worker_auth.rs,worker.rs,worker_exec.rs,views/auth.rs}`: `.with_app_id("ytm-architect")`, Wayland repaint cadence, auto-switch to `Auth` tab on session failure, `BrowserKind` (`Brave` default, `Chrome`, `Chromium`, `Firefox`) + `yt-dlp --cookies-from-browser` one-click import, file import fallback
+  - `crates/ytm-gui/src/{navigation.rs,interaction.rs,overlays.rs,app.rs,sidebar.rs,tab_router.rs,sync_queue.rs,sync_queue_tests.rs,state.rs}`: `NavHistory` (`Alt+◀/▶` & mouse `Extra1/Extra2`), `ToastState` (6s TTL, `Undo`, `Sync →`, `✕`), global shortcuts (`Ctrl+1..9`, `Ctrl+F`, `Ctrl+Enter`, `Ctrl+/-/0` zoom), `handle_cross_playlist_drop` (`Ctrl`=Copy, `Shift`=Move), modal backdrop + `Esc`/`Enter` + error recovery (`Go to Auth →`, `Retry`), `SyncQueue::move_entry` & `last_entry_id`, sidebar keyboard nav & edge auto-scroll
+  - `crates/ytm-gui/src/views/{inspect,inspect_rows,inspect_actions,inspect_helpers,split_diff,split_pane,set_ops,sort,sync,dedupe,health,genres_snapshots,mod}.rs`: full-row DnD + ghost badge + bottom drop slot + disabled tooltip + `Grab`/`Grabbing` cursors, `Shift+Click` range select + `Ctrl+A`/`Delete`/`Esc`/`Home`/`End`/`Up`/`Down`/`Space` + `# Go`, full-row context menu (`Open in Browser`, `Filter by Artist`, batch `Copy/Move to Playlist`), Quick Search & Set Ops DnD, symmetric Split Diff search + draggable vertical splitter (`0.25..=0.75`) + `⇄ Swap A/B` + multi-select drag, `Sort`/`Sync` `↑`/`↓` reordering, double-click snapshot inspect
+  - `scripts/install-desktop.sh`: symlinks `~/.local/bin/{ytm-gui,ytm}` and installs `~/.local/share/applications/ytm-architect.desktop`
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (44/44 PASS), and `cargo build --release --bin ytm-gui --bin ytm` (3.62s) exited 0 with 0 warnings.
 
 ---
 

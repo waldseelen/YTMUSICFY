@@ -3,13 +3,14 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::SessionStatus;
 
-use crate::state::{AsyncState, WorkerCmd};
+use crate::state::{AsyncState, BrowserKind, WorkerCmd};
 use crate::views::async_banner;
 
 pub fn show(
     ui: &mut egui::Ui,
     session: &AsyncState<SessionStatus>,
     raw_input: &mut String,
+    browser: &mut BrowserKind,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.heading("InnerTube Authentication");
@@ -30,6 +31,21 @@ pub fn show(
         AsyncState::Loading(msg) => async_banner(ui, Some(msg), None),
         AsyncState::Idle => {}
     }
+
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.strong("Auto-Import from Browser:");
+        egui::ComboBox::from_id_salt("auth_browser_combo")
+            .selected_text(browser.label())
+            .show_ui(ui, |ui| {
+                for kind in BrowserKind::ALL {
+                    ui.selectable_value(browser, kind, kind.label());
+                }
+            });
+        if ui.button("Import Session from Browser").clicked() {
+            let _ = cmd_tx.send(WorkerCmd::ImportBrowserAuth(*browser));
+        }
+    });
 
     ui.add_space(8.0);
     ui.label(
@@ -58,5 +74,15 @@ pub fn show(
         if ui.button("Clear").clicked() {
             raw_input.clear();
         }
+        if ui.button("Import from File...").clicked() {
+            let trimmed = raw_input.trim();
+            if !trimmed.is_empty()
+                && let Ok(contents) = std::fs::read_to_string(trimmed)
+            {
+                *raw_input = contents.clone();
+                let _ = cmd_tx.send(WorkerCmd::ImportAuth(contents));
+            }
+        }
     });
+    ui.small("Tip: To avoid clipboard freezes on Wayland, you can also paste a file path (e.g. /tmp/headers.txt) above and click 'Import from File...'.");
 }

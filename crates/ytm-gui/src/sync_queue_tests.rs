@@ -73,3 +73,26 @@ fn coalesces_reorders_and_recomputes_working_draft() {
     assert_eq!(noop, 0);
     assert!(q.is_empty());
 }
+
+#[test]
+fn move_entry_and_last_entry_id_work_within_bounds() {
+    let mut q = SyncQueue::default();
+    let id1 = q.push(StagedOp::CreatePlaylist {
+        title: "First".to_string(),
+        description: String::new(),
+        privacy: PlaylistPrivacy::Private,
+        tracks: Vec::new(),
+    });
+    let id2 = q.push(StagedOp::CreatePlaylist {
+        title: "Second".to_string(),
+        description: String::new(),
+        privacy: PlaylistPrivacy::Private,
+        tracks: Vec::new(),
+    });
+    assert_eq!(q.last_entry_id(), Some(id2));
+    assert!(!q.move_entry(id1, -1));
+    assert!(q.move_entry(id2, -1));
+    assert_eq!(q.entries()[0].id, id2);
+    assert!(q.remove_entry(id2));
+    assert_eq!(q.last_entry_id(), Some(id1));
+}

@@ -3,10 +3,13 @@ pub mod dedupe;
 pub mod genres_snapshots;
 pub mod health;
 pub mod inspect;
+pub mod inspect_actions;
 pub mod inspect_helpers;
+pub mod inspect_rows;
 pub mod set_ops;
 pub mod sort;
 pub mod split_diff;
+pub mod split_pane;
 pub mod sync;
 
 use eframe::egui;

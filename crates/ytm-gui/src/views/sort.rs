@@ -6,6 +6,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::Playlist;
 use ytm_ops::{SortDirection, SortField, SortKey, SortPlan};
 
+use crate::navigation::ToastState;
 use crate::state::{AsyncState, SortForm, WorkerCmd};
 use crate::sync_queue::SyncQueue;
 use crate::views::async_banner;
@@ -29,10 +30,11 @@ pub fn show(
     plan_state: &mut AsyncState<SortPlan>,
     playlist_cache: &HashMap<String, Playlist>,
     sync_queue: &mut SyncQueue,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     let mut remove_idx = None;
+    let mut swap_pair: Option<(usize, usize)> = None;
     let key_count = form.keys.len();
     for (idx, key) in form.keys.iter_mut().enumerate() {
         ui.horizontal(|ui| {
@@ -50,10 +52,27 @@ pub fn show(
                     ui.selectable_value(&mut key.direction, SortDirection::Asc, "Asc");
                     ui.selectable_value(&mut key.direction, SortDirection::Desc, "Desc");
                 });
-            if key_count > 1 && ui.button("X").clicked() {
+            if ui
+                .add_enabled(idx > 0, egui::Button::new("↑"))
+                .on_hover_text("Higher sort priority")
+                .clicked()
+            {
+                swap_pair = Some((idx, idx - 1));
+            }
+            if ui
+                .add_enabled(idx + 1 < key_count, egui::Button::new("↓"))
+                .on_hover_text("Lower sort priority")
+                .clicked()
+            {
+                swap_pair = Some((idx, idx + 1));
+            }
+            if key_count > 1 && ui.button("✕").clicked() {
                 remove_idx = Some(idx);
             }
         });
+    }
+    if let Some((a, b)) = swap_pair {
+        form.keys.swap(a, b);
     }
     if let Some(i) = remove_idx {
         form.keys.remove(i);
@@ -106,15 +125,15 @@ pub fn show(
                 playlist_cache,
             ) {
                 Ok(n) => {
-                    *toast = Some((
-                        true,
+                    *toast = Some(ToastState::staged(
                         format!(
                             "Staged {n} LIS moves for '{}' in Sync.",
                             plan.playlist_title
                         ),
+                        sync_queue.last_entry_id(),
                     ));
                 }
-                Err(e) => *toast = Some((false, e)),
+                Err(e) => *toast = Some(ToastState::info(false, e)),
             }
         }
     });

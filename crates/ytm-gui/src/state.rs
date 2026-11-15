@@ -119,13 +119,33 @@ pub enum DiffFilter {
 }
 
 /// Side-by-side Split Pane & live Diff configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SplitPaneState {
     pub enabled: bool,
     pub playlist_b_id: Option<String>,
+    pub search_a: String,
     pub search_b: String,
     pub fuzzy: bool,
     pub filter: DiffFilter,
+    pub split_ratio: f32,
+    pub selected_a: std::collections::HashSet<usize>,
+    pub selected_b: std::collections::HashSet<usize>,
+}
+
+impl Default for SplitPaneState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            playlist_b_id: None,
+            search_a: String::new(),
+            search_b: String::new(),
+            fuzzy: false,
+            filter: DiffFilter::All,
+            split_ratio: 0.5,
+            selected_a: std::collections::HashSet::new(),
+            selected_b: std::collections::HashSet::new(),
+        }
+    }
 }
 
 /// Payload carried when dragging single or multiple tracks across UI targets.
@@ -293,12 +313,15 @@ impl Default for GenreSplitForm {
     }
 }
 
+pub use crate::worker_auth::BrowserKind;
+
 /// Commands dispatched from UI thread to Tokio background worker.
 #[derive(Debug, Clone)]
 pub enum WorkerCmd {
     Bootstrap,
     RefreshLibrary,
     ImportAuth(String),
+    ImportBrowserAuth(BrowserKind),
     LoadPlaylist(String),
     SearchTracks(String),
     BackupPlaylist {

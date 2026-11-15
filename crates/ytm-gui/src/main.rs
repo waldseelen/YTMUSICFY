@@ -1,4 +1,6 @@
 mod app;
+mod interaction;
+mod navigation;
 mod overlays;
 mod sidebar;
 mod state;
@@ -6,6 +8,7 @@ mod sync_queue;
 mod tab_router;
 mod views;
 mod worker;
+mod worker_auth;
 mod worker_exec;
 mod worker_plans;
 
@@ -22,6 +25,7 @@ fn main() -> Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_app_id("ytm-architect")
             .with_inner_size([1280.0, 820.0])
             .with_min_inner_size([960.0, 640.0])
             .with_title("ytm-architect"),

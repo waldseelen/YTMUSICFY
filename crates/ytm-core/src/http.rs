@@ -5,27 +5,38 @@ use std::time::Duration;
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
+use tokio::sync::OnceCell;
 
 use crate::error::CoreError;
 use crate::traits::HttpTransport;
 
 pub const YTM_BASE_API: &str = "https://music.youtube.com/youtubei/v1/";
 pub const YTM_PARAMS_BASE: &str = "?alt=json&prettyPrint=false";
+const WEB_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-fn ytm_params_browser() -> String {
+fn env_innertube_key() -> Option<String> {
     if let Ok(key) = std::env::var("YTM_INNERTUBE_KEY") {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
-            return format!("{YTM_PARAMS_BASE}&key={trimmed}");
+            return Some(trimmed.to_string());
         }
     }
     if let Some(key) = option_env!("YTM_INNERTUBE_KEY") {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
-            return format!("{YTM_PARAMS_BASE}&key={trimmed}");
+            return Some(trimmed.to_string());
         }
     }
-    YTM_PARAMS_BASE.to_string()
+    None
+}
+
+fn extract_innertube_api_key(html: &str) -> Option<String> {
+    let marker = "\"INNERTUBE_API_KEY\":\"";
+    let start = html.find(marker)? + marker.len();
+    let rest = &html[start..];
+    let end = rest.find('"')?;
+    let key = rest[..end].trim();
+    (!key.is_empty()).then(|| key.to_string())
 }
 
 /// Production `reqwest` (`rustls-tls`) transport with HTTP/2 header headroom and backoff.
@@ -34,6 +45,7 @@ pub struct ReqwestTransport {
     client: reqwest::Client,
     base_url: String,
     max_retries: usize,
+    api_key: Arc<OnceCell<Option<String>>>,
 }
 
 impl ReqwestTransport {
@@ -48,7 +60,35 @@ impl ReqwestTransport {
             client,
             base_url: YTM_BASE_API.to_string(),
             max_retries,
+            api_key: Arc::new(OnceCell::new()),
         })
+    }
+
+    async fn resolve_params(&self) -> String {
+        if let Some(key) = env_innertube_key() {
+            return format!("{YTM_PARAMS_BASE}&key={key}");
+        }
+        if self.base_url != YTM_BASE_API {
+            return YTM_PARAMS_BASE.to_string();
+        }
+        let discovered = self
+            .api_key
+            .get_or_init(|| async {
+                let resp = self
+                    .client
+                    .get("https://music.youtube.com/")
+                    .header("User-Agent", WEB_UA)
+                    .send()
+                    .await
+                    .ok()?;
+                let html = resp.text().await.ok()?;
+                extract_innertube_api_key(&html)
+            })
+            .await;
+        match discovered {
+            Some(key) => format!("{YTM_PARAMS_BASE}&key={key}"),
+            None => YTM_PARAMS_BASE.to_string(),
+        }
     }
 
     fn build_header_map(headers: &[(String, String)]) -> Result<HeaderMap, CoreError> {
@@ -86,7 +126,7 @@ impl HttpTransport for ReqwestTransport {
         headers: &[(String, String)],
     ) -> Result<Value, CoreError> {
         let clean_ep = endpoint.trim_start_matches('/');
-        let params = ytm_params_browser();
+        let params = self.resolve_params().await;
         let url = format!("{}{clean_ep}{params}", self.base_url);
         let header_map = Self::build_header_map(headers)?;
 

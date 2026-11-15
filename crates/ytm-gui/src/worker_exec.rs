@@ -4,15 +4,11 @@ use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
 use eframe::egui;
-use ytm_core::{
-    InnerTubeClient, InnerTubeClientTrait, Playlist, ReqwestTransport, parse_auth_input,
-};
+use ytm_core::{InnerTubeClient, InnerTubeClientTrait, Playlist, ReqwestTransport};
 use ytm_ops::compute_minimal_moves;
-use ytm_store::{
-    AppPaths, ExportFormat, SnapshotStore, SqliteStore, export_playlist_to_path, write_secret_file,
-};
+use ytm_store::{ExportFormat, SnapshotStore, SqliteStore, export_playlist_to_path};
 
-use crate::state::{ConfirmedMutation, GuiAppConfig, WorkerEvent};
+use crate::state::{ConfirmedMutation, WorkerEvent};
 use crate::sync_queue::{StagedEntry, StagedOp};
 
 pub async fn load_playlist<C: InnerTubeClientTrait>(
@@ -285,23 +281,6 @@ async fn execute_restore_snapshot<C: InnerTubeClientTrait>(
         ),
         vec![live.id],
     ))
-}
-
-pub async fn import_auth_inner(
-    paths: &AppPaths,
-    cfg: &GuiAppConfig,
-    raw: &str,
-) -> Result<(InnerTubeClient<ReqwestTransport>, ytm_core::SessionStatus)> {
-    let creds = parse_auth_input(raw)?;
-    let transport = ReqwestTransport::new(cfg.innertube.max_retries)?;
-    let client = InnerTubeClient::new(transport, creds.clone(), cfg.innertube.clone());
-    let status = client.verify_session().await?;
-    if !status.authenticated {
-        anyhow::bail!("session canary returned unauthenticated");
-    }
-    paths.ensure_dirs()?;
-    write_secret_file(&paths.auth_file(), &serde_json::to_vec_pretty(&creds)?)?;
-    Ok((client, status))
 }
 
 pub async fn backup_inner(

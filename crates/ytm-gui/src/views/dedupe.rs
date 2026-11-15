@@ -4,6 +4,7 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use ytm_ops::{DedupeConfig, DedupePlan, KeeperStrategy};
 
+use crate::navigation::ToastState;
 use crate::state::{AsyncState, DedupeForm, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
@@ -14,7 +15,7 @@ pub fn show(
     form: &mut DedupeForm,
     plan_state: &mut AsyncState<DedupePlan>,
     sync_queue: &mut SyncQueue,
-    toast: &mut Option<(bool, String)>,
+    toast: &mut Option<ToastState>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
@@ -63,17 +64,17 @@ pub fn show(
                 .cloned()
                 .collect();
             let count = tracks.len();
-            sync_queue.push(StagedOp::RemoveTracks {
+            let eid = sync_queue.push(StagedOp::RemoveTracks {
                 playlist_id: plan.playlist_id.clone(),
                 playlist_title: plan.playlist_title.clone(),
                 tracks,
             });
-            *toast = Some((
-                true,
+            *toast = Some(ToastState::staged(
                 format!(
                     "Staged {count} duplicate removals for '{}' in Sync.",
                     plan.playlist_title
                 ),
+                Some(eid),
             ));
         }
     });

@@ -7,11 +7,13 @@ use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{AppPaths, ExportFormat, Snapshot, SnapshotMetadata};
 
+use crate::navigation::{NavHistory, ToastState, apply_global_input, show_status_bar};
 use crate::overlays::{show_confirmation_modal, show_drop_prompt, show_top_bar};
 use crate::sidebar;
 use crate::state::{
-    AsyncState, DedupeForm, DropPrompt, GenreSplitForm, GuiTab, HealthForm, InspectSortState,
-    PendingMutation, SetOpsForm, SortForm, SplitPaneState, WorkerCmd, WorkerEvent,
+    AsyncState, BrowserKind, DedupeForm, DropPrompt, GenreSplitForm, GuiTab, HealthForm,
+    InspectSortState, PendingMutation, SetOpsForm, SortForm, SplitPaneState, WorkerCmd,
+    WorkerEvent,
 };
 use crate::sync_queue::SyncQueue;
 use crate::tab_router::show_central_panel;
@@ -51,10 +53,19 @@ pub struct YtmGuiApp {
     pub(crate) export_dir: String,
     pub(crate) export_fmt: ExportFormat,
     pub(crate) auth_raw_input: String,
+    pub(crate) auth_browser: BrowserKind,
     pub(crate) pending_modal: Option<PendingMutation>,
     pub(crate) drop_prompt: Option<DropPrompt>,
     batch_progress: Option<(usize, usize, String)>,
-    pub(crate) toast: Option<(bool, String)>,
+    pub(crate) toast: Option<ToastState>,
+    pub(crate) nav_history: NavHistory,
+    pub(crate) ui_scale: f32,
+    base_pixels_per_point: Option<f32>,
+    pub(crate) focus_search_once: bool,
+    pub(crate) inspect_last_clicked: Option<usize>,
+    pub(crate) inspect_focused_row: Option<usize>,
+    pub(crate) inspect_jump_input: String,
+    pub(crate) sidebar_focused_idx: Option<usize>,
 }
 
 impl YtmGuiApp {
@@ -106,10 +117,19 @@ impl YtmGuiApp {
             export_dir: default_export,
             export_fmt: ExportFormat::Json,
             auth_raw_input: String::new(),
+            auth_browser: BrowserKind::Brave,
             pending_modal: None,
             drop_prompt: None,
             batch_progress: None,
             toast: None,
+            nav_history: NavHistory::new(GuiTab::Inspector, None),
+            ui_scale: 1.0,
+            base_pixels_per_point: None,
+            focus_search_once: false,
+            inspect_last_clicked: None,
+            inspect_focused_row: None,
+            inspect_jump_input: String::new(),
+            sidebar_focused_idx: None,
         }
     }
 
@@ -122,7 +142,11 @@ impl YtmGuiApp {
     pub(crate) fn apply_event(&mut self, evt: WorkerEvent) {
         match evt {
             WorkerEvent::SessionLoaded(res) => {
+                let failed = res.is_err();
                 self.session = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
+                if failed {
+                    self.active_tab = GuiTab::Auth;
+                }
             }
             WorkerEvent::LibraryLoaded(res) => {
                 if let Ok(mut list) = res {
@@ -198,7 +222,7 @@ impl YtmGuiApp {
             }
             WorkerEvent::StatusToast { ok, message } => {
                 self.batch_progress = None;
-                self.toast = Some((ok, message));
+                self.toast = Some(ToastState::info(ok, message));
             }
             WorkerEvent::MutationFinished {
                 ok,
@@ -206,7 +230,7 @@ impl YtmGuiApp {
                 reload_ids,
             } => {
                 self.batch_progress = None;
-                self.toast = Some((ok, message));
+                self.toast = Some(ToastState::info(ok, message));
                 if ok {
                     self.sync_queue.clear();
                     for id in reload_ids {
@@ -228,12 +252,32 @@ impl YtmGuiApp {
 impl eframe::App for YtmGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+
+        let base_ppp = *self
+            .base_pixels_per_point
+            .get_or_insert_with(|| ctx.pixels_per_point());
+        let navigated_via_history = apply_global_input(
+            ctx,
+            base_ppp,
+            &mut self.ui_scale,
+            &mut self.active_tab,
+            &mut self.selected_playlist_id,
+            &mut self.focus_search_once,
+            &self.sync_queue,
+            &mut self.pending_modal,
+            &mut self.nav_history,
+        );
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             show_top_bar(
                 ui,
                 &self.session,
                 &mut self.library,
+                &mut self.active_tab,
+                &mut self.selected_playlist_id,
+                &mut self.nav_history,
+                &mut self.ui_scale,
                 self.export_fmt,
                 &self.export_dir,
                 &self.cmd_tx,
@@ -241,26 +285,18 @@ impl eframe::App for YtmGuiApp {
         });
 
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Staged-first: edits queue in Sync tab until you click Sync Now");
-                if let Some((done, total, msg)) = &self.batch_progress {
-                    ui.separator();
-                    let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
-                    ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(240.0));
-                }
-                if let Some((ok, msg)) = &self.toast {
-                    ui.separator();
-                    let color = if *ok {
-                        egui::Color32::from_rgb(90, 200, 120)
-                    } else {
-                        egui::Color32::from_rgb(235, 95, 95)
-                    };
-                    ui.colored_label(color, msg);
-                }
-            });
+            show_status_bar(
+                ui,
+                self.batch_progress.as_ref(),
+                &mut self.toast,
+                &mut self.sync_queue,
+                &mut self.active_tab,
+            );
         });
 
         let prev_selected = self.selected_playlist_id.clone();
+        let focus_sidebar = self.focus_search_once
+            && (self.active_tab != GuiTab::Inspector || self.selected_playlist_id.is_none());
         egui::SidePanel::left("library_sidebar")
             .default_width(250.0)
             .show(ctx, |ui| {
@@ -278,17 +314,26 @@ impl eframe::App for YtmGuiApp {
                     &mut self.active_tab,
                     &mut self.drop_prompt,
                     &mut self.toast,
+                    focus_sidebar,
+                    &mut self.sidebar_focused_idx,
                     &self.cmd_tx,
                 );
             });
         if prev_selected != self.selected_playlist_id {
             self.inspect_selected.clear();
+            self.inspect_last_clicked = None;
+            self.inspect_focused_row = None;
             self.inspect_sort = InspectSortState::default();
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             show_central_panel(ui, self);
         });
+        self.focus_search_once = false;
+        if !navigated_via_history {
+            self.nav_history
+                .record(self.active_tab, self.selected_playlist_id.clone());
+        }
 
         show_drop_prompt(
             ctx,
@@ -339,6 +384,6 @@ mod tests {
             .expect("send mutation finished");
         app.drain_events();
         assert!(app.loading_playlists.contains("PL1"));
-        assert_eq!(app.toast.as_ref().map(|(_, m)| m.as_str()), Some("done"));
+        assert_eq!(app.toast.as_ref().map(|t| t.message.as_str()), Some("done"));
     }
 }
