@@ -1,17 +1,15 @@
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tracing::debug;
-use ytm_core::{Playlist, PlaylistSummary, Track};
+use tracing::{debug, warn};
+use ytm_core::Track;
 use ytm_store::{CachedArtistGenre, CachedTrackEnrichment, EnrichmentCacheStore};
 
 use crate::error::EnrichError;
-use crate::models::{
-    EnrichedTrackMetadata, EnrichmentConfig, EnrichmentSource, GenreBucket, GenreSplitPlan,
-};
+pub use crate::genre_split::plan_genre_split;
+use crate::models::{EnrichedTrackMetadata, EnrichmentConfig, EnrichmentSource};
 use crate::providers::{
     EnrichmentHttp, ProviderPayload, build_musicbrainz_url, parse_deezer_album_response,
     parse_lastfm_response, parse_listenbrainz_response, parse_musicbrainz_recording_response,
@@ -106,9 +104,23 @@ where
         let artist_display = track.primary_artist_name().unwrap_or_default().trim();
         let title_display = track.title.trim();
 
-        let (mut payload, mut source) = self
-            .query_musicbrainz(title_display, artist_display)
-            .await?;
+        let (mut payload, mut source, mb_degraded) =
+            match self.query_musicbrainz(title_display, artist_display).await {
+                Ok((p, src)) => (p, src, false),
+                Err(err) => {
+                    warn!(
+                        artist = artist_display,
+                        title = title_display,
+                        error = %err,
+                        "musicbrainz lookup failed; falling back to cache/secondary providers"
+                    );
+                    (
+                        ProviderPayload::default(),
+                        EnrichmentSource::MusicBrainz,
+                        true,
+                    )
+                }
+            };
 
         if payload.raw_tags.is_empty()
             && let Some(ref artist_row) = artist_cached
@@ -122,53 +134,64 @@ where
             && let Some(api_key) = &self.config.lastfm_api_key
             && !artist_display.is_empty()
         {
-            let lfm = self
+            match self
                 .query_lastfm(artist_display, title_display, api_key)
-                .await?;
-            if !lfm.raw_tags.is_empty() {
-                payload.raw_tags = lfm.raw_tags;
-                source = EnrichmentSource::LastFm;
+                .await
+            {
+                Ok(lfm) if !lfm.raw_tags.is_empty() => {
+                    payload.raw_tags = lfm.raw_tags;
+                    source = EnrichmentSource::LastFm;
+                }
+                Ok(_) => {}
+                Err(err) => warn!(error = %err, "lastfm fallback failed"),
             }
         }
 
         if payload.raw_tags.is_empty() && self.config.enable_deezer_fallback {
-            let dz = self.query_deezer(artist_display, title_display).await?;
-            if !dz.raw_tags.is_empty() {
-                payload.raw_tags = dz.raw_tags;
-                if payload.release_year.is_none() {
-                    payload.release_year = dz.release_year;
+            match self.query_deezer(artist_display, title_display).await {
+                Ok(dz) if !dz.raw_tags.is_empty() => {
+                    payload.raw_tags = dz.raw_tags;
+                    if payload.release_year.is_none() {
+                        payload.release_year = dz.release_year;
+                    }
+                    if payload.bpm.is_none() {
+                        payload.bpm = dz.bpm;
+                    }
+                    source = EnrichmentSource::Deezer;
                 }
-                if payload.bpm.is_none() {
-                    payload.bpm = dz.bpm;
-                }
-                source = EnrichmentSource::Deezer;
+                Ok(_) => {}
+                Err(err) => warn!(error = %err, "deezer fallback failed"),
             }
         }
 
         if payload.raw_tags.is_empty() && self.config.enable_listenbrainz_fallback {
-            let lb = self
-                .query_listenbrainz(artist_display, title_display)
-                .await?;
-            if !lb.raw_tags.is_empty() {
-                payload.raw_tags = lb.raw_tags;
-                source = EnrichmentSource::ListenBrainz;
+            match self.query_listenbrainz(artist_display, title_display).await {
+                Ok(lb) if !lb.raw_tags.is_empty() => {
+                    payload.raw_tags = lb.raw_tags;
+                    source = EnrichmentSource::ListenBrainz;
+                }
+                Ok(_) => {}
+                Err(err) => warn!(error = %err, "listenbrainz fallback failed"),
             }
         }
 
         let primary_genre = self.matcher.classify(&payload.raw_tags);
         let release_year = payload.release_year.or(track.release_year);
 
-        let track_row = CachedTrackEnrichment {
-            cache_key: cache_key.clone(),
-            video_id: Some(track.video_id.clone()).filter(|id| !id.is_empty()),
-            tags: payload.raw_tags.clone(),
-            primary_genre: primary_genre.clone(),
-            release_year,
-            bpm: payload.bpm,
-            source: source.as_str().to_string(),
-            updated_at: now_ts,
-        };
-        self.cache.upsert_track_enrichment(&track_row).await?;
+        let should_cache = !mb_degraded || !payload.raw_tags.is_empty();
+        if should_cache {
+            let track_row = CachedTrackEnrichment {
+                cache_key: cache_key.clone(),
+                video_id: Some(track.video_id.clone()).filter(|id| !id.is_empty()),
+                tags: payload.raw_tags.clone(),
+                primary_genre: primary_genre.clone(),
+                release_year,
+                bpm: payload.bpm,
+                source: source.as_str().to_string(),
+                updated_at: now_ts,
+            };
+            self.cache.upsert_track_enrichment(&track_row).await?;
+        }
 
         if !artist_norm.is_empty() && !payload.raw_tags.is_empty() {
             let artist_row = CachedArtistGenre {
@@ -201,27 +224,41 @@ where
         title: &str,
         artist: &str,
     ) -> Result<(ProviderPayload, EnrichmentSource), EnrichError> {
-        self.mb_limiter.acquire().await;
+        const MAX_ATTEMPTS: usize = 3;
         let url = build_musicbrainz_url(title, artist);
-        let (status, body) = self
-            .http
-            .get_json(
-                "musicbrainz",
-                &url,
-                Some(&self.config.musicbrainz_user_agent),
-            )
-            .await?;
-        if status == 429 || status == 503 {
-            return Err(EnrichError::RateLimited("musicbrainz".to_string()));
+        for attempt in 0..MAX_ATTEMPTS {
+            if attempt > 0 && self.config.musicbrainz_interval_ms > 0 {
+                let backoff = self
+                    .config
+                    .musicbrainz_interval_ms
+                    .saturating_mul((attempt as u64) + 1);
+                tokio::time::sleep(Duration::from_millis(backoff)).await;
+            }
+            self.mb_limiter.acquire().await;
+            let (status, body) = self
+                .http
+                .get_json(
+                    "musicbrainz",
+                    &url,
+                    Some(&self.config.musicbrainz_user_agent),
+                )
+                .await?;
+            if status == 429 || status == 503 {
+                if attempt + 1 < MAX_ATTEMPTS {
+                    continue;
+                }
+                return Err(EnrichError::RateLimited("musicbrainz".to_string()));
+            }
+            if !(200..300).contains(&status) {
+                return Err(EnrichError::Http {
+                    provider: "musicbrainz".to_string(),
+                    detail: format!("unexpected HTTP status {status}"),
+                });
+            }
+            let payload = parse_musicbrainz_recording_response(&body);
+            return Ok((payload, EnrichmentSource::MusicBrainz));
         }
-        if !(200..300).contains(&status) {
-            return Err(EnrichError::Http {
-                provider: "musicbrainz".to_string(),
-                detail: format!("unexpected HTTP status {status}"),
-            });
-        }
-        let payload = parse_musicbrainz_recording_response(&body);
-        Ok((payload, EnrichmentSource::MusicBrainz))
+        Err(EnrichError::RateLimited("musicbrainz".to_string()))
     }
 
     async fn query_lastfm(
@@ -301,90 +338,4 @@ where
         }
         Ok(parse_listenbrainz_response(&body))
     }
-}
-
-/// Computes an idempotent `GenreSplitPlan` partitioning tracks into `"{Playlist} - {Genre}"` buckets.
-pub async fn plan_genre_split<P: MetadataProvider>(
-    playlist: &Playlist,
-    existing_playlists: &[PlaylistSummary],
-    existing_tracks_by_playlist: &HashMap<String, Vec<Track>>,
-    provider: &P,
-    min_bucket_tracks: usize,
-) -> Result<GenreSplitPlan, EnrichError> {
-    let mut grouped: HashMap<String, Vec<Track>> = HashMap::new();
-
-    for track in &playlist.tracks {
-        if track.video_id.is_empty() {
-            continue;
-        }
-        let enriched = provider.enrich_track(track).await?;
-        grouped
-            .entry(enriched.primary_genre)
-            .or_default()
-            .push(track.clone());
-    }
-
-    let mut buckets = Vec::new();
-    let mut skipped_small_buckets = 0usize;
-
-    for (genre, tracks) in grouped {
-        if tracks.len() < min_bucket_tracks {
-            skipped_small_buckets += 1;
-            continue;
-        }
-
-        let target_playlist_title = format!("{} - {}", playlist.title, genre);
-        let existing_playlist_id = existing_playlists
-            .iter()
-            .find(|p| p.owned && p.title.eq_ignore_ascii_case(&target_playlist_title))
-            .map(|p| p.id.clone());
-
-        let existing_ids: HashSet<&str> = existing_playlist_id
-            .as_ref()
-            .and_then(|id| existing_tracks_by_playlist.get(id))
-            .map(|existing| {
-                existing
-                    .iter()
-                    .filter(|t| !t.video_id.is_empty())
-                    .map(|t| t.video_id.as_str())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut tracks_to_add = Vec::new();
-        let mut already_present_count = 0usize;
-        let mut seen_in_source = HashSet::new();
-
-        for track in tracks {
-            if !seen_in_source.insert(track.video_id.clone()) {
-                continue;
-            }
-            if existing_ids.contains(track.video_id.as_str()) {
-                already_present_count += 1;
-            } else {
-                tracks_to_add.push(track);
-            }
-        }
-
-        buckets.push(GenreBucket {
-            genre,
-            target_playlist_title,
-            existing_playlist_id,
-            tracks_to_add,
-            already_present_count,
-        });
-    }
-
-    buckets.sort_by(|a, b| {
-        let total_a = a.tracks_to_add.len() + a.already_present_count;
-        let total_b = b.tracks_to_add.len() + b.already_present_count;
-        total_b.cmp(&total_a).then_with(|| a.genre.cmp(&b.genre))
-    });
-
-    Ok(GenreSplitPlan {
-        source_playlist_id: playlist.id.clone(),
-        source_playlist_title: playlist.title.clone(),
-        buckets,
-        skipped_small_buckets,
-    })
 }

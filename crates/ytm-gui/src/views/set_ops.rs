@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
@@ -5,7 +6,8 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::PlaylistSummary;
 use ytm_ops::{DiffPlan, MatchMode, SetAlgebraOp};
 
-use crate::state::{AsyncState, ConfirmedMutation, PendingMutation, SetOpsForm, WorkerCmd};
+use crate::state::{AsyncState, SetOpsForm, WorkerCmd};
+use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
 
 fn playlist_picker(
@@ -40,7 +42,8 @@ pub fn show(
     playlists: &[PlaylistSummary],
     form: &mut SetOpsForm,
     plan_state: &mut AsyncState<DiffPlan>,
-    pending_modal: &mut Option<PendingMutation>,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<(bool, String)>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
@@ -97,20 +100,33 @@ pub fn show(
         if let Some(plan) = plan_state.data()
             && !form.target_playlist.is_empty()
             && !plan.add_video_ids.is_empty()
-            && ui.button("Insert Into Target...").clicked()
+            && ui.button("Stage Insert to Sync").clicked()
         {
-            *pending_modal = Some(PendingMutation {
-                title: "Confirm Set Insertion".to_string(),
-                summary: format!(
-                    "Save snapshot of target '{}' and add {} tracks?",
-                    form.target_playlist,
-                    plan.add_video_ids.len()
-                ),
-                action: ConfirmedMutation::SetInsert {
-                    target_id: form.target_playlist.clone(),
-                    video_ids: plan.add_video_ids.clone(),
-                },
+            let target_title = playlists
+                .iter()
+                .find(|p| p.id == form.target_playlist)
+                .map_or_else(|| form.target_playlist.clone(), |p| p.title.clone());
+            let want_ids: HashSet<&str> = plan.add_video_ids.iter().map(String::as_str).collect();
+            let mut seen = HashSet::new();
+            let tracks: Vec<_> = plan
+                .result_tracks
+                .iter()
+                .filter(|t| {
+                    want_ids.contains(t.video_id.as_str()) && seen.insert(t.video_id.clone())
+                })
+                .cloned()
+                .collect();
+            let count = tracks.len();
+            sync_queue.push(StagedOp::AddTracks {
+                playlist_id: form.target_playlist.clone(),
+                playlist_title: target_title.clone(),
+                tracks,
+                allow_duplicates: false,
             });
+            *toast = Some((
+                true,
+                format!("Staged +{count} tracks for '{target_title}' in Sync."),
+            ));
         }
     });
 

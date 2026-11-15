@@ -1,13 +1,16 @@
 use std::path::PathBuf;
 
+use eframe::egui;
 use serde::{Deserialize, Serialize};
-use ytm_core::{ClientConfig, Playlist, PlaylistSummary, SessionStatus};
+use ytm_core::{ClientConfig, Playlist, PlaylistSummary, SessionStatus, Track};
 use ytm_enrich::{EnrichmentConfig, GenreSplitPlan};
 use ytm_ops::{
     DedupeConfig, DedupePlan, DiffPlan, HealthReport, KeeperStrategy, MatchMode, SetAlgebraOp,
     SortDirection, SortField, SortKey, SortPlan, SortSpec,
 };
 use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
+
+use crate::sync_queue::StagedEntry;
 
 /// Explicit state machine preventing invalid parallel boolean flags.
 #[derive(Debug, Clone, Default)]
@@ -44,11 +47,12 @@ pub enum GuiTab {
     Health,
     GenreSplit,
     Snapshots,
+    Sync,
     Auth,
 }
 
 impl GuiTab {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Inspector,
         Self::Dedupe,
         Self::Sort,
@@ -56,6 +60,7 @@ impl GuiTab {
         Self::Health,
         Self::GenreSplit,
         Self::Snapshots,
+        Self::Sync,
         Self::Auth,
     ];
 
@@ -69,9 +74,76 @@ impl GuiTab {
             Self::Health => "Health",
             Self::GenreSplit => "Genre Split",
             Self::Snapshots => "Snapshots",
+            Self::Sync => "Sync",
             Self::Auth => "Auth",
         }
     }
+}
+
+/// Sortable columns inside the Inspector track table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspectColumn {
+    Position,
+    Title,
+    Artist,
+    Album,
+    Duration,
+    Type,
+    Status,
+}
+
+/// View-only table sort state in Inspector (plus optional one-click LIS staging).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InspectSortState {
+    pub column: InspectColumn,
+    pub asc: bool,
+}
+
+impl Default for InspectSortState {
+    fn default() -> Self {
+        Self {
+            column: InspectColumn::Position,
+            asc: true,
+        }
+    }
+}
+
+/// Diff category filter inside Split View.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffFilter {
+    #[default]
+    All,
+    OnlyA,
+    OnlyB,
+    InBoth,
+}
+
+/// Side-by-side Split Pane & live Diff configuration.
+#[derive(Debug, Clone, Default)]
+pub struct SplitPaneState {
+    pub enabled: bool,
+    pub playlist_b_id: Option<String>,
+    pub search_b: String,
+    pub fuzzy: bool,
+    pub filter: DiffFilter,
+}
+
+/// Payload carried when dragging single or multiple tracks across UI targets.
+#[derive(Debug, Clone)]
+pub struct DragTrackPayload {
+    pub source_playlist_id: String,
+    pub tracks: Vec<Track>,
+}
+
+/// Kubuntu/Dolphin-style popup menu shown when dropping tracks onto another playlist.
+#[derive(Debug, Clone)]
+pub struct DropPrompt {
+    pub pos: egui::Pos2,
+    pub source_playlist_id: String,
+    pub source_playlist_title: String,
+    pub target_playlist_id: String,
+    pub target_playlist_title: String,
+    pub tracks: Vec<Track>,
 }
 
 /// Persisted TOML application settings loaded from `config.toml`.
@@ -82,28 +154,11 @@ pub struct GuiAppConfig {
     pub enrichment: EnrichmentConfig,
 }
 
-/// Confirmed remote write actions gated behind the modal dialog.
+/// Confirmed immediate actions gated behind modal confirmation.
 #[derive(Debug, Clone)]
 pub enum ConfirmedMutation {
-    Dedupe(DedupePlan),
-    Sort(SortPlan),
-    SetInsert {
-        target_id: String,
-        video_ids: Vec<String>,
-    },
-    Health {
-        playlist: Playlist,
-        prune_unavailable: bool,
-        upgrade: bool,
-        report: HealthReport,
-    },
-    GenreSplit {
-        source_playlist: Playlist,
-        plan: GenreSplitPlan,
-    },
-    RestoreSnapshot {
-        snapshot_id: String,
-    },
+    RestoreSnapshot { snapshot_id: String },
+    ExecuteSync { entries: Vec<StagedEntry> },
 }
 
 /// Confirmation dialog payload displayed before any remote InnerTube mutation.
@@ -245,6 +300,7 @@ pub enum WorkerCmd {
     RefreshLibrary,
     ImportAuth(String),
     LoadPlaylist(String),
+    SearchTracks(String),
     BackupPlaylist {
         target: String,
         format: ExportFormat,
@@ -284,7 +340,16 @@ pub enum WorkerCmd {
 pub enum WorkerEvent {
     SessionLoaded(Result<SessionStatus, String>),
     LibraryLoaded(Result<Vec<PlaylistSummary>, String>),
-    PlaylistLoaded(Result<Playlist, String>),
+    PlaylistLoaded {
+        playlist_id: String,
+        result: Result<Playlist, String>,
+    },
+    SearchResults(Result<Vec<Track>, String>),
+    Progress {
+        done: usize,
+        total: usize,
+        message: String,
+    },
     DedupePlanned(Result<DedupePlan, String>),
     SortPlanned(Result<SortPlan, String>),
     SetOpPlanned(Result<DiffPlan, String>),
@@ -299,6 +364,6 @@ pub enum WorkerEvent {
     MutationFinished {
         ok: bool,
         message: String,
-        reload_playlist_id: Option<String>,
+        reload_ids: Vec<String>,
     },
 }

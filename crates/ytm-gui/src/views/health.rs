@@ -3,18 +3,21 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use ytm_core::Playlist;
-use ytm_ops::HealthReport;
+use ytm_ops::{HealthIssueKind, HealthReport};
 
-use crate::state::{AsyncState, ConfirmedMutation, HealthForm, PendingMutation, WorkerCmd};
+use crate::state::{AsyncState, HealthForm, WorkerCmd};
+use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     active_playlist: Option<&Playlist>,
     selected_playlist_id: Option<&str>,
     form: &mut HealthForm,
     report_state: &mut AsyncState<HealthReport>,
-    pending_modal: &mut Option<PendingMutation>,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<(bool, String)>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
@@ -42,23 +45,48 @@ pub fn show(
             && pl.id == report.playlist_id
             && (form.prune_unavailable || form.upgrade)
             && (!report.issues.is_empty() || !report.upgrade_candidates.is_empty())
-            && ui.button("Apply Prune / Upgrades...").clicked()
+            && ui.button("Stage Cleanup / Upgrades to Sync").clicked()
         {
-            *pending_modal = Some(PendingMutation {
-                title: "Confirm Health Cleanup".to_string(),
-                summary: format!(
-                    "Save pre-health snapshot and apply cleanup on '{}' (issues={}, upgrades={})?",
-                    report.playlist_title,
-                    report.issues.len(),
-                    report.upgrade_candidates.len()
+            let mut staged = 0usize;
+            if form.prune_unavailable {
+                let removals: Vec<_> = report
+                    .issues
+                    .iter()
+                    .filter(|i| {
+                        !matches!(i.kind, HealthIssueKind::MissingSetVideoId)
+                            && i.track.set_video_id.is_some()
+                    })
+                    .map(|i| i.track.clone())
+                    .collect();
+                if !removals.is_empty() {
+                    sync_queue.push(StagedOp::RemoveTracks {
+                        playlist_id: pl.id.clone(),
+                        playlist_title: pl.title.clone(),
+                        tracks: removals,
+                    });
+                    staged += 1;
+                }
+            }
+            if form.upgrade && !report.upgrade_candidates.is_empty() {
+                let upgrades: Vec<_> = report
+                    .upgrade_candidates
+                    .iter()
+                    .map(|c| (c.source_track.clone(), c.official_atv.clone()))
+                    .collect();
+                sync_queue.push(StagedOp::UpgradeTracks {
+                    playlist_id: pl.id.clone(),
+                    playlist_title: pl.title.clone(),
+                    upgrades,
+                });
+                staged += 1;
+            }
+            *toast = Some((
+                true,
+                format!(
+                    "Staged {staged} health action(s) for '{}' in Sync.",
+                    pl.title
                 ),
-                action: ConfirmedMutation::Health {
-                    playlist: pl.clone(),
-                    prune_unavailable: form.prune_unavailable,
-                    upgrade: form.upgrade,
-                    report: report.clone(),
-                },
-            });
+            ));
         }
     });
 

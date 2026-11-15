@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
+use ytm_core::Playlist;
 use ytm_ops::{SortDirection, SortField, SortKey, SortPlan};
 
-use crate::state::{AsyncState, ConfirmedMutation, PendingMutation, SortForm, WorkerCmd};
+use crate::state::{AsyncState, SortForm, WorkerCmd};
+use crate::sync_queue::SyncQueue;
 use crate::views::async_banner;
 
 const ALL_FIELDS: [SortField; 8] = [
@@ -18,12 +21,15 @@ const ALL_FIELDS: [SortField; 8] = [
     SortField::Shuffle,
 ];
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     selected_playlist_id: Option<&str>,
     form: &mut SortForm,
     plan_state: &mut AsyncState<SortPlan>,
-    pending_modal: &mut Option<PendingMutation>,
+    playlist_cache: &HashMap<String, Playlist>,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<(bool, String)>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     let mut remove_idx = None;
@@ -86,18 +92,30 @@ pub fn show(
 
         if let Some(plan) = plan_state.data()
             && !plan.moves.is_empty()
-            && ui.button("Apply Sort Moves...").clicked()
+            && ui.button("Stage Sort Moves to Sync").clicked()
         {
-            *pending_modal = Some(PendingMutation {
-                title: "Confirm LIS Sort Reorder".to_string(),
-                summary: format!(
-                    "Save pre-sort snapshot and send {} minimal moves for '{}' ({} anchored)?",
-                    plan.moves.len(),
-                    plan.playlist_title,
-                    plan.anchored_count
-                ),
-                action: ConfirmedMutation::Sort(plan.clone()),
-            });
+            let target_sids: Vec<String> = plan
+                .target_order
+                .iter()
+                .filter_map(|t| t.set_video_id.clone())
+                .collect();
+            match sync_queue.stage_reorder(
+                &plan.playlist_id,
+                &plan.playlist_title,
+                target_sids,
+                playlist_cache,
+            ) {
+                Ok(n) => {
+                    *toast = Some((
+                        true,
+                        format!(
+                            "Staged {n} LIS moves for '{}' in Sync.",
+                            plan.playlist_title
+                        ),
+                    ));
+                }
+                Err(e) => *toast = Some((false, e)),
+            }
         }
     });
 

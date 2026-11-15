@@ -13,12 +13,25 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 3 (CLI & TUI)`: **PASS** `ytm-cli` wired across all 11 commands & 5-tab Ratatui TUI, `32/32` workspace tests PASS, 0 warnings
 - `Gate 4 (E2E QA, Docs & Release)`: **PASS** E2E suite, `TestBackend` TUI render, `README.md`, and release build PASS (`34/34` workspace tests PASS, 0 warnings)
 - `Gate 5 (Desktop GUI - ytm-gui)`: **PASS** `eframe`/`egui` cross-platform desktop studio + Chrome 2-line header parser, `35/35` workspace tests PASS, 0 warnings
+- `Gate 6 (Sync Queue, Split-Diff, Drag-Drop & Bugfixes)`: **PASS** Central `Sync` queue + Kubuntu Copy/Move popup + Inspector column sort & LIS staging + Split Diff view + `LM`/localized count fix + MusicBrainz backoff/fallback, `38/38` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 35/35 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 1 unit)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`58.21s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
-- `wc -l crates/ytm-gui/src/**/*.rs crates/ytm-gui/src/*.rs`: **PASS** 13 files, 2497 lines total, max 394 lines (`crates/ytm-gui/src/app.rs`), all <= 400
+- `cargo test --workspace`: **PASS** exit 0, 38/38 tests passed (`ytm-core`: 6 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 2 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`7.43s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
+- `wc -l`: **PASS** all touched `.rs` files <= 369 lines (`max = 369` in `crates/ytm-gui/src/state.rs`)
+
+---
+
+## 2026-11-15 — Wave 6 Sync Queue, Split-Diff, Drag-Drop & Bugfixes
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-core/src/parser/playlist.rs`: `looks_like_track_count` localized/formatted sidebar count parsing + `parse_library_playlists_handles_localized_and_formatted_counts` unit test
+  - `crates/ytm-enrich/src/{genre_split,splitter,lib}.rs` & `crates/ytm-enrich/tests/enrich_test.rs`: MusicBrainz `429`/`503` bounded backoff retry + graceful cache/Deezer/Last.fm degradation + `musicbrainz_rate_limit_retries_and_gracefully_falls_back`
+  - `crates/ytm-gui/src/{sync_queue,sync_queue_tests,sidebar,overlays,tab_router,state,app,worker,worker_exec,worker_plans}.rs`: central `SyncQueue` staging & working-draft projection, playlist cache with count backfill, sidebar DND + Kubuntu-style Copy/Move popup, bottom batch progress bar
+  - `crates/ytm-gui/src/views/{inspect,inspect_helpers,split_diff,sync,dedupe,sort,set_ops,health,genres_snapshots,mod}.rs`: clickable A-Z/Z-A Inspector columns + 1-click LIS stage, row drag reorder, Quick YTM search & add, Split Diff A↔B view, dedicated `Sync` tab routing all tabs through pre-sync snapshots
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (38/38 PASS), and `cargo build --release --bin ytm-gui --bin ytm` (7.43s) exited 0 with 0 warnings.
 
 ---
 

@@ -253,3 +253,39 @@ async fn genre_split_is_idempotent_and_skips_small_buckets() {
     assert_eq!(rock.already_present_count, 1);
     assert_eq!(rock.tracks_to_add.len(), 2);
 }
+
+#[tokio::test]
+async fn musicbrainz_rate_limit_retries_and_gracefully_falls_back() {
+    let store = Arc::new(SqliteStore::open_in_memory(None).expect("mem store"));
+    let mb_ok = json!({
+        "recordings": [{
+            "tags": [{ "name": "progressive rock", "count": 5 }]
+        }]
+    });
+    let http = MockEnrichmentHttp::with_responses(vec![
+        Ok((503, json!({ "error": "rate limit" }))),
+        Ok((200, mb_ok)),
+        Ok((429, json!({ "error": "rate limit" }))),
+        Ok((429, json!({ "error": "rate limit" }))),
+        Ok((429, json!({ "error": "rate limit" }))),
+        Ok((200, json!({ "data": [] }))),
+    ]);
+    let cfg = EnrichmentConfig {
+        musicbrainz_interval_ms: 0,
+        ..Default::default()
+    };
+
+    let svc = EnrichmentService::new(store, http, cfg, GenreMatcher::built_in_default());
+    let retried = svc
+        .enrich_track(&sample_track("VID_RETRY", "Porcupine Tree", "Trains"))
+        .await
+        .expect("retry succeeds");
+    assert_eq!(retried.primary_genre, "Rock");
+    assert_eq!(retried.source, EnrichmentSource::MusicBrainz);
+
+    let degraded = svc
+        .enrich_track(&sample_track("VID_FALLBACK", "Unknown Band", "Lost Song"))
+        .await
+        .expect("rate limit degrades cleanly");
+    assert_eq!(degraded.primary_genre, "Other");
+}

@@ -1,46 +1,60 @@
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
 
 use eframe::egui;
-use ytm_core::{Playlist, PlaylistSummary, SessionStatus};
+use ytm_core::{Playlist, PlaylistSummary, SessionStatus, Track};
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{AppPaths, ExportFormat, Snapshot, SnapshotMetadata};
 
+use crate::overlays::{show_confirmation_modal, show_drop_prompt, show_top_bar};
+use crate::sidebar;
 use crate::state::{
-    AsyncState, DedupeForm, GenreSplitForm, GuiTab, HealthForm, PendingMutation, SetOpsForm,
-    SortForm, WorkerCmd, WorkerEvent,
+    AsyncState, DedupeForm, DropPrompt, GenreSplitForm, GuiTab, HealthForm, InspectSortState,
+    PendingMutation, SetOpsForm, SortForm, SplitPaneState, WorkerCmd, WorkerEvent,
 };
-use crate::views;
+use crate::sync_queue::SyncQueue;
+use crate::tab_router::show_central_panel;
 use crate::worker::spawn_worker;
 
 pub struct YtmGuiApp {
-    cmd_tx: Sender<WorkerCmd>,
+    pub(crate) cmd_tx: Sender<WorkerCmd>,
     evt_rx: Receiver<WorkerEvent>,
-    active_tab: GuiTab,
+    pub(crate) active_tab: GuiTab,
     sidebar_filter: String,
-    selected_playlist_id: Option<String>,
-    session: AsyncState<SessionStatus>,
-    library: AsyncState<Vec<PlaylistSummary>>,
-    active_playlist: AsyncState<Playlist>,
-    dedupe_form: DedupeForm,
-    dedupe_plan: AsyncState<DedupePlan>,
-    sort_form: SortForm,
-    sort_plan: AsyncState<SortPlan>,
-    set_form: SetOpsForm,
-    set_plan: AsyncState<DiffPlan>,
-    health_form: HealthForm,
-    health_report: AsyncState<HealthReport>,
-    genre_form: GenreSplitForm,
-    genre_plan: AsyncState<(Playlist, GenreSplitPlan)>,
-    snapshots: AsyncState<Vec<SnapshotMetadata>>,
-    snapshot_detail: AsyncState<Snapshot>,
-    inspect_search: String,
-    export_dir: String,
-    export_fmt: ExportFormat,
-    auth_raw_input: String,
-    pending_modal: Option<PendingMutation>,
-    toast: Option<(bool, String)>,
+    new_playlist_title: String,
+    pub(crate) selected_playlist_id: Option<String>,
+    pub(crate) session: AsyncState<SessionStatus>,
+    pub(crate) library: AsyncState<Vec<PlaylistSummary>>,
+    pub(crate) playlist_cache: HashMap<String, Playlist>,
+    pub(crate) loading_playlists: HashSet<String>,
+    pub(crate) playlist_errors: HashMap<String, String>,
+    pub(crate) sync_queue: SyncQueue,
+    pub(crate) split_state: SplitPaneState,
+    pub(crate) inspect_sort: InspectSortState,
+    pub(crate) inspect_selected: HashSet<usize>,
+    pub(crate) inspect_search: String,
+    pub(crate) ytm_query: String,
+    pub(crate) search_results: AsyncState<Vec<Track>>,
+    pub(crate) dedupe_form: DedupeForm,
+    pub(crate) dedupe_plan: AsyncState<DedupePlan>,
+    pub(crate) sort_form: SortForm,
+    pub(crate) sort_plan: AsyncState<SortPlan>,
+    pub(crate) set_form: SetOpsForm,
+    pub(crate) set_plan: AsyncState<DiffPlan>,
+    pub(crate) health_form: HealthForm,
+    pub(crate) health_report: AsyncState<HealthReport>,
+    pub(crate) genre_form: GenreSplitForm,
+    pub(crate) genre_plan: AsyncState<(Playlist, GenreSplitPlan)>,
+    pub(crate) snapshots: AsyncState<Vec<SnapshotMetadata>>,
+    pub(crate) snapshot_detail: AsyncState<Snapshot>,
+    pub(crate) export_dir: String,
+    pub(crate) export_fmt: ExportFormat,
+    pub(crate) auth_raw_input: String,
+    pub(crate) pending_modal: Option<PendingMutation>,
+    pub(crate) drop_prompt: Option<DropPrompt>,
+    batch_progress: Option<(usize, usize, String)>,
+    pub(crate) toast: Option<(bool, String)>,
 }
 
 impl YtmGuiApp {
@@ -63,10 +77,20 @@ impl YtmGuiApp {
             evt_rx,
             active_tab: GuiTab::Inspector,
             sidebar_filter: String::new(),
+            new_playlist_title: String::new(),
             selected_playlist_id: None,
             session: AsyncState::Loading("Verifying InnerTube session...".to_string()),
             library: AsyncState::Loading("Loading library playlists...".to_string()),
-            active_playlist: AsyncState::Idle,
+            playlist_cache: HashMap::new(),
+            loading_playlists: HashSet::new(),
+            playlist_errors: HashMap::new(),
+            sync_queue: SyncQueue::default(),
+            split_state: SplitPaneState::default(),
+            inspect_sort: InspectSortState::default(),
+            inspect_selected: HashSet::new(),
+            inspect_search: String::new(),
+            ytm_query: String::new(),
+            search_results: AsyncState::Idle,
             dedupe_form: DedupeForm::default(),
             dedupe_plan: AsyncState::Idle,
             sort_form: SortForm::default(),
@@ -79,11 +103,12 @@ impl YtmGuiApp {
             genre_plan: AsyncState::Idle,
             snapshots: AsyncState::Idle,
             snapshot_detail: AsyncState::Idle,
-            inspect_search: String::new(),
             export_dir: default_export,
             export_fmt: ExportFormat::Json,
             auth_raw_input: String::new(),
             pending_modal: None,
+            drop_prompt: None,
+            batch_progress: None,
             toast: None,
         }
     }
@@ -100,24 +125,69 @@ impl YtmGuiApp {
                 self.session = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::LibraryLoaded(res) => {
-                self.library = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
+                if let Ok(mut list) = res {
+                    for s in &mut list {
+                        if s.track_count.is_none()
+                            && let Some(cached) = self.playlist_cache.get(&s.id)
+                        {
+                            s.track_count = Some(cached.tracks.len());
+                        }
+                    }
+                    self.library = AsyncState::Ready(list);
+                } else if let Err(e) = res {
+                    self.library = AsyncState::Failed(e);
+                }
             }
-            WorkerEvent::PlaylistLoaded(res) => {
-                self.active_playlist = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
+            WorkerEvent::PlaylistLoaded {
+                playlist_id,
+                result,
+            } => {
+                self.loading_playlists.remove(&playlist_id);
+                match result {
+                    Ok(pl) => {
+                        self.playlist_errors.remove(&playlist_id);
+                        if let AsyncState::Ready(list) = &mut self.library
+                            && let Some(sum) = list.iter_mut().find(|s| s.id == pl.id)
+                        {
+                            sum.track_count = Some(pl.tracks.len());
+                        }
+                        self.playlist_cache.insert(pl.id.clone(), pl);
+                    }
+                    Err(e) => {
+                        self.playlist_errors.insert(playlist_id, e);
+                    }
+                }
+            }
+            WorkerEvent::SearchResults(res) => {
+                self.search_results = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
+            }
+            WorkerEvent::Progress {
+                done,
+                total,
+                message,
+            } => {
+                self.batch_progress = if done >= total {
+                    None
+                } else {
+                    Some((done, total, message))
+                };
             }
             WorkerEvent::DedupePlanned(res) => {
                 self.dedupe_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::SortPlanned(res) => {
+                self.batch_progress = None;
                 self.sort_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::SetOpPlanned(res) => {
                 self.set_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::HealthScanned(res) => {
+                self.batch_progress = None;
                 self.health_report = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::GenreSplitPlanned(res) => {
+                self.batch_progress = None;
                 self.genre_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::SnapshotsLoaded(res) => {
@@ -127,122 +197,31 @@ impl YtmGuiApp {
                 self.snapshot_detail = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
             }
             WorkerEvent::StatusToast { ok, message } => {
+                self.batch_progress = None;
                 self.toast = Some((ok, message));
             }
             WorkerEvent::MutationFinished {
                 ok,
                 message,
-                reload_playlist_id,
+                reload_ids,
             } => {
+                self.batch_progress = None;
                 self.toast = Some((ok, message));
-                if let Some(pid) = reload_playlist_id {
-                    self.active_playlist =
-                        AsyncState::Loading("Refreshing playlist...".to_string());
-                    let _ = self.cmd_tx.send(WorkerCmd::LoadPlaylist(pid));
-                }
-            }
-        }
-    }
-
-    fn show_top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.strong("ytm-architect");
-            ui.separator();
-            match &self.session {
-                AsyncState::Ready(s) => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(90, 200, 120),
-                        format!(
-                            "{} ({})",
-                            s.account_name.as_deref().unwrap_or("Signed in"),
-                            s.channel_handle.as_deref().unwrap_or("-")
-                        ),
-                    );
-                }
-                AsyncState::Loading(m) => {
-                    ui.spinner();
-                    ui.label(m);
-                }
-                AsyncState::Failed(_) => {
-                    ui.colored_label(egui::Color32::from_rgb(235, 160, 60), "Not authenticated");
-                }
-                AsyncState::Idle => {}
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Backup All").clicked() {
-                    let _ = self.cmd_tx.send(WorkerCmd::BackupPlaylist {
-                        target: "all".to_string(),
-                        format: self.export_fmt,
-                        out_dir: PathBuf::from(self.export_dir.trim()),
-                    });
-                }
-                if ui.button("Refresh").clicked() {
-                    self.library = AsyncState::Loading("Refreshing library...".to_string());
-                    let _ = self.cmd_tx.send(WorkerCmd::RefreshLibrary);
-                }
-            });
-        });
-    }
-
-    fn show_sidebar(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Library Playlists");
-        ui.text_edit_singleline(&mut self.sidebar_filter);
-        ui.separator();
-
-        if let AsyncState::Loading(m) = &self.library {
-            ui.spinner();
-            ui.label(m);
-            return;
-        }
-        if let AsyncState::Failed(err) = &self.library {
-            ui.colored_label(egui::Color32::from_rgb(235, 95, 95), err);
-            return;
-        }
-        let Some(playlists) = self.library.data() else {
-            return;
-        };
-
-        let needle = self.sidebar_filter.trim().to_ascii_lowercase();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for pl in playlists {
-                if !needle.is_empty() && !pl.title.to_ascii_lowercase().contains(&needle) {
-                    continue;
-                }
-                let selected = self.selected_playlist_id.as_deref() == Some(pl.id.as_str());
-                let count = pl
-                    .track_count
-                    .map_or_else(|| "?".to_string(), |c| c.to_string());
-                let label = format!("{} ({count})", pl.title);
-                if ui.selectable_label(selected, label).clicked() {
-                    self.selected_playlist_id = Some(pl.id.clone());
-                    self.active_playlist = AsyncState::Loading("Loading playlist...".to_string());
-                    let _ = self.cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
-                }
-            }
-        });
-    }
-
-    fn show_confirmation_modal(&mut self, ctx: &egui::Context) {
-        let Some(pending) = self.pending_modal.clone() else {
-            return;
-        };
-        egui::Window::new(&pending.title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.label(&pending.summary);
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Confirm & Execute").clicked() {
-                        let _ = self.cmd_tx.send(WorkerCmd::ExecuteMutation(pending.action));
-                        self.pending_modal = None;
+                if ok {
+                    self.sync_queue.clear();
+                    for id in reload_ids {
+                        if id == "__LIBRARY__" {
+                            let _ = self.cmd_tx.send(WorkerCmd::RefreshLibrary);
+                        } else {
+                            self.playlist_cache.remove(&id);
+                            if self.loading_playlists.insert(id.clone()) {
+                                let _ = self.cmd_tx.send(WorkerCmd::LoadPlaylist(id));
+                            }
+                        }
                     }
-                    if ui.button("Cancel").clicked() {
-                        self.pending_modal = None;
-                    }
-                });
-            });
+                }
+            }
+        }
     }
 }
 
@@ -251,12 +230,24 @@ impl eframe::App for YtmGuiApp {
         self.drain_events();
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            self.show_top_bar(ui);
+            show_top_bar(
+                ui,
+                &self.session,
+                &mut self.library,
+                self.export_fmt,
+                &self.export_dir,
+                &self.cmd_tx,
+            );
         });
 
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Safety: Dry-run default + pre-mutation SQLite snapshots");
+                ui.label("Staged-first: edits queue in Sync tab until you click Sync Now");
+                if let Some((done, total, msg)) = &self.batch_progress {
+                    ui.separator();
+                    let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
+                    ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(240.0));
+                }
                 if let Some((ok, msg)) = &self.toast {
                     ui.separator();
                     let color = if *ok {
@@ -269,86 +260,45 @@ impl eframe::App for YtmGuiApp {
             });
         });
 
+        let prev_selected = self.selected_playlist_id.clone();
         egui::SidePanel::left("library_sidebar")
-            .default_width(240.0)
-            .show(ctx, |ui| self.show_sidebar(ui));
+            .default_width(250.0)
+            .show(ctx, |ui| {
+                sidebar::show(
+                    ui,
+                    &self.library,
+                    &mut self.sidebar_filter,
+                    &mut self.new_playlist_title,
+                    &mut self.selected_playlist_id,
+                    &mut self.loading_playlists,
+                    &mut self.playlist_cache,
+                    &mut self.sync_queue,
+                    &mut self.split_state,
+                    &mut self.set_form,
+                    &mut self.active_tab,
+                    &mut self.drop_prompt,
+                    &mut self.toast,
+                    &self.cmd_tx,
+                );
+            });
+        if prev_selected != self.selected_playlist_id {
+            self.inspect_selected.clear();
+            self.inspect_sort = InspectSortState::default();
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for tab in GuiTab::ALL {
-                    ui.selectable_value(&mut self.active_tab, tab, tab.label());
-                }
-            });
-            ui.separator();
-
-            let sel_id = self.selected_playlist_id.as_deref();
-            match self.active_tab {
-                GuiTab::Inspector => views::inspect::show(
-                    ui,
-                    &mut self.active_playlist,
-                    &mut self.inspect_search,
-                    &mut self.export_dir,
-                    &mut self.export_fmt,
-                    &self.cmd_tx,
-                ),
-                GuiTab::Dedupe => views::dedupe::show(
-                    ui,
-                    sel_id,
-                    &mut self.dedupe_form,
-                    &mut self.dedupe_plan,
-                    &mut self.pending_modal,
-                    &self.cmd_tx,
-                ),
-                GuiTab::Sort => views::sort::show(
-                    ui,
-                    sel_id,
-                    &mut self.sort_form,
-                    &mut self.sort_plan,
-                    &mut self.pending_modal,
-                    &self.cmd_tx,
-                ),
-                GuiTab::SetOps => {
-                    let playlists = self.library.data().map(Vec::as_slice).unwrap_or(&[]);
-                    views::set_ops::show(
-                        ui,
-                        playlists,
-                        &mut self.set_form,
-                        &mut self.set_plan,
-                        &mut self.pending_modal,
-                        &self.cmd_tx,
-                    );
-                }
-                GuiTab::Health => views::health::show(
-                    ui,
-                    self.active_playlist.data(),
-                    sel_id,
-                    &mut self.health_form,
-                    &mut self.health_report,
-                    &mut self.pending_modal,
-                    &self.cmd_tx,
-                ),
-                GuiTab::GenreSplit => views::genres_snapshots::show_genre_split(
-                    ui,
-                    sel_id,
-                    &mut self.genre_form,
-                    &mut self.genre_plan,
-                    &mut self.pending_modal,
-                    &self.cmd_tx,
-                ),
-                GuiTab::Snapshots => views::genres_snapshots::show_snapshots(
-                    ui,
-                    &self.snapshots,
-                    &mut self.snapshot_detail,
-                    &mut self.pending_modal,
-                    &self.cmd_tx,
-                ),
-                GuiTab::Auth => {
-                    views::auth::show(ui, &self.session, &mut self.auth_raw_input, &self.cmd_tx)
-                }
-            }
+            show_central_panel(ui, self);
         });
 
-        self.show_confirmation_modal(ctx);
+        show_drop_prompt(
+            ctx,
+            &mut self.drop_prompt,
+            &self.playlist_cache,
+            &self.library,
+            &mut self.sync_queue,
+            &mut self.toast,
+        );
+        show_confirmation_modal(ctx, &mut self.pending_modal, &self.cmd_tx);
     }
 }
 
@@ -384,11 +334,11 @@ mod tests {
             .send(WorkerEvent::MutationFinished {
                 ok: true,
                 message: "done".to_string(),
-                reload_playlist_id: Some("PL1".to_string()),
+                reload_ids: vec!["PL1".to_string()],
             })
             .expect("send mutation finished");
         app.drain_events();
-        assert!(app.active_playlist.is_loading());
+        assert!(app.loading_playlists.contains("PL1"));
         assert_eq!(app.toast.as_ref().map(|(_, m)| m.as_str()), Some("done"));
     }
 }

@@ -78,8 +78,7 @@ pub fn parse_library_playlists(response: &Value) -> Vec<PlaylistSummary> {
             .and_then(|runs| {
                 runs.iter().rev().find_map(|r| {
                     let txt = r.get("text").and_then(Value::as_str)?;
-                    let lower = txt.to_ascii_lowercase();
-                    if lower.contains("track") || lower.contains("song") {
+                    if looks_like_track_count(txt) {
                         parse_leading_usize(txt)
                     } else {
                         None
@@ -306,4 +305,56 @@ pub fn parse_search_tracks(response: &Value, limit: usize) -> Vec<Track> {
         }
     }
     tracks
+}
+
+fn looks_like_track_count(raw: &str) -> bool {
+    let lower = raw.to_lowercase();
+    ["track", "song", "parça", "şarkı", "müzik", "video"]
+        .iter()
+        .any(|kw| lower.contains(kw))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::parse_library_playlists;
+
+    #[test]
+    fn parse_library_playlists_handles_localized_and_formatted_counts() {
+        let resp = json!({
+            "contents": {
+                "items": [
+                    {
+                        "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Liked Music" }] },
+                            "subtitle": { "runs": [{ "text": "Auto playlist" }] },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "VLLM" } }
+                        }
+                    },
+                    {
+                        "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Turkish Rock" }] },
+                            "subtitle": { "runs": [{ "text": "Playlist" }, { "text": " • " }, { "text": "1,245 şarkı" }] },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPL1" } }
+                        }
+                    },
+                    {
+                        "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Chill" }] },
+                            "subtitle": { "runs": [{ "text": "108 songs" }] },
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPL2" } }
+                        }
+                    }
+                ]
+            }
+        });
+
+        let parsed = parse_library_playlists(&resp);
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].id, "LM");
+        assert_eq!(parsed[0].track_count, None);
+        assert_eq!(parsed[1].track_count, Some(1245));
+        assert_eq!(parsed[2].track_count, Some(108));
+    }
 }

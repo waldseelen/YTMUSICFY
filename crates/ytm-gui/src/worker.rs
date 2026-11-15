@@ -1,24 +1,20 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use anyhow::{Context, Result};
 use eframe::egui;
-use ytm_core::{
-    AuthCredentials, InnerTubeClient, InnerTubeClientTrait, MusicVideoType, ReqwestTransport, Track,
-};
-use ytm_enrich::{
-    EnrichmentService, GenreMatcher, MetadataProvider, ReqwestEnrichmentHttp, plan_genre_split,
-};
-use ytm_ops::{
-    SortField, normalize_track, plan_dedupe, plan_set_op, plan_sort, scan_playlist_health,
-};
+use ytm_core::{AuthCredentials, InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
+use ytm_enrich::{EnrichmentService, MetadataProvider, ReqwestEnrichmentHttp};
+use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
 
 use crate::state::{GuiAppConfig, WorkerCmd, WorkerEvent};
-use crate::worker_exec::{backup_inner, import_auth_inner, load_playlist, run_confirmed_mutation};
+use crate::worker_exec::{
+    backup_inner, emit_progress, import_auth_inner, load_playlist, run_confirmed_mutation,
+};
+use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
@@ -35,11 +31,11 @@ pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEv
     (cmd_tx, evt_rx)
 }
 
-struct BackendState {
-    paths: AppPaths,
-    config: GuiAppConfig,
-    store: Arc<SqliteStore>,
-    client: Option<InnerTubeClient<ReqwestTransport>>,
+pub(crate) struct BackendState {
+    pub(crate) paths: AppPaths,
+    pub(crate) config: GuiAppConfig,
+    pub(crate) store: Arc<SqliteStore>,
+    pub(crate) client: Option<InnerTubeClient<ReqwestTransport>>,
 }
 
 fn load_config(paths: &AppPaths) -> GuiAppConfig {
@@ -73,17 +69,6 @@ fn load_saved_client(
         creds,
         cfg.innertube.clone(),
     ))
-}
-
-fn build_matcher(custom: Option<&Path>, paths: &AppPaths) -> Result<GenreMatcher> {
-    if let Some(p) = custom {
-        return Ok(GenreMatcher::from_toml_path(p)?);
-    }
-    let default_path = paths.genres_file();
-    if default_path.exists() {
-        return Ok(GenreMatcher::from_toml_path(&default_path)?);
-    }
-    Ok(GenreMatcher::built_in_default())
 }
 
 async fn worker_loop(
@@ -122,12 +107,17 @@ async fn worker_loop(
     };
 
     while let Ok(cmd) = cmd_rx.recv() {
-        handle_cmd(&mut state, cmd, &evt_tx).await;
+        handle_cmd(&mut state, cmd, &evt_tx, &egui_ctx).await;
         egui_ctx.request_repaint();
     }
 }
 
-async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<WorkerEvent>) {
+async fn handle_cmd(
+    state: &mut BackendState,
+    cmd: WorkerCmd,
+    tx: &Sender<WorkerEvent>,
+    ctx: &egui::Context,
+) {
     match cmd {
         WorkerCmd::Bootstrap => {
             if let Ok(snaps) = state.store.list_snapshots(None).await {
@@ -186,8 +176,21 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
             let Some(client) = &state.client else {
                 return;
             };
-            let res = load_playlist(client, &id).await.map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::PlaylistLoaded(res));
+            let result = load_playlist(client, &id).await.map_err(|e| e.to_string());
+            let _ = tx.send(WorkerEvent::PlaylistLoaded {
+                playlist_id: id,
+                result,
+            });
+        }
+        WorkerCmd::SearchTracks(query) => {
+            let Some(client) = &state.client else {
+                return;
+            };
+            let res = client
+                .search_tracks(query.trim(), 8)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(WorkerEvent::SearchResults(res));
         }
         WorkerCmd::BackupPlaylist {
             target,
@@ -197,7 +200,7 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
             let Some(client) = &state.client else {
                 return;
             };
-            let msg = backup_inner(client, &state.store, &target, format, &out_dir).await;
+            let msg = backup_inner(client, &state.store, &target, format, &out_dir, tx, ctx).await;
             let _ = tx.send(match msg {
                 Ok(m) => WorkerEvent::StatusToast {
                     ok: true,
@@ -242,7 +245,17 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
                         matcher,
                     );
                     let mut map = HashMap::new();
-                    for t in &pl.tracks {
+                    let total = pl.tracks.len().max(1);
+                    for (idx, t) in pl.tracks.iter().enumerate() {
+                        if idx % 5 == 0 {
+                            emit_progress(
+                                tx,
+                                ctx,
+                                idx,
+                                total,
+                                format!("Enriching {}/{total}...", idx + 1),
+                            );
+                        }
                         let meta = svc.enrich_track(t).await?;
                         map.insert(t.video_id.clone(), meta.primary_genre);
                     }
@@ -282,28 +295,9 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
             let Some(client) = &state.client else {
                 return;
             };
-            let res = async {
-                let pl = load_playlist(client, &playlist_id).await?;
-                let mut search_map: HashMap<String, Vec<Track>> = HashMap::new();
-                if find_official {
-                    for t in &pl.tracks {
-                        if matches!(
-                            t.music_video_type,
-                            MusicVideoType::UserGenerated | MusicVideoType::OfficialMusicVideo
-                        ) {
-                            let n = normalize_track(t);
-                            let q = format!("{} {}", n.artist_norm, n.title_norm);
-                            search_map.insert(
-                                t.video_id.clone(),
-                                client.search_tracks(q.trim(), 5).await?,
-                            );
-                        }
-                    }
-                }
-                Ok::<_, anyhow::Error>(scan_playlist_health(&pl, &search_map, 0.88))
-            }
-            .await
-            .map_err(|e| e.to_string());
+            let res = scan_health_inner(client, &playlist_id, find_official, tx, ctx)
+                .await
+                .map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::HealthScanned(res));
         }
         WorkerCmd::PlanGenreSplit {
@@ -311,31 +305,14 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
             min_tracks,
             custom_genres_path,
         } => {
-            let Some(client) = &state.client else {
-                return;
-            };
-            let res = async {
-                let pl = load_playlist(client, &playlist_id).await?;
-                let existing = client.get_library_playlists().await?;
-                let prefix = format!("{} - ", pl.title).to_ascii_lowercase();
-                let mut existing_tracks = HashMap::new();
-                for s in &existing {
-                    if s.owned && s.title.to_ascii_lowercase().starts_with(&prefix) {
-                        let hydrated = load_playlist(client, &s.id).await?;
-                        existing_tracks.insert(s.id.clone(), hydrated.tracks);
-                    }
-                }
-                let matcher = build_matcher(custom_genres_path.as_deref(), &state.paths)?;
-                let svc = EnrichmentService::new(
-                    Arc::clone(&state.store),
-                    ReqwestEnrichmentHttp::new()?,
-                    state.config.enrichment.clone(),
-                    matcher,
-                );
-                let plan =
-                    plan_genre_split(&pl, &existing, &existing_tracks, &svc, min_tracks).await?;
-                Ok::<_, anyhow::Error>((pl, plan))
-            }
+            let res = plan_genre_split_inner(
+                state,
+                &playlist_id,
+                min_tracks,
+                custom_genres_path.as_deref(),
+                tx,
+                ctx,
+            )
             .await
             .map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::GenreSplitPlanned(res));
@@ -360,16 +337,17 @@ async fn handle_cmd(state: &mut BackendState, cmd: WorkerCmd, tx: &Sender<Worker
             let Some(client) = &state.client else {
                 return;
             };
-            let event = match run_confirmed_mutation(client, &state.store, mutation).await {
-                Ok((message, reload_playlist_id)) => WorkerEvent::MutationFinished {
+            let event = match run_confirmed_mutation(client, &state.store, mutation, tx, ctx).await
+            {
+                Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
                     ok: true,
                     message,
-                    reload_playlist_id,
+                    reload_ids,
                 },
                 Err(e) => WorkerEvent::MutationFinished {
                     ok: false,
-                    message: format!("Mutation error: {e}"),
-                    reload_playlist_id: None,
+                    message: format!("Sync error: {e}"),
+                    reload_ids: Vec::new(),
                 },
             };
             let _ = tx.send(event);

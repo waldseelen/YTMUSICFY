@@ -4,7 +4,8 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use ytm_ops::{DedupeConfig, DedupePlan, KeeperStrategy};
 
-use crate::state::{AsyncState, ConfirmedMutation, DedupeForm, PendingMutation, WorkerCmd};
+use crate::state::{AsyncState, DedupeForm, WorkerCmd};
+use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
 
 pub fn show(
@@ -12,7 +13,8 @@ pub fn show(
     selected_playlist_id: Option<&str>,
     form: &mut DedupeForm,
     plan_state: &mut AsyncState<DedupePlan>,
-    pending_modal: &mut Option<PendingMutation>,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<(bool, String)>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
@@ -51,16 +53,28 @@ pub fn show(
 
         if let Some(plan) = plan_state.data()
             && plan.total_removals > 0
-            && ui.button("Apply Removals...").clicked()
+            && ui.button("Stage Removals to Sync").clicked()
         {
-            *pending_modal = Some(PendingMutation {
-                title: "Confirm Dedupe Removals".to_string(),
-                summary: format!(
-                    "Save pre-dedupe snapshot and remove {} duplicate tracks from '{}'?",
-                    plan.total_removals, plan.playlist_title
-                ),
-                action: ConfirmedMutation::Dedupe(plan.clone()),
+            let tracks: Vec<_> = plan
+                .clusters
+                .iter()
+                .flat_map(|c| c.removals.iter())
+                .filter(|t| t.set_video_id.is_some())
+                .cloned()
+                .collect();
+            let count = tracks.len();
+            sync_queue.push(StagedOp::RemoveTracks {
+                playlist_id: plan.playlist_id.clone(),
+                playlist_title: plan.playlist_title.clone(),
+                tracks,
             });
+            *toast = Some((
+                true,
+                format!(
+                    "Staged {count} duplicate removals for '{}' in Sync.",
+                    plan.playlist_title
+                ),
+            ));
         }
     });
 

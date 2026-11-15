@@ -1,8 +1,13 @@
 mod app;
+mod overlays;
+mod sidebar;
 mod state;
+mod sync_queue;
+mod tab_router;
 mod views;
 mod worker;
 mod worker_exec;
+mod worker_plans;
 
 use anyhow::Result;
 use eframe::egui;
