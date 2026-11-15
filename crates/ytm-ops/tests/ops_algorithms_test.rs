@@ -40,6 +40,7 @@ fn make_track(
         release_year: Some(2020),
         music_video_type,
         availability: TrackAvailability::Available,
+        thumbnail_url: None,
     }
 }
 

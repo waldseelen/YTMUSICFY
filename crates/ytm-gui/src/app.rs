@@ -2,13 +2,18 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
 
 use eframe::egui;
-use ytm_core::{Playlist, PlaylistSummary, SessionStatus, Track};
+use ytm_core::{BrowsePage, Playlist, PlaylistSummary, SessionStatus, Track};
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{AppPaths, ExportFormat, Snapshot, SnapshotMetadata};
 
+use crate::artwork::ArtworkCache;
 use crate::navigation::{NavHistory, ToastState, apply_global_input, show_status_bar};
 use crate::overlays::{show_confirmation_modal, show_drop_prompt, show_top_bar};
+use crate::play_queue::PlayQueue;
+use crate::playback_ops::{apply_player_bar_outcome, poll_track_end_advance};
+use crate::player::PlayerController;
+use crate::playlist_meta_modal::{PlaylistMetaModal, show_playlist_meta_modal};
 use crate::sidebar;
 use crate::state::{
     AsyncState, BrowserKind, DedupeForm, DropPrompt, GenreSplitForm, GuiTab, HealthForm,
@@ -17,6 +22,7 @@ use crate::state::{
 };
 use crate::sync_queue::SyncQueue;
 use crate::tab_router::show_central_panel;
+use crate::views;
 use crate::worker::spawn_worker;
 
 pub struct YtmGuiApp {
@@ -31,6 +37,7 @@ pub struct YtmGuiApp {
     pub(crate) playlist_cache: HashMap<String, Playlist>,
     pub(crate) loading_playlists: HashSet<String>,
     pub(crate) playlist_errors: HashMap<String, String>,
+    pub(crate) batch_progress: Option<(usize, usize, String)>,
     pub(crate) sync_queue: SyncQueue,
     pub(crate) split_state: SplitPaneState,
     pub(crate) inspect_sort: InspectSortState,
@@ -56,7 +63,6 @@ pub struct YtmGuiApp {
     pub(crate) auth_browser: BrowserKind,
     pub(crate) pending_modal: Option<PendingMutation>,
     pub(crate) drop_prompt: Option<DropPrompt>,
-    batch_progress: Option<(usize, usize, String)>,
     pub(crate) toast: Option<ToastState>,
     pub(crate) nav_history: NavHistory,
     pub(crate) ui_scale: f32,
@@ -66,6 +72,15 @@ pub struct YtmGuiApp {
     pub(crate) inspect_focused_row: Option<usize>,
     pub(crate) inspect_jump_input: String,
     pub(crate) sidebar_focused_idx: Option<usize>,
+    pub(crate) play_queue: PlayQueue,
+    pub(crate) player: PlayerController,
+    pub(crate) last_ended_counter: u64,
+    pub(crate) browse_target: String,
+    pub(crate) browse_state: AsyncState<BrowsePage>,
+    pub(crate) lyrics_browse_id: Option<String>,
+    pub(crate) lyrics_state: AsyncState<Option<String>>,
+    pub(crate) artwork: ArtworkCache,
+    pub(crate) meta_modal: Option<PlaylistMetaModal>,
 }
 
 impl YtmGuiApp {
@@ -75,7 +90,10 @@ impl YtmGuiApp {
             .map(|p| p.data_dir().join("exports").display().to_string())
             .unwrap_or_else(|_| "./backups".to_string());
         let _ = cmd_tx.send(WorkerCmd::Bootstrap);
-        Self::init_with_channels(cmd_tx, evt_rx, default_export)
+        let mut app = Self::init_with_channels(cmd_tx, evt_rx, default_export);
+        app.player = PlayerController::new(Some(cc.egui_ctx.clone()));
+        app.artwork = ArtworkCache::new(Some(cc.egui_ctx.clone()));
+        app
     }
 
     pub(crate) fn init_with_channels(
@@ -130,6 +148,15 @@ impl YtmGuiApp {
             inspect_focused_row: None,
             inspect_jump_input: String::new(),
             sidebar_focused_idx: None,
+            play_queue: PlayQueue::default(),
+            player: PlayerController::new(None),
+            last_ended_counter: 0,
+            browse_target: "FEmusic_home".to_string(),
+            browse_state: AsyncState::Idle,
+            lyrics_browse_id: None,
+            lyrics_state: AsyncState::Idle,
+            artwork: ArtworkCache::new(None),
+            meta_modal: None,
         }
     }
 
@@ -140,118 +167,14 @@ impl YtmGuiApp {
     }
 
     pub(crate) fn apply_event(&mut self, evt: WorkerEvent) {
-        match evt {
-            WorkerEvent::SessionLoaded(res) => {
-                let failed = res.is_err();
-                self.session = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-                if failed {
-                    self.active_tab = GuiTab::Auth;
-                }
-            }
-            WorkerEvent::LibraryLoaded(res) => {
-                if let Ok(mut list) = res {
-                    for s in &mut list {
-                        if s.track_count.is_none()
-                            && let Some(cached) = self.playlist_cache.get(&s.id)
-                        {
-                            s.track_count = Some(cached.tracks.len());
-                        }
-                    }
-                    self.library = AsyncState::Ready(list);
-                } else if let Err(e) = res {
-                    self.library = AsyncState::Failed(e);
-                }
-            }
-            WorkerEvent::PlaylistLoaded {
-                playlist_id,
-                result,
-            } => {
-                self.loading_playlists.remove(&playlist_id);
-                match result {
-                    Ok(pl) => {
-                        self.playlist_errors.remove(&playlist_id);
-                        if let AsyncState::Ready(list) = &mut self.library
-                            && let Some(sum) = list.iter_mut().find(|s| s.id == pl.id)
-                        {
-                            sum.track_count = Some(pl.tracks.len());
-                        }
-                        self.playlist_cache.insert(pl.id.clone(), pl);
-                    }
-                    Err(e) => {
-                        self.playlist_errors.insert(playlist_id, e);
-                    }
-                }
-            }
-            WorkerEvent::SearchResults(res) => {
-                self.search_results = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::Progress {
-                done,
-                total,
-                message,
-            } => {
-                self.batch_progress = if done >= total {
-                    None
-                } else {
-                    Some((done, total, message))
-                };
-            }
-            WorkerEvent::DedupePlanned(res) => {
-                self.dedupe_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::SortPlanned(res) => {
-                self.batch_progress = None;
-                self.sort_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::SetOpPlanned(res) => {
-                self.set_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::HealthScanned(res) => {
-                self.batch_progress = None;
-                self.health_report = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::GenreSplitPlanned(res) => {
-                self.batch_progress = None;
-                self.genre_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::SnapshotsLoaded(res) => {
-                self.snapshots = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::SnapshotDetailLoaded(res) => {
-                self.snapshot_detail = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            }
-            WorkerEvent::StatusToast { ok, message } => {
-                self.batch_progress = None;
-                self.toast = Some(ToastState::info(ok, message));
-            }
-            WorkerEvent::MutationFinished {
-                ok,
-                message,
-                reload_ids,
-            } => {
-                self.batch_progress = None;
-                self.toast = Some(ToastState::info(ok, message));
-                if ok {
-                    self.sync_queue.clear();
-                    for id in reload_ids {
-                        if id == "__LIBRARY__" {
-                            let _ = self.cmd_tx.send(WorkerCmd::RefreshLibrary);
-                        } else {
-                            self.playlist_cache.remove(&id);
-                            if self.loading_playlists.insert(id.clone()) {
-                                let _ = self.cmd_tx.send(WorkerCmd::LoadPlaylist(id));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        crate::app_events::apply_worker_event(self, evt);
     }
 }
 
 impl eframe::App for YtmGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
+        poll_track_end_advance(self);
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         let base_ppp = *self
@@ -294,6 +217,24 @@ impl eframe::App for YtmGuiApp {
             );
         });
 
+        let current_art = self
+            .play_queue
+            .current_track()
+            .and_then(|t| t.effective_thumbnail_url())
+            .and_then(|url| self.artwork.texture_for(ctx, &url).cloned());
+        let mut bar_out = None;
+        egui::TopBottomPanel::bottom("player_bar").show(ctx, |ui| {
+            bar_out = Some(views::player_bar::show(
+                ui,
+                &self.play_queue,
+                &self.player,
+                current_art.as_ref(),
+            ));
+        });
+        if let Some(out) = bar_out {
+            apply_player_bar_outcome(out, self);
+        }
+
         let prev_selected = self.selected_playlist_id.clone();
         let focus_sidebar = self.focus_search_once
             && (self.active_tab != GuiTab::Inspector || self.selected_playlist_id.is_none());
@@ -313,6 +254,8 @@ impl eframe::App for YtmGuiApp {
                     &mut self.set_form,
                     &mut self.active_tab,
                     &mut self.drop_prompt,
+                    &mut self.meta_modal,
+                    &mut self.pending_modal,
                     &mut self.toast,
                     focus_sidebar,
                     &mut self.sidebar_focused_idx,
@@ -344,6 +287,7 @@ impl eframe::App for YtmGuiApp {
             &mut self.toast,
         );
         show_confirmation_modal(ctx, &mut self.pending_modal, &self.cmd_tx);
+        show_playlist_meta_modal(ctx, &mut self.meta_modal, &self.cmd_tx);
     }
 }
 

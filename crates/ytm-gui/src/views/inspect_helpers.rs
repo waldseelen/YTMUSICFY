@@ -5,6 +5,7 @@ use ytm_core::{Playlist, Track};
 use ytm_ops::compute_minimal_moves;
 
 use crate::navigation::ToastState;
+use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, DragTrackPayload, InspectColumn, InspectSortState};
 use crate::sync_queue::{StagedOp, SyncQueue};
 
@@ -110,15 +111,16 @@ pub fn show_quick_search_results(
     search_results: &AsyncState<Vec<Track>>,
     sync_queue: &mut SyncQueue,
     toast: &mut Option<ToastState>,
-) {
+) -> Vec<PlayAction> {
+    let mut actions = Vec::new();
     let Some(found) = search_results.data() else {
-        return;
+        return actions;
     };
     if found.is_empty() {
-        return;
+        return actions;
     }
     ui.group(|ui| {
-        ui.strong("Quick Search Results (drag ⋮⋮ to any playlist or + Stage Add):");
+        ui.strong("Quick Search Results (▶ Play, drag ⋮⋮ to playlist, or + Stage Add):");
         for (idx, t) in found.iter().take(5).enumerate() {
             ui.horizontal(|ui| {
                 let drag = ui
@@ -133,6 +135,12 @@ pub fn show_quick_search_results(
                     .response;
                 if drag.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
+                if ui.small_button("▶").on_hover_text("Play now").clicked() {
+                    actions.push(PlayAction::PlayFromList {
+                        tracks: vec![t.clone()],
+                        start_idx: 0,
+                    });
                 }
                 ui.label(format!(
                     "{} - {} ({})",
@@ -159,6 +167,7 @@ pub fn show_quick_search_results(
             });
         }
     });
+    actions
 }
 
 pub fn sort_header(
@@ -299,6 +308,7 @@ mod tests {
             release_year: None,
             music_video_type: MusicVideoType::AudioTrack,
             availability: TrackAvailability::Available,
+            thumbnail_url: None,
         }
     }
 

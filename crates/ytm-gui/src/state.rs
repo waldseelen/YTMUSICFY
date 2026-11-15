@@ -1,14 +1,10 @@
-use std::path::PathBuf;
-
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use ytm_core::{ClientConfig, Playlist, PlaylistSummary, SessionStatus, Track};
-use ytm_enrich::{EnrichmentConfig, GenreSplitPlan};
+use ytm_core::{ClientConfig, Track};
+use ytm_enrich::EnrichmentConfig;
 use ytm_ops::{
-    DedupeConfig, DedupePlan, DiffPlan, HealthReport, KeeperStrategy, MatchMode, SetAlgebraOp,
-    SortDirection, SortField, SortKey, SortPlan, SortSpec,
+    DedupeConfig, KeeperStrategy, SetAlgebraOp, SortDirection, SortField, SortKey, SortSpec,
 };
-use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::sync_queue::StagedEntry;
 
@@ -40,7 +36,9 @@ impl<T> AsyncState<T> {
 /// Top-level workspace tabs in `ytm-gui`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuiTab {
+    Browse,
     Inspector,
+    QueueLyrics,
     Dedupe,
     Sort,
     SetOps,
@@ -52,8 +50,10 @@ pub enum GuiTab {
 }
 
 impl GuiTab {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
+        Self::Browse,
         Self::Inspector,
+        Self::QueueLyrics,
         Self::Dedupe,
         Self::Sort,
         Self::SetOps,
@@ -67,7 +67,9 @@ impl GuiTab {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Browse => "Browse",
             Self::Inspector => "Inspector",
+            Self::QueueLyrics => "Queue & Lyrics",
             Self::Dedupe => "Dedupe",
             Self::Sort => "Sort (LIS)",
             Self::SetOps => "Set Algebra",
@@ -177,8 +179,16 @@ pub struct GuiAppConfig {
 /// Confirmed immediate actions gated behind modal confirmation.
 #[derive(Debug, Clone)]
 pub enum ConfirmedMutation {
-    RestoreSnapshot { snapshot_id: String },
-    ExecuteSync { entries: Vec<StagedEntry> },
+    RestoreSnapshot {
+        snapshot_id: String,
+    },
+    ExecuteSync {
+        entries: Vec<StagedEntry>,
+    },
+    DeletePlaylist {
+        playlist_id: String,
+        playlist_title: String,
+    },
 }
 
 /// Confirmation dialog payload displayed before any remote InnerTube mutation.
@@ -314,79 +324,4 @@ impl Default for GenreSplitForm {
 }
 
 pub use crate::worker_auth::BrowserKind;
-
-/// Commands dispatched from UI thread to Tokio background worker.
-#[derive(Debug, Clone)]
-pub enum WorkerCmd {
-    Bootstrap,
-    RefreshLibrary,
-    ImportAuth(String),
-    ImportBrowserAuth(BrowserKind),
-    LoadPlaylist(String),
-    SearchTracks(String),
-    BackupPlaylist {
-        target: String,
-        format: ExportFormat,
-        out_dir: PathBuf,
-    },
-    PlanDedupe {
-        playlist_id: String,
-        config: DedupeConfig,
-    },
-    PlanSort {
-        playlist_id: String,
-        spec: SortSpec,
-    },
-    PlanSetOp {
-        op: SetAlgebraOp,
-        mode: MatchMode,
-        playlist_a: String,
-        playlist_b: String,
-        target: Option<String>,
-    },
-    ScanHealth {
-        playlist_id: String,
-        find_official: bool,
-    },
-    PlanGenreSplit {
-        playlist_id: String,
-        min_tracks: usize,
-        custom_genres_path: Option<PathBuf>,
-    },
-    RefreshSnapshots,
-    LoadSnapshot(String),
-    ExecuteMutation(ConfirmedMutation),
-}
-
-/// Events emitted from Tokio background worker back to UI thread.
-#[derive(Debug, Clone)]
-pub enum WorkerEvent {
-    SessionLoaded(Result<SessionStatus, String>),
-    LibraryLoaded(Result<Vec<PlaylistSummary>, String>),
-    PlaylistLoaded {
-        playlist_id: String,
-        result: Result<Playlist, String>,
-    },
-    SearchResults(Result<Vec<Track>, String>),
-    Progress {
-        done: usize,
-        total: usize,
-        message: String,
-    },
-    DedupePlanned(Result<DedupePlan, String>),
-    SortPlanned(Result<SortPlan, String>),
-    SetOpPlanned(Result<DiffPlan, String>),
-    HealthScanned(Result<HealthReport, String>),
-    GenreSplitPlanned(Result<(Playlist, GenreSplitPlan), String>),
-    SnapshotsLoaded(Result<Vec<SnapshotMetadata>, String>),
-    SnapshotDetailLoaded(Result<Snapshot, String>),
-    StatusToast {
-        ok: bool,
-        message: String,
-    },
-    MutationFinished {
-        ok: bool,
-        message: String,
-        reload_ids: Vec<String>,
-    },
-}
+pub use crate::worker_msgs::{WorkerCmd, WorkerEvent};

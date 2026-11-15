@@ -2126,6 +2126,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -5466,6 +5468,8 @@ dependencies = [
  "chrono",
  "eframe",
  "egui_extras",
+ "image",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

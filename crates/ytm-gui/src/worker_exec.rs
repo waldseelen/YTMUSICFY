@@ -51,6 +51,19 @@ pub async fn run_confirmed_mutation<C: InnerTubeClientTrait>(
         ConfirmedMutation::ExecuteSync { entries } => {
             execute_sync_queue(client, store, &entries, tx, ctx).await
         }
+        ConfirmedMutation::DeletePlaylist {
+            playlist_id,
+            playlist_title,
+        } => {
+            if let Ok(live) = load_playlist(client, &playlist_id).await {
+                let _ = store.save_snapshot(&live, "pre-delete").await;
+            }
+            client.delete_playlist(&playlist_id).await?;
+            Ok((
+                format!("Deleted playlist '{playlist_title}' ({playlist_id})"),
+                vec!["__LIBRARY__".to_string()],
+            ))
+        }
     }
 }
 

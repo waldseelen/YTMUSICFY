@@ -13,9 +13,10 @@ use ytm_cli::{
     SplitGenreArgs, TuiAction, TuiApp, execute_command,
 };
 use ytm_core::{
-    AddedPlaylistItemResult, AlbumRef, ArtistRef, AuthCredentials, ClientConfig, CoreError,
-    EditPlaylistResult, InnerTubeClientTrait, MoveAction, MusicVideoType, Playlist,
-    PlaylistPrivacy, PlaylistSummary, SessionStatus, Track, TrackAvailability,
+    AddedPlaylistItemResult, AlbumRef, ArtistRef, AuthCredentials, BrowsePage, BrowsePageKind,
+    ClientConfig, CoreError, EditPlaylistResult, InnerTubeClientTrait, MoveAction, MusicVideoType,
+    Playlist, PlaylistPrivacy, PlaylistSummary, SessionStatus, Track, TrackAvailability,
+    WatchNextResult,
 };
 use ytm_enrich::{EnrichmentConfig, EnrichmentService, GenreMatcher, MockEnrichmentHttp};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
@@ -114,6 +115,7 @@ impl InnerTubeClientTrait for StatefulMockClient {
                 release_year: Some(2020),
                 music_video_type: MusicVideoType::AudioTrack,
                 availability: TrackAvailability::Available,
+                thumbnail_url: None,
             })
             .collect::<Vec<_>>();
         let pl = Playlist {
@@ -174,6 +176,7 @@ impl InnerTubeClientTrait for StatefulMockClient {
                 release_year: Some(2020),
                 music_video_type: MusicVideoType::AudioTrack,
                 availability: TrackAvailability::Available,
+                thumbnail_url: None,
             });
             added_items.push(AddedPlaylistItemResult {
                 video_id: vid.clone(),
@@ -263,6 +266,62 @@ impl InnerTubeClientTrait for StatefulMockClient {
         }
         Ok(Vec::new())
     }
+
+    async fn update_playlist_metadata(
+        &self,
+        playlist_id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        privacy: Option<PlaylistPrivacy>,
+    ) -> Result<(), CoreError> {
+        self.mutation_count.fetch_add(1, Ordering::SeqCst);
+        let mut guard = self.playlists.lock().expect("lock playlists");
+        let pl = guard
+            .get_mut(playlist_id)
+            .ok_or_else(|| CoreError::InvalidInput("missing playlist".to_string()))?;
+        if let Some(t) = title {
+            pl.title = t.to_string();
+        }
+        if let Some(d) = description {
+            pl.description = Some(d.to_string());
+        }
+        if let Some(p) = privacy {
+            pl.privacy = p;
+        }
+        Ok(())
+    }
+
+    async fn set_like_status(&self, _video_id: &str, _liked: bool) -> Result<(), CoreError> {
+        self.mutation_count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn get_browse_page(&self, browse_id: &str) -> Result<BrowsePage, CoreError> {
+        Ok(BrowsePage {
+            browse_id: browse_id.to_string(),
+            kind: BrowsePageKind::Home,
+            title: "Mock Browse".to_string(),
+            subtitle: None,
+            thumbnail_url: None,
+            sections: Vec::new(),
+            tracks: Vec::new(),
+        })
+    }
+
+    async fn get_watch_next(
+        &self,
+        _video_id: &str,
+        _playlist_id: Option<&str>,
+    ) -> Result<WatchNextResult, CoreError> {
+        Ok(WatchNextResult {
+            tracks: Vec::new(),
+            lyrics_browse_id: None,
+        })
+    }
+
+    async fn get_lyrics(&self, _lyrics_browse_id: &str) -> Result<Option<String>, CoreError> {
+        Ok(None)
+    }
 }
 
 struct MockVerifier;
@@ -314,6 +373,7 @@ fn track(
         release_year: Some(2015),
         music_video_type: mv,
         availability: TrackAvailability::Available,
+        thumbnail_url: None,
     }
 }
 

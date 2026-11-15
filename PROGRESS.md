@@ -15,12 +15,24 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 5 (Desktop GUI - ytm-gui)`: **PASS** `eframe`/`egui` cross-platform desktop studio + Chrome 2-line header parser, `35/35` workspace tests PASS, 0 warnings
 - `Gate 6 (Sync Queue, Split-Diff, Drag-Drop & Bugfixes)`: **PASS** Central `Sync` queue + Kubuntu Copy/Move popup + Inspector column sort & LIS staging + Split Diff view + `LM`/localized count fix + MusicBrainz backoff/fallback, `38/38` workspace tests PASS, 0 warnings
 - `Gate 7 (Runtime Auth, Browser Import & 20-Item UX/DnD Upgrade)`: **PASS** Runtime `INNERTUBE_API_KEY` discovery + `yt-dlp` Netscape `#HttpOnly_` browser import (`Brave`/`Chrome`/`Chromium`/`Firefox`) + 20-item DnD, auto-scroll, keyboard/accessibility, toast/undo, and resizable Split Diff upgrades, `44/44` workspace tests PASS, 0 warnings
+- `Gate 8 (Spotify-Tier Audio Player, Artwork, Playlist Meta & Discover)`: **PASS** `mpv` IPC playback + `PlayQueue` + persistent player bar + LRU thumbnail cache (`image` 0.25) + playlist rename/description/privacy/delete + `♥`/`♡` Like + `Browse` (`FEmusic_home`/Artist/Album) + Radio & Lyrics (`next` + `MPLYt_*`), `49/49` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
-- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
-- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 44/44 tests passed (`ytm-core`: 7 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 7 unit)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`3.62s`, binaries `./target/release/ytm-gui` & `./target/release/ytm`)
-- `wc -l`: **PASS** all `.rs` files <= 392 lines (`max = 392` in `crates/ytm-gui/src/state.rs`)
+- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings (`1.46s`)
+- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings (`0.17s`)
+- `cargo test --workspace -- --test-threads=4`: **PASS** exit 0, 49/49 tests passed (`ytm-core`: 7 unit + 7 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 10 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`13.42s`, binaries `./target/release/ytm-gui` 29M symlinked at `~/.local/bin/ytm-gui` & `./target/release/ytm` 15M)
+- `wc -l`: **PASS** all source `.rs` files <= 386 lines (`max = 386` in `crates/ytm-core/src/client.rs`)
+
+---
+
+## 2026-11-15 — Wave 8 Spotify-Tier Audio Player, Artwork, Playlist Meta & Discover
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-core/src/{browse_models,models,traits,client,lib}.rs`, `crates/ytm-core/src/parser/{browse,track,mod}.rs`, `crates/ytm-core/tests/browse_and_mutations_test.rs`: `Track::thumbnail_url`, `MutationAction::{SetPlaylistName,SetPlaylistDescription,SetPlaylistPrivacy}`, `update_playlist_metadata`, `set_like_status`, `get_browse_page` (`FEmusic_home`/Artist/Album), `get_watch_next`, `get_lyrics`
+  - `crates/ytm-gui/src/{player,player_ipc,play_queue,playback_ops,artwork,playlist_meta_modal,worker_media,worker_msgs,app_events}.rs`: `/usr/bin/mpv` Unix-socket IPC player + auto-advance, `PlayQueue` (`shuffle`, `repeat`, next/prev/move/remove), async LRU thumbnail cache (`image` 0.25 `jpeg`/`png` + `reqwest`), `PlaylistMetaModal` + confirmed `DeletePlaylist` + one-click `♥`/`♡` Like
+  - `crates/ytm-gui/src/views/{player_bar,browse,queue_lyrics,inspect_menu,inspect_rows,inspect,inspect_actions,inspect_helpers}.rs` & `{app,sidebar,overlays,tab_router,worker,worker_exec,state,main}.rs`: bottom player bar, `Browse` tab + clickable Artist/Album links, `Queue & Lyrics` tab + `"Start Radio"`, row double-click/`Enter`/context-menu playback, row & player thumbnails
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace -- --test-threads=4` (49/49 PASS), `cargo build --release --bin ytm-gui --bin ytm` (13.42s) exited 0 with 0 warnings.
 
 ---
 

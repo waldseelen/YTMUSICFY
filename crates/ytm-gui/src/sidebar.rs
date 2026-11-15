@@ -7,8 +7,10 @@ use ytm_core::{Playlist, PlaylistPrivacy, PlaylistSummary};
 use crate::interaction::{auto_scroll_on_drag, search_box_with_clear};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
+use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::state::{
-    AsyncState, DragTrackPayload, DropPrompt, GuiTab, SetOpsForm, SplitPaneState, WorkerCmd,
+    AsyncState, ConfirmedMutation, DragTrackPayload, DropPrompt, GuiTab, PendingMutation,
+    SetOpsForm, SplitPaneState, WorkerCmd,
 };
 use crate::sync_queue::{StagedOp, SyncQueue};
 
@@ -26,6 +28,8 @@ pub fn show(
     set_form: &mut SetOpsForm,
     active_tab: &mut GuiTab,
     drop_prompt: &mut Option<DropPrompt>,
+    meta_modal: &mut Option<PlaylistMetaModal>,
+    pending_modal: &mut Option<PendingMutation>,
     toast: &mut Option<ToastState>,
     focus_filter: bool,
     focused_idx: &mut Option<usize>,
@@ -228,6 +232,36 @@ pub fn show(
                         let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
                     }
                     ui.close_menu();
+                }
+                let editable_pl = pl.owned && !pl.id.eq_ignore_ascii_case("LM");
+                if editable_pl {
+                    ui.separator();
+                    if ui.button("Edit Details / Privacy...").clicked() {
+                        let cached = playlist_cache.get(&pl.id);
+                        let desc = cached.and_then(|c| c.description.clone()).unwrap_or_default();
+                        let priv_val = cached.map_or(PlaylistPrivacy::Private, |c| c.privacy);
+                        *meta_modal = Some(PlaylistMetaModal::new(
+                            pl.id.clone(),
+                            pl.title.clone(),
+                            desc,
+                            priv_val,
+                        ));
+                        ui.close_menu();
+                    }
+                    if ui.button("Delete Playlist...").clicked() {
+                        *pending_modal = Some(PendingMutation {
+                            title: format!("Delete Playlist '{}'", pl.title),
+                            summary: format!(
+                                "Permanently delete '{}' ({}) on YouTube Music? A local pre-delete SQLite snapshot will be saved first.",
+                                pl.title, pl.id
+                            ),
+                            action: ConfirmedMutation::DeletePlaylist {
+                                playlist_id: pl.id.clone(),
+                                playlist_title: pl.title.clone(),
+                            },
+                        });
+                        ui.close_menu();
+                    }
                 }
             });
         }

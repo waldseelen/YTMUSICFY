@@ -28,6 +28,7 @@ fn sample_track(id: &str, artist: &str, title: &str) -> Track {
         release_year: None,
         music_video_type: MusicVideoType::AudioTrack,
         availability: TrackAvailability::Available,
+        thumbnail_url: None,
     }
 }
 

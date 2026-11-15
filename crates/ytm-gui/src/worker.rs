@@ -13,6 +13,7 @@ use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
 use crate::state::{GuiAppConfig, WorkerCmd, WorkerEvent};
 use crate::worker_auth::{import_auth_inner, import_browser_auth_inner};
 use crate::worker_exec::{backup_inner, emit_progress, load_playlist, run_confirmed_mutation};
+use crate::worker_media::handle_extended_cmd;
 use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
@@ -376,5 +377,6 @@ async fn handle_cmd(
                 let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
             }
         }
+        other => handle_extended_cmd(state, other, tx).await,
     }
 }

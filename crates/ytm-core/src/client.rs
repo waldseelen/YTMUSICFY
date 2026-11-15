@@ -4,15 +4,17 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::auth::{build_auth_headers, current_unix_timestamp};
+use crate::browse_models::{BrowsePage, WatchNextResult};
 use crate::error::CoreError;
 use crate::models::{
     AuthCredentials, ClientConfig, EditPlaylistResult, MoveAction, MutationAction, Playlist,
     PlaylistPrivacy, PlaylistSummary, SessionStatus, Track,
 };
 use crate::parser::{
-    check_innertube_error, normalize_playlist_id, parse_continuation_page,
-    parse_edit_playlist_response, parse_library_playlists, parse_playlist_page,
-    parse_search_tracks, parse_session_status, to_browse_playlist_id,
+    check_innertube_error, normalize_playlist_id, parse_browse_page, parse_continuation_page,
+    parse_edit_playlist_response, parse_library_playlists, parse_lyrics_response,
+    parse_playlist_page, parse_search_tracks, parse_session_status, parse_watch_next,
+    to_browse_playlist_id,
 };
 use crate::traits::{HttpTransport, InnerTubeClientTrait};
 
@@ -299,5 +301,86 @@ impl<T: HttpTransport> InnerTubeClientTrait for InnerTubeClient<T> {
             .await?;
         check_innertube_error(&resp)?;
         Ok(parse_search_tracks(&resp, limit))
+    }
+
+    async fn update_playlist_metadata(
+        &self,
+        playlist_id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        privacy: Option<PlaylistPrivacy>,
+    ) -> Result<(), CoreError> {
+        let mut actions = Vec::new();
+        if let Some(name) = title {
+            if name.contains('<') || name.contains('>') {
+                return Err(CoreError::InvalidInput(
+                    "playlist title cannot contain '<' or '>'".to_string(),
+                ));
+            }
+            actions.push(MutationAction::SetPlaylistName {
+                playlist_name: name.to_string(),
+            });
+        }
+        if let Some(desc) = description {
+            actions.push(MutationAction::SetPlaylistDescription {
+                playlist_description: desc.to_string(),
+            });
+        }
+        if let Some(priv_status) = privacy {
+            actions.push(MutationAction::SetPlaylistPrivacy {
+                playlist_privacy: priv_status,
+            });
+        }
+        let _ = self.send_edit_chunks(playlist_id, &actions).await?;
+        Ok(())
+    }
+
+    async fn set_like_status(&self, video_id: &str, liked: bool) -> Result<(), CoreError> {
+        let endpoint = if liked {
+            "like/like"
+        } else {
+            "like/removelike"
+        };
+        let resp = self
+            .post_authed(endpoint, json!({ "target": { "videoId": video_id } }))
+            .await?;
+        check_innertube_error(&resp)?;
+        Ok(())
+    }
+
+    async fn get_browse_page(&self, browse_id: &str) -> Result<BrowsePage, CoreError> {
+        let resp = self
+            .post_authed("browse", json!({ "browseId": browse_id }))
+            .await?;
+        parse_browse_page(&resp, browse_id)
+    }
+
+    async fn get_watch_next(
+        &self,
+        video_id: &str,
+        playlist_id: Option<&str>,
+    ) -> Result<WatchNextResult, CoreError> {
+        let mut body = json!({
+            "videoId": video_id,
+            "isAudioOnly": true,
+            "enablePersistentPlaylistPanel": true,
+        });
+        if let Some(pid) = playlist_id
+            && !pid.trim().is_empty()
+        {
+            body.as_object_mut()
+                .expect("object")
+                .insert("playlistId".to_string(), json!(normalize_playlist_id(pid)));
+        }
+        let resp = self.post_authed("next", body).await?;
+        parse_watch_next(&resp)
+    }
+
+    async fn get_lyrics(&self, lyrics_browse_id: &str) -> Result<Option<String>, CoreError> {
+        let resp = self
+            .post_authed("browse", json!({ "browseId": lyrics_browse_id }))
+            .await?;
+        check_innertube_error(&resp)?;
+        Ok(parse_lyrics_response(&resp))
     }
 }

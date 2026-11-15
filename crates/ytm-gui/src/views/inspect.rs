@@ -7,11 +7,14 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::{Playlist, PlaylistSummary, Track};
 use ytm_store::ExportFormat;
 
+use crate::artwork::ArtworkCache;
 use crate::interaction::search_box_with_clear;
 use crate::navigation::ToastState;
+use crate::playback_ops::PlayAction;
+use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::state::{
-    AsyncState, DragTrackPayload, DropPrompt, InspectColumn, InspectSortState, SplitPaneState,
-    WorkerCmd,
+    AsyncState, ConfirmedMutation, DragTrackPayload, DropPrompt, InspectColumn, InspectSortState,
+    PendingMutation, SplitPaneState, WorkerCmd,
 };
 use crate::sync_queue::SyncQueue;
 use crate::views::inspect_actions::{apply_row_outcome, handle_table_keyboard};
@@ -46,10 +49,14 @@ pub fn show(
     export_fmt: &mut ExportFormat,
     split: &mut SplitPaneState,
     drop_prompt: &mut Option<DropPrompt>,
+    meta_modal: &mut Option<PlaylistMetaModal>,
+    pending_modal: &mut Option<PendingMutation>,
+    artwork: &mut ArtworkCache,
     toast: &mut Option<ToastState>,
     focus_search: bool,
     cmd_tx: &Sender<WorkerCmd>,
-) {
+) -> Vec<PlayAction> {
+    let mut play_actions = Vec::new();
     let loading_msg = is_loading.then_some("Loading playlist...");
     async_banner(ui, loading_msg, load_error);
     if load_error.is_some()
@@ -62,7 +69,7 @@ pub fn show(
 
     let Some(pl) = playlist.cloned() else {
         ui.label("Select a playlist from the left sidebar to inspect tracks.");
-        return;
+        return play_actions;
     };
 
     let total_secs: u64 = pl
@@ -99,6 +106,40 @@ pub fn show(
         if ui.selectable_label(split.enabled, split_btn).clicked() {
             split.enabled = !split.enabled;
         }
+        if !pl.tracks.is_empty()
+            && ui
+                .button("▶ Play Playlist")
+                .on_hover_text("Play all tracks in order")
+                .clicked()
+        {
+            play_actions.push(PlayAction::PlayFromList {
+                tracks: pl.tracks.clone(),
+                start_idx: 0,
+            });
+        }
+        if editable {
+            if ui.button("✎ Edit Details").clicked() {
+                *meta_modal = Some(PlaylistMetaModal::new(
+                    pl.id.clone(),
+                    pl.title.clone(),
+                    pl.description.clone().unwrap_or_default(),
+                    pl.privacy,
+                ));
+            }
+            if ui.button("🗑 Delete").clicked() {
+                *pending_modal = Some(PendingMutation {
+                    title: format!("Delete Playlist '{}'", pl.title),
+                    summary: format!(
+                        "Permanently delete '{}' ({}) on YouTube Music? A pre-delete snapshot will be saved.",
+                        pl.title, pl.id
+                    ),
+                    action: ConfirmedMutation::DeletePlaylist {
+                        playlist_id: pl.id.clone(),
+                        playlist_title: pl.title.clone(),
+                    },
+                });
+            }
+        }
     });
 
     if split.enabled {
@@ -118,7 +159,7 @@ pub fn show(
             focus_search,
             cmd_tx,
         );
-        return;
+        return play_actions;
     }
 
     let mut scroll_target_row: Option<usize> = None;
@@ -177,7 +218,14 @@ pub fn show(
         }
     });
 
-    show_quick_search_results(ui, &pl, editable, search_results, sync_queue, toast);
+    play_actions.extend(show_quick_search_results(
+        ui,
+        &pl,
+        editable,
+        search_results,
+        sync_queue,
+        toast,
+    ));
 
     let needle = search.trim().to_ascii_lowercase();
     let mut visible: Vec<&Track> = pl
@@ -198,7 +246,7 @@ pub fn show(
         .collect();
 
     sort_tracks_slice(&mut visible, *sort_state);
-    handle_table_keyboard(
+    if let Some(act) = handle_table_keyboard(
         ui.ctx(),
         &pl,
         &visible,
@@ -209,7 +257,9 @@ pub fn show(
         &mut scroll_target_row,
         sync_queue,
         toast,
-    );
+    ) {
+        play_actions.push(act);
+    }
 
     show_selection_bar(ui, &pl, editable, sync_queue, selected_positions, toast);
     show_sort_stage_bar(
@@ -285,6 +335,7 @@ pub fn show(
                     focused_row,
                     scroll_target_row,
                     sync_queue,
+                    artwork,
                     toast,
                 ));
             });
@@ -319,7 +370,7 @@ pub fn show(
                 }
             }
         }
-        apply_row_outcome(
+        play_actions.extend(apply_row_outcome(
             &pl,
             outcome,
             playlist_cache,
@@ -327,6 +378,7 @@ pub fn show(
             selected_positions,
             search,
             toast,
-        );
+        ));
     }
+    play_actions
 }

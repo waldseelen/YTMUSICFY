@@ -37,6 +37,7 @@ fn parse_single_track(renderer: &Value, position: usize) -> Option<Track> {
     }
 
     let availability = classify_availability(renderer, &title);
+    let thumbnail_url = extract_thumbnail_url(renderer);
 
     if title.is_empty() && video_id.is_empty() {
         return None;
@@ -53,7 +54,20 @@ fn parse_single_track(renderer: &Value, position: usize) -> Option<Track> {
         release_year: None,
         music_video_type,
         availability,
+        thumbnail_url,
     })
+}
+
+/// Extract a medium/high-resolution thumbnail URL from any InnerTube renderer.
+#[must_use]
+pub fn extract_thumbnail_url(renderer: &Value) -> Option<String> {
+    let list = find_first_by_key(renderer, "thumbnails").and_then(Value::as_array)?;
+    list.iter()
+        .find(|t| t.get("width").and_then(Value::as_u64).unwrap_or(0) >= 120)
+        .or_else(|| list.last())
+        .and_then(|t| t.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn extract_video_id(renderer: &Value) -> Option<String> {

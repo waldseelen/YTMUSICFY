@@ -8,7 +8,7 @@ use ytm_store::ExportFormat;
 
 use crate::interaction::status_badge;
 use crate::navigation::{NavHistory, ToastState};
-use crate::state::{AsyncState, ConfirmedMutation, DropPrompt, GuiTab, PendingMutation, WorkerCmd};
+use crate::state::{AsyncState, DropPrompt, GuiTab, PendingMutation, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 
 #[allow(clippy::too_many_arguments)]
@@ -335,17 +335,7 @@ pub fn show_confirmation_modal(
             });
         });
     if execute {
-        let action = match &pending.action {
-            ConfirmedMutation::ExecuteSync { entries } => ConfirmedMutation::ExecuteSync {
-                entries: entries.clone(),
-            },
-            ConfirmedMutation::RestoreSnapshot { snapshot_id } => {
-                ConfirmedMutation::RestoreSnapshot {
-                    snapshot_id: snapshot_id.clone(),
-                }
-            }
-        };
-        let _ = cmd_tx.send(WorkerCmd::ExecuteMutation(action));
+        let _ = cmd_tx.send(WorkerCmd::ExecuteMutation(pending.action));
         *pending_modal = None;
     }
 }

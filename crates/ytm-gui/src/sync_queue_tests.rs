@@ -19,6 +19,7 @@ fn mk_track(vid: &str, sid: &str, pos: usize) -> Track {
         release_year: Some(2024),
         music_video_type: MusicVideoType::AudioTrack,
         availability: TrackAvailability::Available,
+        thumbnail_url: None,
     }
 }
 

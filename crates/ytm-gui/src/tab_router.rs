@@ -1,7 +1,8 @@
 use eframe::egui;
 
 use crate::app::YtmGuiApp;
-use crate::state::GuiTab;
+use crate::playback_ops::dispatch_play_actions;
+use crate::state::{AsyncState, GuiTab, WorkerCmd};
 use crate::views;
 
 pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
@@ -23,13 +24,31 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
         sel_id.and_then(|id| app.sync_queue.working_playlist(id, &app.playlist_cache));
     let playlists = app.library.data().map(Vec::as_slice).unwrap_or(&[]);
 
+    let mut pending_actions = Vec::new();
     match app.active_tab {
+        GuiTab::Browse => {
+            if matches!(app.browse_state, AsyncState::Idle) && app.session.data().is_some() {
+                app.browse_state = AsyncState::Loading(format!("Loading {}...", app.browse_target));
+                let _ = app.cmd_tx.send(WorkerCmd::LoadBrowse {
+                    browse_id: app.browse_target.clone(),
+                });
+            }
+            pending_actions = views::browse::show(
+                ui,
+                &mut app.browse_target,
+                &app.browse_state,
+                &mut app.artwork,
+            );
+        }
+        GuiTab::QueueLyrics => {
+            pending_actions = views::queue_lyrics::show(ui, app);
+        }
         GuiTab::Inspector => {
             let is_loading = sel_id.is_some_and(|id| app.loading_playlists.contains(id));
             let load_err = sel_id
                 .and_then(|id| app.playlist_errors.get(id))
                 .map(String::as_str);
-            views::inspect::show(
+            pending_actions = views::inspect::show(
                 ui,
                 draft_active.as_ref(),
                 &mut app.selected_playlist_id,
@@ -52,6 +71,9 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 &mut app.export_fmt,
                 &mut app.split_state,
                 &mut app.drop_prompt,
+                &mut app.meta_modal,
+                &mut app.pending_modal,
+                &mut app.artwork,
                 &mut app.toast,
                 app.focus_search_once,
                 &app.cmd_tx,
@@ -124,5 +146,9 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             &mut app.auth_browser,
             &app.cmd_tx,
         ),
+    }
+
+    if !pending_actions.is_empty() {
+        dispatch_play_actions(pending_actions, app);
     }
 }

@@ -4,10 +4,13 @@ use eframe::egui;
 use egui_extras::TableBody;
 use ytm_core::{Playlist, PlaylistSummary, Track, TrackAvailability};
 
+use crate::artwork::ArtworkCache;
 use crate::interaction::{apply_range_select, auto_scroll_on_drag, paint_drag_ghost};
 use crate::navigation::ToastState;
+use crate::playback_ops::PlayAction;
 use crate::state::DragTrackPayload;
 use crate::sync_queue::SyncQueue;
+use crate::views::inspect_menu::{RowMenuContext, attach_row_context_menu};
 
 /// Per-frame output collected from rendering track rows.
 pub struct RowRenderOutcome {
@@ -15,6 +18,7 @@ pub struct RowRenderOutcome {
     pub batch_copy_move: Option<(String, String, Vec<Track>, bool)>,
     pub remove_single: Option<Track>,
     pub filter_artist: Option<String>,
+    pub play_actions: Vec<PlayAction>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -29,7 +33,8 @@ pub fn render_inspect_rows(
     last_clicked: &mut Option<usize>,
     focused_row: &mut Option<usize>,
     scroll_target_row: Option<usize>,
-    sync_queue: &mut SyncQueue,
+    _sync_queue: &mut SyncQueue,
+    artwork: &mut ArtworkCache,
     toast: &mut Option<ToastState>,
 ) -> RowRenderOutcome {
     let mut out = RowRenderOutcome {
@@ -37,6 +42,7 @@ pub fn render_inspect_rows(
         batch_copy_move: None,
         remove_single: None,
         filter_artist: None,
+        play_actions: Vec::new(),
     };
     let visible_positions: Vec<usize> = visible.iter().map(|t| t.position).collect();
     let shift_held = body.ui_mut().input(|i| i.modifiers.shift);
@@ -149,13 +155,31 @@ pub fn render_inspect_rows(
         });
 
         row.col(|ui| {
+            let thumb_tex = t
+                .effective_thumbnail_url()
+                .and_then(|url| artwork.texture_for(ui.ctx(), &url).cloned());
             let title_resp = ui.dnd_drag_source(
                 egui::Id::new(("insp_title_drag", &pl.id, t.position)),
                 payload.clone(),
-                |ui| ui.label(&t.title),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        if let Some(tex) = &thumb_tex {
+                            ui.add(
+                                egui::Image::new((tex.id(), egui::vec2(18.0, 18.0)))
+                                    .corner_radius(3.0),
+                            );
+                        }
+                        ui.label(&t.title);
+                    })
+                },
             );
             let r = title_resp.response.interact(egui::Sense::click());
-            if r.clicked() {
+            if r.double_clicked() {
+                out.play_actions.push(PlayAction::PlayFromList {
+                    tracks: visible.iter().copied().cloned().collect(),
+                    start_idx: idx,
+                });
+            } else if r.clicked() {
                 let next = if ctrl_held { !checked } else { true };
                 if !ctrl_held && !shift_held {
                     selected_positions.clear();
@@ -173,49 +197,76 @@ pub fn render_inspect_rows(
             }
             attach_row_context_menu(
                 &r,
-                pl,
-                t,
-                &drag_tracks,
-                editable,
-                playlists,
+                RowMenuContext {
+                    pl,
+                    track: t,
+                    row_idx: idx,
+                    visible,
+                    selection_tracks: &drag_tracks,
+                    editable,
+                    playlists,
+                },
                 &mut out,
-                sync_queue,
                 toast,
             );
         });
 
         row.col(|ui| {
-            let r = ui.add(
-                egui::Label::new(t.primary_artist_name().unwrap_or("-"))
-                    .sense(egui::Sense::click()),
-            );
+            let r = if let Some(artist) = t.artists.first() {
+                if let Some(bid) = &artist.browse_id {
+                    let link_r = ui.link(&artist.name);
+                    if link_r.clicked() {
+                        out.play_actions.push(PlayAction::OpenBrowse(bid.clone()));
+                    }
+                    link_r
+                } else {
+                    ui.add(egui::Label::new(&artist.name).sense(egui::Sense::click()))
+                }
+            } else {
+                ui.add(egui::Label::new("-").sense(egui::Sense::click()))
+            };
             attach_row_context_menu(
                 &r,
-                pl,
-                t,
-                &drag_tracks,
-                editable,
-                playlists,
+                RowMenuContext {
+                    pl,
+                    track: t,
+                    row_idx: idx,
+                    visible,
+                    selection_tracks: &drag_tracks,
+                    editable,
+                    playlists,
+                },
                 &mut out,
-                sync_queue,
                 toast,
             );
         });
 
         row.col(|ui| {
-            let r = ui.add(
-                egui::Label::new(t.album.as_ref().map_or("-", |a| a.name.as_str()))
-                    .sense(egui::Sense::click()),
-            );
+            let r = if let Some(album) = &t.album {
+                if let Some(bid) = &album.browse_id {
+                    let link_r = ui.link(&album.name);
+                    if link_r.clicked() {
+                        out.play_actions.push(PlayAction::OpenBrowse(bid.clone()));
+                    }
+                    link_r
+                } else {
+                    ui.add(egui::Label::new(&album.name).sense(egui::Sense::click()))
+                }
+            } else {
+                ui.add(egui::Label::new("-").sense(egui::Sense::click()))
+            };
             attach_row_context_menu(
                 &r,
-                pl,
-                t,
-                &drag_tracks,
-                editable,
-                playlists,
+                RowMenuContext {
+                    pl,
+                    track: t,
+                    row_idx: idx,
+                    visible,
+                    selection_tracks: &drag_tracks,
+                    editable,
+                    playlists,
+                },
                 &mut out,
-                sync_queue,
                 toast,
             );
         });
@@ -277,79 +328,4 @@ fn handle_row_select(
         selected.remove(&pos);
         *last_clicked = Some(pos);
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn attach_row_context_menu(
-    resp: &egui::Response,
-    pl: &Playlist,
-    track: &Track,
-    selection_tracks: &[Track],
-    editable: bool,
-    playlists: &[PlaylistSummary],
-    out: &mut RowRenderOutcome,
-    _sync_queue: &mut SyncQueue,
-    toast: &mut Option<ToastState>,
-) {
-    resp.context_menu(|ui| {
-        let url = format!("https://music.youtube.com/watch?v={}", track.video_id);
-        if ui.button("Copy YTM Watch URL").clicked() {
-            ui.ctx().copy_text(url.clone());
-            *toast = Some(ToastState::info(true, "Copied track URL to clipboard."));
-            ui.close_menu();
-        }
-        if ui.button("Open in Browser").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-            ui.close_menu();
-        }
-        if let Some(artist) = track.primary_artist_name()
-            && ui.button(format!("Filter by Artist: {artist}")).clicked()
-        {
-            out.filter_artist = Some(artist.to_string());
-            ui.close_menu();
-        }
-        ui.separator();
-        let batch_cnt = selection_tracks.len();
-        ui.menu_button(format!("Copy ({batch_cnt}) to Playlist..."), |ui| {
-            for dest in playlists {
-                if !dest.owned || dest.id.eq_ignore_ascii_case("LM") || dest.id == pl.id {
-                    continue;
-                }
-                if ui.button(&dest.title).clicked() {
-                    out.batch_copy_move = Some((
-                        dest.id.clone(),
-                        dest.title.clone(),
-                        selection_tracks.to_vec(),
-                        false,
-                    ));
-                    ui.close_menu();
-                }
-            }
-        });
-        ui.add_enabled_ui(editable, |ui| {
-            ui.menu_button(format!("Move ({batch_cnt}) to Playlist..."), |ui| {
-                for dest in playlists {
-                    if !dest.owned || dest.id.eq_ignore_ascii_case("LM") || dest.id == pl.id {
-                        continue;
-                    }
-                    if ui.button(&dest.title).clicked() {
-                        out.batch_copy_move = Some((
-                            dest.id.clone(),
-                            dest.title.clone(),
-                            selection_tracks.to_vec(),
-                            true,
-                        ));
-                        ui.close_menu();
-                    }
-                }
-            });
-        });
-        if ui
-            .add_enabled(editable, egui::Button::new("Remove Track (Stage)"))
-            .clicked()
-        {
-            out.remove_single = Some(track.clone());
-            ui.close_menu();
-        }
-    });
 }

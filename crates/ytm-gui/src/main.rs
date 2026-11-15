@@ -1,7 +1,14 @@
 mod app;
+mod app_events;
+mod artwork;
 mod interaction;
 mod navigation;
 mod overlays;
+mod play_queue;
+mod playback_ops;
+mod player;
+mod player_ipc;
+mod playlist_meta_modal;
 mod sidebar;
 mod state;
 mod sync_queue;
@@ -10,6 +17,8 @@ mod views;
 mod worker;
 mod worker_auth;
 mod worker_exec;
+mod worker_media;
+mod worker_msgs;
 mod worker_plans;
 
 use anyhow::Result;

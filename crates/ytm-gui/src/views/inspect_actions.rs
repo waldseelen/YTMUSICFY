@@ -4,6 +4,7 @@ use eframe::egui;
 use ytm_core::{Playlist, Track};
 
 use crate::navigation::ToastState;
+use crate::playback_ops::PlayAction;
 use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::inspect_helpers::compute_drop_reorder;
 use crate::views::inspect_rows::RowRenderOutcome;
@@ -20,11 +21,11 @@ pub fn handle_table_keyboard(
     scroll_target_row: &mut Option<usize>,
     sync_queue: &mut SyncQueue,
     toast: &mut Option<ToastState>,
-) {
+) -> Option<PlayAction> {
     if ctx.wants_keyboard_input() || visible.is_empty() {
-        return;
+        return None;
     }
-    let (ctrl_a, esc, del, up, down, home, end, space) = ctx.input(|i| {
+    let (ctrl_a, esc, del, up, down, home, end, space, enter) = ctx.input(|i| {
         (
             (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::A),
             i.key_pressed(egui::Key::Escape),
@@ -34,6 +35,7 @@ pub fn handle_table_keyboard(
             i.key_pressed(egui::Key::Home),
             i.key_pressed(egui::Key::End),
             i.key_pressed(egui::Key::Space),
+            i.key_pressed(egui::Key::Enter),
         )
     });
     if ctrl_a {
@@ -84,7 +86,13 @@ pub fn handle_table_keyboard(
             selected_positions.insert(t.position);
         }
         *last_clicked = Some(t.position);
+    } else if enter && let Some(idx) = *focused_row {
+        return Some(PlayAction::PlayFromList {
+            tracks: visible.iter().copied().cloned().collect(),
+            start_idx: idx,
+        });
     }
+    None
 }
 
 pub fn apply_row_outcome(
@@ -95,7 +103,7 @@ pub fn apply_row_outcome(
     selected_positions: &mut HashSet<usize>,
     search: &mut String,
     toast: &mut Option<ToastState>,
-) {
+) -> Vec<PlayAction> {
     if let Some((dragged_sids, target_pos)) = outcome.intra_reorder
         && let Some(target_order) = compute_drop_reorder(pl, &dragged_sids, target_pos)
     {
@@ -154,4 +162,5 @@ pub fn apply_row_outcome(
     if let Some(artist) = outcome.filter_artist {
         *search = artist;
     }
+    outcome.play_actions
 }

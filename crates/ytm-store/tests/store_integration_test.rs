@@ -34,6 +34,7 @@ fn sample_playlist() -> Playlist {
                 release_year: Some(1973),
                 music_video_type: MusicVideoType::AudioTrack,
                 availability: TrackAvailability::Available,
+                thumbnail_url: None,
             },
             Track {
                 video_id: String::new(),
@@ -46,6 +47,7 @@ fn sample_playlist() -> Playlist {
                 release_year: None,
                 music_video_type: MusicVideoType::Unknown,
                 availability: TrackAvailability::Deleted,
+                thumbnail_url: None,
             },
         ],
     }

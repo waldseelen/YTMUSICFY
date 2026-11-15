@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::browse_models::{BrowsePage, WatchNextResult};
 use crate::error::CoreError;
 use crate::models::{
     EditPlaylistResult, MoveAction, Playlist, PlaylistPrivacy, PlaylistSummary, SessionStatus,
@@ -73,4 +74,29 @@ pub trait InnerTubeClientTrait: Send + Sync {
 
     /// Search tracks (primarily to discover official `ATV` candidates for `UGC`/`OMV` upgrades).
     async fn search_tracks(&self, query: &str, limit: usize) -> Result<Vec<Track>, CoreError>;
+
+    /// Rename a playlist or update its description and privacy via `browse/edit_playlist`.
+    async fn update_playlist_metadata(
+        &self,
+        playlist_id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        privacy: Option<PlaylistPrivacy>,
+    ) -> Result<(), CoreError>;
+
+    /// Like (`liked = true`) or remove like (`liked = false`) for a track video ID.
+    async fn set_like_status(&self, video_id: &str, liked: bool) -> Result<(), CoreError>;
+
+    /// Fetch Home (`FEmusic_home`), Artist (`UC...`/`MPLA...`), or Album (`MPREb_...`) browse page.
+    async fn get_browse_page(&self, browse_id: &str) -> Result<BrowsePage, CoreError>;
+
+    /// Fetch watch-next radio queue and optional lyrics browse ID for a seed track/playlist.
+    async fn get_watch_next(
+        &self,
+        video_id: &str,
+        playlist_id: Option<&str>,
+    ) -> Result<WatchNextResult, CoreError>;
+
+    /// Fetch plain-text song lyrics for an `MPLYt_...` browse ID.
+    async fn get_lyrics(&self, lyrics_browse_id: &str) -> Result<Option<String>, CoreError>;
 }

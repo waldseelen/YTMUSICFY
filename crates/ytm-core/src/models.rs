@@ -87,6 +87,8 @@ pub struct Track {
     pub release_year: Option<u16>,
     pub music_video_type: MusicVideoType,
     pub availability: TrackAvailability,
+    #[serde(default)]
+    pub thumbnail_url: Option<String>,
 }
 
 impl Track {
@@ -94,6 +96,18 @@ impl Track {
     #[must_use]
     pub fn primary_artist_name(&self) -> Option<&str> {
         self.artists.first().map(|a| a.name.as_str())
+    }
+
+    /// Best thumbnail URL for UI display (parsed renderer URL or YouTube CDN fallback).
+    #[must_use]
+    pub fn effective_thumbnail_url(&self) -> Option<String> {
+        if let Some(url) = &self.thumbnail_url
+            && !url.trim().is_empty()
+        {
+            return Some(url.clone());
+        }
+        (!self.video_id.is_empty())
+            .then(|| format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", self.video_id))
     }
 }
 
@@ -169,6 +183,21 @@ pub enum MutationAction {
             skip_serializing_if = "Option::is_none"
         )]
         moved_set_video_successor: Option<String>,
+    },
+    #[serde(rename = "ACTION_SET_PLAYLIST_NAME")]
+    SetPlaylistName {
+        #[serde(rename = "playlistName")]
+        playlist_name: String,
+    },
+    #[serde(rename = "ACTION_SET_PLAYLIST_DESCRIPTION")]
+    SetPlaylistDescription {
+        #[serde(rename = "playlistDescription")]
+        playlist_description: String,
+    },
+    #[serde(rename = "ACTION_SET_PLAYLIST_PRIVACY")]
+    SetPlaylistPrivacy {
+        #[serde(rename = "playlistPrivacy")]
+        playlist_privacy: PlaylistPrivacy,
     },
 }
 

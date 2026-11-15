@@ -1,11 +1,15 @@
 pub mod auth;
+pub mod browse;
 pub mod dedupe;
 pub mod genres_snapshots;
 pub mod health;
 pub mod inspect;
 pub mod inspect_actions;
 pub mod inspect_helpers;
+pub mod inspect_menu;
 pub mod inspect_rows;
+pub mod player_bar;
+pub mod queue_lyrics;
 pub mod set_ops;
 pub mod sort;
 pub mod split_diff;
