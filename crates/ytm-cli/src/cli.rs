@@ -117,6 +117,36 @@ pub enum CliSetOp {
     Merge,
 }
 
+impl From<CliExportFormat> for ytm_store::ExportFormat {
+    fn from(val: CliExportFormat) -> Self {
+        match val {
+            CliExportFormat::Json => Self::Json,
+            CliExportFormat::Csv => Self::Csv,
+            CliExportFormat::M3u8 => Self::M3u8,
+        }
+    }
+}
+
+impl From<CliKeepStrategy> for ytm_ops::KeeperStrategy {
+    fn from(val: CliKeepStrategy) -> Self {
+        match val {
+            CliKeepStrategy::Quality => Self::Quality,
+            CliKeepStrategy::Oldest => Self::Oldest,
+            CliKeepStrategy::Newest => Self::Newest,
+        }
+    }
+}
+
+impl From<CliSetOp> for ytm_ops::SetAlgebraOp {
+    fn from(val: CliSetOp) -> Self {
+        match val {
+            CliSetOp::Diff => Self::Diff,
+            CliSetOp::Intersect => Self::Intersect,
+            CliSetOp::Merge => Self::Merge,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct DedupeArgs {
     /// Target playlist ID.

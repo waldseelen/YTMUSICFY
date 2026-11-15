@@ -10,11 +10,29 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 0B (Workspace & Contract Lock)`: **PASS** exit 0, 0 warnings
 - `Gate 1 (Core Infrastructure)`: **PASS** `ytm-core` & `ytm-store` 15 tests PASS, 0 warnings
 - `Gate 2 (Ops & Enrich)`: **PASS** `ytm-ops` & `ytm-enrich` 15 tests PASS, 0 warnings (`31/31` workspace tests PASS)
+- `Gate 3 (CLI & TUI)`: **PASS** `ytm-cli` wired across all 11 commands & 5-tab Ratatui TUI, `32/32` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 31/31 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 1)
+- `cargo test --workspace`: **PASS** exit 0, 32/32 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit)
 - `wc -l crates/*/src/**/*.rs`: **PASS** max 390 lines (`crates/ytm-enrich/src/splitter.rs`), all <= 400
+
+---
+
+## 2026-11-15 — Wave 3 CLI Runner & Ratatui TUI (`ytm-cli`)
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-cli/src/cli.rs`: `From<CliExportFormat>`, `From<CliKeepStrategy>`, `From<CliSetOp>` conversions + dry-run parser defaults
+  - `crates/ytm-cli/src/config.rs`: `AppConfig`, `load_app_config`, `load_genre_matcher`, `YTM_LASTFM_API_KEY` env override
+  - `crates/ytm-cli/src/render.rs`: `comfy_table` UTF-8 renderers (`list`, `inspect`, `snapshots`, `dedupe`, `sort`, `set`, `health`, `split-genre`) + `indicatif` progress bar
+  - `crates/ytm-cli/src/mutations.rs`: `handle_dedupe`, `handle_sort`, `handle_set`, `handle_health` (dry-run default + mandatory pre-mutation snapshots)
+  - `crates/ytm-cli/src/restore.rs`: `handle_split_genre`, `handle_snapshot_restore` (with LIS reorder + pre-restore snapshot)
+  - `crates/ytm-cli/src/runner.rs`: `RuntimeContext`, `SessionVerifier`, `LiveSessionVerifier`, `import_and_verify_auth`, `execute_command` across all 11 subcommands
+  - `crates/ytm-cli/src/tui.rs` & `crates/ytm-cli/src/tui_render.rs`: 5-tab `TuiApp` (`Playlists`, `Dedupe`, `Sort`, `Health`, `Genres`), Windows/Linux `KeyEventKind::Press` handling, Crossterm guard, and `TestBackend` support
+  - `crates/ytm-cli/src/main.rs`: `AppPaths`, `SqliteStore`, `InnerTubeClient`, `EnrichmentService`, and stdin/file `auth import` wiring
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `wc -l crates/ytm-cli/src/*.rs` (max 317L), `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (32/32 PASS) exited 0 with 0 warnings.
+- **Remaining gaps**: Ready to execute Wave 4 (`crates/ytm-cli/tests/e2e_pipeline_test.rs`, cross-platform `README.md`, `cargo build --release`).
 
 ---
 
