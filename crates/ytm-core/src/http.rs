@@ -10,8 +10,23 @@ use crate::error::CoreError;
 use crate::traits::HttpTransport;
 
 pub const YTM_BASE_API: &str = "https://music.youtube.com/youtubei/v1/";
-pub const YTM_PARAMS_BROWSER: &str =
-    "?alt=json&prettyPrint=false&key=REDACTED_INNERTUBE_KEY";
+pub const YTM_PARAMS_BASE: &str = "?alt=json&prettyPrint=false";
+
+fn ytm_params_browser() -> String {
+    if let Ok(key) = std::env::var("YTM_INNERTUBE_KEY") {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            return format!("{YTM_PARAMS_BASE}&key={trimmed}");
+        }
+    }
+    if let Some(key) = option_env!("YTM_INNERTUBE_KEY") {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            return format!("{YTM_PARAMS_BASE}&key={trimmed}");
+        }
+    }
+    YTM_PARAMS_BASE.to_string()
+}
 
 /// Production `reqwest` (`rustls-tls`) transport with HTTP/2 header headroom and backoff.
 #[derive(Clone)]
@@ -71,7 +86,8 @@ impl HttpTransport for ReqwestTransport {
         headers: &[(String, String)],
     ) -> Result<Value, CoreError> {
         let clean_ep = endpoint.trim_start_matches('/');
-        let url = format!("{}{clean_ep}{YTM_PARAMS_BROWSER}", self.base_url);
+        let params = ytm_params_browser();
+        let url = format!("{}{clean_ep}{params}", self.base_url);
         let header_map = Self::build_header_map(headers)?;
 
         let mut attempt = 0usize;
