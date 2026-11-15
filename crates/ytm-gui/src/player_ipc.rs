@@ -1,8 +1,34 @@
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use crate::player::{PlayerSnapshot, PlayerState};
+
+pub(crate) fn connect_with_backoff(path: &Path, timeout: Duration) -> std::io::Result<UnixStream> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match UnixStream::connect(path) {
+            Ok(s) => return Ok(s),
+            Err(err) => {
+                if Instant::now() >= deadline {
+                    return Err(err);
+                }
+                std::thread::sleep(Duration::from_millis(35));
+            }
+        }
+    }
+}
+
+pub(crate) fn write_json_line(stream: &mut UnixStream, value: &Value) -> std::io::Result<()> {
+    let mut bytes = serde_json::to_vec(value).unwrap_or_default();
+    bytes.push(b'\n');
+    stream.write_all(&bytes)?;
+    stream.flush()
+}
 
 /// Apply an `mpv` JSON IPC event line to `snapshot`; returns `true` when UI should repaint.
 pub(crate) fn apply_ipc_event(event: &Value, snapshot: &Arc<Mutex<PlayerSnapshot>>) -> bool {

@@ -13,10 +13,24 @@ pub(crate) async fn handle_extended_cmd(
     tx: &Sender<WorkerEvent>,
 ) {
     let Some(client) = &state.client else {
-        let _ = tx.send(WorkerEvent::StatusToast {
-            ok: false,
-            message: "Not authenticated: sign in under Auth tab first.".to_string(),
-        });
+        let msg = "Not authenticated: sign in under Auth tab first.".to_string();
+        match cmd {
+            WorkerCmd::LoadBrowse { browse_id } => {
+                let _ = tx.send(WorkerEvent::BrowseLoaded {
+                    browse_id,
+                    result: Err(msg),
+                });
+            }
+            WorkerCmd::LoadLyrics { .. } => {
+                let _ = tx.send(WorkerEvent::LyricsLoaded(Err(msg)));
+            }
+            _ => {
+                let _ = tx.send(WorkerEvent::StatusToast {
+                    ok: false,
+                    message: msg,
+                });
+            }
+        }
         return;
     };
 

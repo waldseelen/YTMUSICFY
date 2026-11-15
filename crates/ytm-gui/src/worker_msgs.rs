@@ -10,6 +10,7 @@ use ytm_ops::{
 };
 use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
 
+use crate::auth_store::AudioQuality;
 use crate::state::ConfirmedMutation;
 use crate::worker_auth::BrowserKind;
 
@@ -75,6 +76,7 @@ pub enum WorkerCmd {
     LoadLyrics {
         browse_id: String,
     },
+    SetAudioQuality(AudioQuality),
 }
 
 /// Events emitted from Tokio background worker back to UI thread.
@@ -117,6 +119,11 @@ pub enum WorkerEvent {
         result: Result<WatchNextResult, String>,
     },
     LyricsLoaded(Result<Option<String>, String>),
+    AudioConfigUpdated {
+        cookie_jar: Option<PathBuf>,
+        quality: AudioQuality,
+        preferred_browser: Option<BrowserKind>,
+    },
 }
 
 // Keep unused-import-free compilation cleanly if KeeperStrategy isn't directly named here.

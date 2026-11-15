@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use ytm_core::{
     InnerTubeClient, InnerTubeClientTrait, ReqwestTransport, SessionStatus,
     netscape_cookies_to_header, parse_auth_input,
 };
-use ytm_store::{AppPaths, write_secret_file};
+use ytm_store::AppPaths;
 
+use crate::auth_store::{save_credentials_secure, write_mpv_cookie_jar};
 use crate::state::GuiAppConfig;
 
 /// Supported local browsers for one-click cookie extraction via `yt-dlp`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BrowserKind {
     #[default]
     Brave,
@@ -54,7 +56,8 @@ pub async fn import_auth_inner(
         anyhow::bail!("session canary returned unauthenticated");
     }
     paths.ensure_dirs()?;
-    write_secret_file(&paths.auth_file(), &serde_json::to_vec_pretty(&creds)?)?;
+    save_credentials_secure(paths, &creds)?;
+    let _ = write_mpv_cookie_jar(paths, &creds);
     Ok((client, status))
 }
 
@@ -99,4 +102,54 @@ pub async fn import_browser_auth_inner(
     let cookie_header = netscape_cookies_to_header(&raw_netscape)
         .context("missing signed-in YouTube Music cookies in browser profile")?;
     import_auth_inner(paths, cfg, &cookie_header).await
+}
+
+pub(crate) async fn handle_bootstrap(
+    state: &mut crate::worker::BackendState,
+    tx: &std::sync::mpsc::Sender<crate::state::WorkerEvent>,
+) {
+    use ytm_core::InnerTubeClientTrait;
+    use ytm_store::SnapshotStore;
+
+    if let Ok(snaps) = state.store.list_snapshots(None).await {
+        let _ = tx.send(crate::state::WorkerEvent::SnapshotsLoaded(Ok(snaps)));
+    }
+    let mut verified = false;
+    if let Some(client) = &state.client {
+        let sess = client.verify_session().await.map_err(|e| e.to_string());
+        verified = sess.as_ref().is_ok_and(|s| s.authenticated);
+        if verified {
+            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(sess));
+            let libs = client
+                .get_library_playlists()
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
+        } else if state.config.preferred_browser.is_none() {
+            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(sess));
+        }
+    }
+    if !verified {
+        if let Some(browser) = state.config.preferred_browser
+            && let Ok((client, status)) =
+                import_browser_auth_inner(&state.paths, &state.config, browser).await
+        {
+            let libs = client
+                .get_library_playlists()
+                .await
+                .map_err(|e| e.to_string());
+            state.client = Some(client);
+            let _ = tx.send(crate::state::WorkerEvent::AudioConfigUpdated {
+                cookie_jar: crate::auth_store::active_cookie_jar_path(&state.paths),
+                quality: state.config.audio_quality,
+                preferred_browser: state.config.preferred_browser,
+            });
+            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Ok(status)));
+            let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
+        } else if state.client.is_none() {
+            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Err(
+                "No saved auth.json. Paste browser headers in Auth tab.".to_string(),
+            )));
+        }
+    }
 }

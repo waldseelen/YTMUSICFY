@@ -6,6 +6,7 @@ use ytm_ops::{
     DedupeConfig, KeeperStrategy, SetAlgebraOp, SortDirection, SortField, SortKey, SortSpec,
 };
 
+use crate::auth_store::AudioQuality;
 use crate::sync_queue::StagedEntry;
 
 /// Explicit state machine preventing invalid parallel boolean flags.
@@ -174,6 +175,8 @@ pub struct DropPrompt {
 pub struct GuiAppConfig {
     pub innertube: ClientConfig,
     pub enrichment: EnrichmentConfig,
+    pub preferred_browser: Option<BrowserKind>,
+    pub audio_quality: AudioQuality,
 }
 
 /// Confirmed immediate actions gated behind modal confirmation.

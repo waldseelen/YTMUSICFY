@@ -146,5 +146,17 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         WorkerEvent::LyricsLoaded(res) => {
             app.lyrics_state = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
         }
+        WorkerEvent::AudioConfigUpdated {
+            cookie_jar,
+            quality,
+            preferred_browser,
+        } => {
+            app.cookie_bridge_active = cookie_jar.is_some();
+            app.audio_quality = quality;
+            if let Some(browser) = preferred_browser {
+                app.auth_browser = browser;
+            }
+            app.player.configure(cookie_jar, quality);
+        }
     }
 }

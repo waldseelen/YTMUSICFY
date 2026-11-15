@@ -1,6 +1,7 @@
 mod app;
 mod app_events;
 mod artwork;
+mod auth_store;
 mod interaction;
 mod navigation;
 mod overlays;

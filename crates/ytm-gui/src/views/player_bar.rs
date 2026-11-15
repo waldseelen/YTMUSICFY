@@ -122,7 +122,7 @@ fn render_track_info(
     };
 
     ui.vertical(|ui| {
-        ui.set_max_width(240.0);
+        ui.set_max_width(190.0);
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(egui::RichText::new(&track.title).strong()).truncate());
             let liked = queue.is_liked(&track.video_id);

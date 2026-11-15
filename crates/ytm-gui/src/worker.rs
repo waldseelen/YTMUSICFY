@@ -3,15 +3,18 @@ use std::fs;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use eframe::egui;
-use ytm_core::{AuthCredentials, InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
+use ytm_core::{InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
 use ytm_enrich::{EnrichmentService, MetadataProvider, ReqwestEnrichmentHttp};
 use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
 
+use crate::auth_store::{
+    active_cookie_jar_path, load_credentials_secure, save_gui_config, write_mpv_cookie_jar,
+};
 use crate::state::{GuiAppConfig, WorkerCmd, WorkerEvent};
-use crate::worker_auth::{import_auth_inner, import_browser_auth_inner};
+use crate::worker_auth::{handle_bootstrap, import_auth_inner, import_browser_auth_inner};
 use crate::worker_exec::{backup_inner, emit_progress, load_playlist, run_confirmed_mutation};
 use crate::worker_media::handle_extended_cmd;
 use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
@@ -61,14 +64,22 @@ fn load_saved_client(
     paths: &AppPaths,
     cfg: &GuiAppConfig,
 ) -> Result<InnerTubeClient<ReqwestTransport>> {
-    let bytes = fs::read(paths.auth_file()).context("reading saved auth.json")?;
-    let creds: AuthCredentials = serde_json::from_slice(&bytes).context("decoding auth.json")?;
+    let creds = load_credentials_secure(paths)?;
+    let _ = write_mpv_cookie_jar(paths, &creds);
     let transport = ReqwestTransport::new(cfg.innertube.max_retries)?;
     Ok(InnerTubeClient::new(
         transport,
         creds,
         cfg.innertube.clone(),
     ))
+}
+
+fn emit_audio_config(state: &BackendState, tx: &Sender<WorkerEvent>) {
+    let _ = tx.send(WorkerEvent::AudioConfigUpdated {
+        cookie_jar: active_cookie_jar_path(&state.paths),
+        quality: state.config.audio_quality,
+        preferred_browser: state.config.preferred_browser,
+    });
 }
 
 async fn worker_loop(
@@ -120,25 +131,13 @@ async fn handle_cmd(
 ) {
     match cmd {
         WorkerCmd::Bootstrap => {
-            if let Ok(snaps) = state.store.list_snapshots(None).await {
-                let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
-            }
-            if let Some(client) = &state.client {
-                let sess = client.verify_session().await.map_err(|e| e.to_string());
-                let is_ok = sess.as_ref().is_ok_and(|s| s.authenticated);
-                let _ = tx.send(WorkerEvent::SessionLoaded(sess));
-                if is_ok {
-                    let libs = client
-                        .get_library_playlists()
-                        .await
-                        .map_err(|e| e.to_string());
-                    let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
-                }
-            } else {
-                let _ = tx.send(WorkerEvent::SessionLoaded(Err(
-                    "No saved auth.json. Paste browser headers in Auth tab.".to_string(),
-                )));
-            }
+            emit_audio_config(state, tx);
+            handle_bootstrap(state, tx).await;
+        }
+        WorkerCmd::SetAudioQuality(quality) => {
+            state.config.audio_quality = quality;
+            let _ = save_gui_config(&state.paths, &state.config);
+            emit_audio_config(state, tx);
         }
         WorkerCmd::RefreshLibrary => {
             let Some(client) = &state.client else {
@@ -154,6 +153,7 @@ async fn handle_cmd(
             match import_auth_inner(&state.paths, &state.config, &raw).await {
                 Ok((client, status)) => {
                     state.client = Some(client);
+                    emit_audio_config(state, tx);
                     let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
                     let _ = tx.send(WorkerEvent::StatusToast {
                         ok: true,
@@ -176,6 +176,9 @@ async fn handle_cmd(
             match import_browser_auth_inner(&state.paths, &state.config, browser).await {
                 Ok((client, status)) => {
                     state.client = Some(client);
+                    state.config.preferred_browser = Some(browser);
+                    let _ = save_gui_config(&state.paths, &state.config);
+                    emit_audio_config(state, tx);
                     let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
                     let _ = tx.send(WorkerEvent::StatusToast {
                         ok: true,

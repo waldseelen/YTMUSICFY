@@ -1,18 +1,18 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eframe::egui;
 use serde_json::{Value, json};
 use ytm_core::Track;
 
-use crate::player_ipc::apply_ipc_event;
+use crate::auth_store::{AudioQuality, remove_mpv_cookie_jar_at};
+use crate::player_ipc::{apply_ipc_event, connect_with_backoff, write_json_line};
 
 /// Explicit playback finite-state machine (no parallel boolean flags).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -74,29 +74,35 @@ impl Default for PlayerSnapshot {
     }
 }
 
-/// Lightweight local `mpv` JSON Unix-socket IPC playback controller.
+enum ActorCmd {
+    Configure {
+        cookie_jar: Option<PathBuf>,
+        quality: AudioQuality,
+    },
+    Play {
+        video_id: String,
+    },
+    SetPause(bool),
+    SeekAbsolute(f64),
+    SetVolume(f64),
+    Stop,
+    Shutdown,
+}
+
+/// Non-blocking local `mpv` JSON Unix-socket IPC playback controller.
 pub struct PlayerController {
-    ctx: Option<egui::Context>,
     snapshot: Arc<Mutex<PlayerSnapshot>>,
-    cmd_tx: Option<Sender<Value>>,
-    child: Option<Child>,
-    socket_path: PathBuf,
-    shutting_down: Arc<AtomicBool>,
+    cmd_tx: Sender<ActorCmd>,
 }
 
 impl PlayerController {
     #[must_use]
     pub fn new(ctx: Option<egui::Context>) -> Self {
-        let pid = std::process::id();
-        let socket_path = std::env::temp_dir().join(format!("ytm-architect-mpv-{pid}.sock"));
-        Self {
-            ctx,
-            snapshot: Arc::new(Mutex::new(PlayerSnapshot::default())),
-            cmd_tx: None,
-            child: None,
-            socket_path,
-            shutting_down: Arc::new(AtomicBool::new(false)),
-        }
+        let snapshot = Arc::new(Mutex::new(PlayerSnapshot::default()));
+        let (cmd_tx, cmd_rx) = mpsc::channel::<ActorCmd>();
+        let actor_snap = Arc::clone(&snapshot);
+        thread::spawn(move || run_mpv_actor(cmd_rx, actor_snap, ctx));
+        Self { snapshot, cmd_tx }
     }
 
     #[must_use]
@@ -104,12 +110,8 @@ impl PlayerController {
         self.snapshot.lock().expect("lock player snapshot").clone()
     }
 
-    /// Start playing `track`, lazily spawning `mpv` IPC daemon on first invocation.
-    pub fn play_track(&mut self, track: &Track) {
-        if !self.ensure_mpv_running() {
-            return;
-        }
-        let url = format!("https://www.youtube.com/watch?v={}", track.video_id);
+    /// Queue track playback asynchronously (never blocks the UI thread).
+    pub fn play_track(&self, track: &Track) {
         let fallback_dur = f64::from(track.duration_sec.unwrap_or(0));
         {
             let mut snap = self.snapshot.lock().expect("lock player snapshot");
@@ -120,8 +122,9 @@ impl PlayerController {
             snap.position_sec = 0.0;
             snap.duration_sec = fallback_dur;
         }
-        self.send_cmd(json!({ "command": ["set_property", "pause", false] }));
-        self.send_cmd(json!({ "command": ["loadfile", url, "replace"] }));
+        let _ = self.cmd_tx.send(ActorCmd::Play {
+            video_id: track.video_id.clone(),
+        });
     }
 
     pub fn toggle_pause(&self) {
@@ -129,7 +132,7 @@ impl PlayerController {
             self.snapshot.lock().expect("lock").state,
             PlayerState::Paused { .. }
         );
-        self.send_cmd(json!({ "command": ["set_property", "pause", !paused] }));
+        let _ = self.cmd_tx.send(ActorCmd::SetPause(!paused));
     }
 
     pub fn seek_absolute(&self, sec: f64) {
@@ -137,7 +140,7 @@ impl PlayerController {
         if let Ok(mut snap) = self.snapshot.lock() {
             snap.position_sec = clamped;
         }
-        self.send_cmd(json!({ "command": ["seek", clamped, "absolute"] }));
+        let _ = self.cmd_tx.send(ActorCmd::SeekAbsolute(clamped));
     }
 
     pub fn set_volume(&self, vol: f64) {
@@ -145,7 +148,14 @@ impl PlayerController {
         if let Ok(mut snap) = self.snapshot.lock() {
             snap.volume = clamped;
         }
-        self.send_cmd(json!({ "command": ["set_property", "volume", clamped] }));
+        let _ = self.cmd_tx.send(ActorCmd::SetVolume(clamped));
+    }
+
+    pub fn configure(&self, cookie_jar: Option<PathBuf>, quality: AudioQuality) {
+        let _ = self.cmd_tx.send(ActorCmd::Configure {
+            cookie_jar,
+            quality,
+        });
     }
 
     pub fn stop(&self) {
@@ -153,157 +163,217 @@ impl PlayerController {
             snap.state = PlayerState::Stopped;
             snap.position_sec = 0.0;
         }
-        self.send_cmd(json!({ "command": ["stop"] }));
-    }
-
-    fn send_cmd(&self, payload: Value) {
-        if let Some(tx) = &self.cmd_tx {
-            let _ = tx.send(payload);
-        }
-    }
-
-    fn ensure_mpv_running(&mut self) -> bool {
-        if let Some(child) = &mut self.child {
-            match child.try_wait() {
-                Ok(None) if self.cmd_tx.is_some() => return true,
-                _ => {
-                    self.child = None;
-                    self.cmd_tx = None;
-                }
-            }
-        }
-        let _ = std::fs::remove_file(&self.socket_path);
-        let initial_vol = self.snapshot.lock().expect("lock").volume;
-        let mpv_bin = if PathBuf::from("/usr/bin/mpv").exists() {
-            "/usr/bin/mpv"
-        } else {
-            "mpv"
-        };
-        let spawned = Command::new(mpv_bin)
-            .arg("--no-video")
-            .arg("--idle=yes")
-            .arg("--really-quiet")
-            .arg("--ytdl=yes")
-            .arg("--ytdl-format=bestaudio/best")
-            .arg("--audio-display=no")
-            .arg(format!("--volume={initial_vol:.0}"))
-            .arg(format!("--input-ipc-server={}", self.socket_path.display()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-
-        let child = match spawned {
-            Ok(c) => c,
-            Err(err) => {
-                let mut snap = self.snapshot.lock().expect("lock");
-                snap.state = PlayerState::Error(format!(
-                    "Failed to launch mpv ({mpv_bin}): {err}. Ensure mpv & yt-dlp are installed."
-                ));
-                return false;
-            }
-        };
-        self.child = Some(child);
-
-        let stream = match connect_with_backoff(&self.socket_path, Duration::from_secs(3)) {
-            Ok(s) => s,
-            Err(err) => {
-                let mut snap = self.snapshot.lock().expect("lock");
-                snap.state = PlayerState::Error(format!("mpv IPC connect failed: {err}"));
-                return false;
-            }
-        };
-        let Ok(read_stream) = stream.try_clone() else {
-            return false;
-        };
-
-        let (tx, rx) = mpsc::channel::<Value>();
-        self.cmd_tx = Some(tx);
-        self.spawn_io_threads(stream, read_stream, rx);
-        true
-    }
-
-    fn spawn_io_threads(
-        &self,
-        mut write_stream: UnixStream,
-        read_stream: UnixStream,
-        rx: Receiver<Value>,
-    ) {
-        let shutting_down_w = Arc::clone(&self.shutting_down);
-        thread::spawn(move || {
-            for init in [
-                json!({ "command": ["observe_property", 1, "time-pos"] }),
-                json!({ "command": ["observe_property", 2, "duration"] }),
-                json!({ "command": ["observe_property", 3, "pause"] }),
-                json!({ "command": ["observe_property", 4, "core-idle"] }),
-            ] {
-                if write_json_line(&mut write_stream, &init).is_err() {
-                    return;
-                }
-            }
-            while !shutting_down_w.load(Ordering::Relaxed) {
-                let Ok(cmd) = rx.recv() else {
-                    break;
-                };
-                if write_json_line(&mut write_stream, &cmd).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let snap = Arc::clone(&self.snapshot);
-        let ctx = self.ctx.clone();
-        let shutting_down_r = Arc::clone(&self.shutting_down);
-        thread::spawn(move || {
-            let reader = BufReader::new(read_stream);
-            for line in reader.lines() {
-                if shutting_down_r.load(Ordering::Relaxed) {
-                    break;
-                }
-                let Ok(raw) = line else {
-                    break;
-                };
-                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
-                    let changed = apply_ipc_event(&val, &snap);
-                    if changed && let Some(c) = &ctx {
-                        c.request_repaint();
-                    }
-                }
-            }
-        });
+        let _ = self.cmd_tx.send(ActorCmd::Stop);
     }
 }
 
 impl Drop for PlayerController {
     fn drop(&mut self) {
-        self.shutting_down.store(true, Ordering::Relaxed);
-        self.send_cmd(json!({ "command": ["quit"] }));
-        if let Some(child) = &mut self.child {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        let _ = self.cmd_tx.send(ActorCmd::Shutdown);
+    }
+}
+
+struct MpvProcess {
+    child: Child,
+    write_stream: UnixStream,
+    socket_path: PathBuf,
+}
+
+impl MpvProcess {
+    fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    fn send(&mut self, value: &Value) -> bool {
+        write_json_line(&mut self.write_stream, value).is_ok()
+    }
+
+    fn shutdown(&mut self) {
+        let _ = self.send(&json!({ "command": ["quit"] }));
+        let _ = self.child.kill();
+        let _ = self.child.wait();
         let _ = std::fs::remove_file(&self.socket_path);
     }
 }
 
-fn connect_with_backoff(path: &PathBuf, timeout: Duration) -> std::io::Result<UnixStream> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match UnixStream::connect(path) {
-            Ok(s) => return Ok(s),
-            Err(err) => {
-                if Instant::now() >= deadline {
-                    return Err(err);
+fn run_mpv_actor(
+    cmd_rx: Receiver<ActorCmd>,
+    snapshot: Arc<Mutex<PlayerSnapshot>>,
+    ctx: Option<egui::Context>,
+) {
+    let pid = std::process::id();
+    let socket_path = std::env::temp_dir().join(format!("ytm-architect-mpv-{pid}.sock"));
+    let log_path = std::env::temp_dir().join("ytm-architect-mpv.log");
+    let mut proc: Option<MpvProcess> = None;
+    let mut cookie_jar: Option<PathBuf> = None;
+    let mut quality = AudioQuality::default();
+
+    while let Ok(cmd) = cmd_rx.recv() {
+        match cmd {
+            ActorCmd::Shutdown => break,
+            ActorCmd::Configure {
+                cookie_jar: next_jar,
+                quality: next_quality,
+            } => {
+                if next_jar != cookie_jar || next_quality != quality {
+                    cookie_jar = next_jar;
+                    quality = next_quality;
+                    if let Some(mut old) = proc.take() {
+                        old.shutdown();
+                    }
                 }
-                thread::sleep(Duration::from_millis(35));
+            }
+            ActorCmd::Play { video_id } => {
+                if !proc.as_mut().is_some_and(MpvProcess::is_alive) {
+                    if let Some(mut old) = proc.take() {
+                        old.shutdown();
+                    }
+                    let vol = snapshot.lock().expect("lock").volume;
+                    match spawn_mpv(
+                        &socket_path,
+                        &log_path,
+                        vol,
+                        cookie_jar.as_deref(),
+                        quality,
+                        &snapshot,
+                        &ctx,
+                    ) {
+                        Ok(p) => proc = Some(p),
+                        Err(err) => {
+                            let mut snap = snapshot.lock().expect("lock");
+                            snap.state = PlayerState::Error(err);
+                            if let Some(c) = &ctx {
+                                c.request_repaint();
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if let Some(p) = proc.as_mut() {
+                    let url = format!("https://www.youtube.com/watch?v={video_id}");
+                    let ok = p.send(&json!({ "command": ["set_property", "pause", false] }))
+                        && p.send(&json!({ "command": ["loadfile", url, "replace"] }));
+                    if !ok {
+                        p.shutdown();
+                        proc = None;
+                    }
+                }
+            }
+            ActorCmd::SetPause(paused) => {
+                if let Some(p) = proc.as_mut() {
+                    let _ = p.send(&json!({ "command": ["set_property", "pause", paused] }));
+                }
+            }
+            ActorCmd::SeekAbsolute(sec) => {
+                if let Some(p) = proc.as_mut() {
+                    let _ = p.send(&json!({ "command": ["seek", sec, "absolute"] }));
+                }
+            }
+            ActorCmd::SetVolume(vol) => {
+                if let Some(p) = proc.as_mut() {
+                    let _ = p.send(&json!({ "command": ["set_property", "volume", vol] }));
+                }
+            }
+            ActorCmd::Stop => {
+                if let Some(p) = proc.as_mut() {
+                    let _ = p.send(&json!({ "command": ["stop"] }));
+                }
             }
         }
     }
+
+    if let Some(mut p) = proc {
+        p.shutdown();
+    }
+    if let Some(jar) = cookie_jar.as_deref() {
+        remove_mpv_cookie_jar_at(jar);
+    }
 }
 
-fn write_json_line(stream: &mut UnixStream, value: &Value) -> std::io::Result<()> {
-    let mut bytes = serde_json::to_vec(value).unwrap_or_default();
-    bytes.push(b'\n');
-    stream.write_all(&bytes)?;
-    stream.flush()
+fn spawn_mpv(
+    socket_path: &Path,
+    log_path: &Path,
+    initial_vol: f64,
+    cookie_jar: Option<&Path>,
+    quality: AudioQuality,
+    snapshot: &Arc<Mutex<PlayerSnapshot>>,
+    ctx: &Option<egui::Context>,
+) -> Result<MpvProcess, String> {
+    let _ = std::fs::remove_file(socket_path);
+    let mpv_bin = if PathBuf::from("/usr/bin/mpv").exists() {
+        "/usr/bin/mpv"
+    } else {
+        "mpv"
+    };
+    let mut cmd = Command::new(mpv_bin);
+    cmd.arg("--no-video")
+        .arg("--idle=yes")
+        .arg("--really-quiet")
+        .arg("--ytdl=yes")
+        .arg(format!("--ytdl-format={}", quality.ytdl_format()));
+    if let Some(jar) = cookie_jar {
+        cmd.arg(
+            "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_music,tv,android",
+        )
+        .arg(format!(
+            "--ytdl-raw-options-append=cookies={}",
+            jar.display()
+        ));
+    } else {
+        cmd.arg("--ytdl-raw-options-append=extractor-args=youtube:player_client=android");
+    }
+    let mut child = cmd
+        .arg("--audio-display=no")
+        .arg(format!("--volume={initial_vol:.0}"))
+        .arg(format!("--log-file={}", log_path.display()))
+        .arg(format!("--input-ipc-server={}", socket_path.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to launch mpv ({mpv_bin}): {e}"))?;
+
+    let mut write_stream = match connect_with_backoff(socket_path, Duration::from_secs(4)) {
+        Ok(s) => s,
+        Err(err) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("mpv IPC connect failed: {err}"));
+        }
+    };
+    let read_stream = write_stream
+        .try_clone()
+        .map_err(|e| format!("mpv IPC stream clone failed: {e}"))?;
+
+    for init in [
+        json!({ "command": ["observe_property", 1, "time-pos"] }),
+        json!({ "command": ["observe_property", 2, "duration"] }),
+        json!({ "command": ["observe_property", 3, "pause"] }),
+        json!({ "command": ["observe_property", 4, "core-idle"] }),
+    ] {
+        let _ = write_json_line(&mut write_stream, &init);
+    }
+
+    let snap_r = Arc::clone(snapshot);
+    let ctx_r = ctx.clone();
+    thread::spawn(move || {
+        let reader = BufReader::new(read_stream);
+        for line in reader.lines() {
+            let Ok(raw) = line else {
+                break;
+            };
+            if let Ok(val) = serde_json::from_str::<Value>(&raw)
+                && apply_ipc_event(&val, &snap_r)
+                && let Some(c) = &ctx_r
+            {
+                c.request_repaint();
+            }
+        }
+    });
+
+    Ok(MpvProcess {
+        child,
+        write_stream,
+        socket_path: socket_path.to_path_buf(),
+    })
 }

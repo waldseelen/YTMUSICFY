@@ -144,6 +144,8 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             &app.session,
             &mut app.auth_raw_input,
             &mut app.auth_browser,
+            &mut app.audio_quality,
+            app.cookie_bridge_active,
             &app.cmd_tx,
         ),
     }

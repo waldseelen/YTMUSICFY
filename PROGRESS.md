@@ -16,12 +16,24 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 6 (Sync Queue, Split-Diff, Drag-Drop & Bugfixes)`: **PASS** Central `Sync` queue + Kubuntu Copy/Move popup + Inspector column sort & LIS staging + Split Diff view + `LM`/localized count fix + MusicBrainz backoff/fallback, `38/38` workspace tests PASS, 0 warnings
 - `Gate 7 (Runtime Auth, Browser Import & 20-Item UX/DnD Upgrade)`: **PASS** Runtime `INNERTUBE_API_KEY` discovery + `yt-dlp` Netscape `#HttpOnly_` browser import (`Brave`/`Chrome`/`Chromium`/`Firefox`) + 20-item DnD, auto-scroll, keyboard/accessibility, toast/undo, and resizable Split Diff upgrades, `44/44` workspace tests PASS, 0 warnings
 - `Gate 8 (Spotify-Tier Audio Player, Artwork, Playlist Meta & Discover)`: **PASS** `mpv` IPC playback + `PlayQueue` + persistent player bar + LRU thumbnail cache (`image` 0.25) + playlist rename/description/privacy/delete + `♥`/`♡` Like + `Browse` (`FEmusic_home`/Artist/Album) + Radio & Lyrics (`next` + `MPLYt_*`), `49/49` workspace tests PASS, 0 warnings
+- `Gate 9 (Non-Blocking mpv Actor, Premium Cookie Bridge, Secret Service & Quality UI)`: **PASS** background `mpv-actor` thread + `TableBuilder`/clip-rect UI fixes + `0600` Netscape cookie bridge (`web_music,tv,android`) + `secret-tool` OS keyring with `0600` fallback + silent `preferred_browser` refresh + `AudioQuality` selector, `50/50` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
-- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings (`1.46s`)
-- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings (`0.17s`)
-- `cargo test --workspace -- --test-threads=4`: **PASS** exit 0, 49/49 tests passed (`ytm-core`: 7 unit + 7 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 10 unit)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`13.42s`, binaries `./target/release/ytm-gui` 29M symlinked at `~/.local/bin/ytm-gui` & `./target/release/ytm` 15M)
+- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
+- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
+- `cargo test --workspace -- --test-threads=4`: **PASS** exit 0, 50/50 tests passed (`ytm-core`: 7 unit + 7 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 11 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`4.59s`, binaries `./target/release/ytm-gui` symlinked at `~/.local/bin/ytm-gui` & `./target/release/ytm`)
 - `wc -l`: **PASS** all source `.rs` files <= 386 lines (`max = 386` in `crates/ytm-core/src/client.rs`)
+
+---
+
+## 2026-11-15 — Wave 9 Non-Blocking mpv Actor, Premium Cookie Bridge & Auto Auth Refresh
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-gui/src/{player,player_ipc,views/queue_lyrics,views/player_bar,worker_media}.rs`: non-blocking `mpv-actor` thread (`PlayerController::configure`), `TableBuilder` + `set_clip_rect` + `^`/`v`/`x` glyph fixes in Queue & Lyrics / Player Bar, explicit unauth error handling
+  - `crates/ytm-gui/src/auth_store.rs`: `AudioQuality` (`AutoPremium`, `BalancedOpus`, `DataSaver`), `save_credentials_secure` / `load_credentials_secure` (`secret-tool` + `0600` `auth.json` fallback), `write_mpv_cookie_jar` / `remove_mpv_cookie_jar_at` (`0600` `ytm-cookies.txt`), `save_gui_config`
+  - `crates/ytm-gui/src/{state,worker,worker_auth,worker_msgs,app,app_events,tab_router,views/auth,main}.rs`: `preferred_browser` & `audio_quality` persistence in `config.toml`, silent `Bootstrap` browser refresh via `handle_bootstrap`, `AudioConfigUpdated` wiring to `PlayerController`, `Auth` tab quality selector + Cookie Bridge indicator
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace -- --test-threads=4` (50/50 PASS), and `cargo build --release --bin ytm-gui --bin ytm` (4.59s) exited 0 with 0 warnings; max file length 386 lines (`<= 400`).
 
 ---
 

@@ -3,6 +3,7 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::SessionStatus;
 
+use crate::auth_store::AudioQuality;
 use crate::state::{AsyncState, BrowserKind, WorkerCmd};
 use crate::views::async_banner;
 
@@ -11,6 +12,8 @@ pub fn show(
     session: &AsyncState<SessionStatus>,
     raw_input: &mut String,
     browser: &mut BrowserKind,
+    audio_quality: &mut AudioQuality,
+    cookie_bridge_active: bool,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.heading("InnerTube Authentication");
@@ -44,6 +47,30 @@ pub fn show(
             });
         if ui.button("Import Session from Browser").clicked() {
             let _ = cmd_tx.send(WorkerCmd::ImportBrowserAuth(*browser));
+        }
+    });
+
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.strong("Audio Stream Quality:");
+        let prev_quality = *audio_quality;
+        egui::ComboBox::from_id_salt("audio_quality_combo")
+            .selected_text(audio_quality.label())
+            .show_ui(ui, |ui| {
+                for preset in AudioQuality::ALL {
+                    ui.selectable_value(audio_quality, preset, preset.label());
+                }
+            });
+        if *audio_quality != prev_quality {
+            let _ = cmd_tx.send(WorkerCmd::SetAudioQuality(*audio_quality));
+        }
+        if cookie_bridge_active {
+            ui.colored_label(
+                egui::Color32::from_rgb(90, 200, 120),
+                "Cookie Bridge: Active (0600 -> web_music/tv)",
+            );
+        } else {
+            ui.weak("Cookie Bridge: Anonymous (android fallback)");
         }
     });
 

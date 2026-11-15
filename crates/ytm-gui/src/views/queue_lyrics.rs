@@ -1,4 +1,5 @@
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 
 use crate::app::YtmGuiApp;
 use crate::navigation::ToastState;
@@ -16,6 +17,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
 
     ui.columns(2, |cols| {
         cols[0].group(|ui| {
+            ui.set_clip_rect(ui.max_rect());
             ui.horizontal_wrapped(|ui| {
                 ui.heading(format!("Play Queue ({})", app.play_queue.tracks().len()));
                 if ui
@@ -44,63 +46,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
             ui.separator();
 
             if app.play_queue.tracks().is_empty() {
-                ui.label("Queue is empty. Double-click any track in Inspector or Browse to start playing.");
+                ui.label(
+                    "Queue is empty. Double-click any track in Inspector or Browse to start playing.",
+                );
             } else {
-                let cur_idx = app.play_queue.current_index();
-                let len = app.play_queue.tracks().len();
-                egui::ScrollArea::vertical()
-                    .id_salt("queue_scroll")
-                    .show(ui, |ui| {
-                        for (idx, t) in app.play_queue.tracks().iter().enumerate() {
-                            let active = cur_idx == Some(idx);
-                            ui.horizontal(|ui| {
-                                let label = if active {
-                                    egui::RichText::new(format!("▶ {}", idx + 1))
-                                        .strong()
-                                        .color(egui::Color32::from_rgb(90, 210, 130))
-                                } else {
-                                    egui::RichText::new(format!("{}", idx + 1))
-                                };
-                                if ui.small_button(label).clicked() {
-                                    jump_to = Some(idx);
-                                }
-                                if let Some(url) = t.effective_thumbnail_url()
-                                    && let Some(tex) = app.artwork.texture_for(ui.ctx(), &url)
-                                {
-                                    ui.add(
-                                        egui::Image::new((tex.id(), egui::vec2(22.0, 22.0)))
-                                            .corner_radius(3.0),
-                                    );
-                                }
-                                if ui.selectable_label(active, &t.title).double_clicked() {
-                                    jump_to = Some(idx);
-                                }
-                                ui.small(t.primary_artist_name().unwrap_or("-"));
-                                if let Some(d) = t.duration_sec {
-                                    ui.small(format_duration(u64::from(d)));
-                                }
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.small_button("✕").on_hover_text("Remove").clicked() {
-                                            remove_idx = Some(idx);
-                                        }
-                                        if idx + 1 < len && ui.small_button("↓").clicked() {
-                                            move_pair = Some((idx, idx + 1));
-                                        }
-                                        if idx > 0 && ui.small_button("↑").clicked() {
-                                            move_pair = Some((idx, idx - 1));
-                                        }
-                                    },
-                                );
-                            });
-                        }
-                    });
+                render_queue_table(ui, app, &mut jump_to, &mut move_pair, &mut remove_idx);
             }
         });
 
         cols[1].group(|ui| {
-            ui.horizontal(|ui| {
+            ui.set_clip_rect(ui.max_rect());
+            ui.horizontal_wrapped(|ui| {
                 ui.heading("Lyrics");
                 if let Some(lbid) = app.lyrics_browse_id.as_ref()
                     && ui.button("↻ Reload").clicked()
@@ -112,11 +68,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
                 }
             });
             if let Some(cur) = app.play_queue.current_track() {
-                ui.small(format!(
-                    "{} — {}",
-                    cur.title,
-                    cur.primary_artist_name().unwrap_or("-")
-                ));
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!(
+                            "{} — {}",
+                            cur.title,
+                            cur.primary_artist_name().unwrap_or("-")
+                        ))
+                        .small(),
+                    )
+                    .truncate(),
+                );
             }
             ui.separator();
 
@@ -161,4 +123,110 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
     }
 
     actions
+}
+
+fn render_queue_table(
+    ui: &mut egui::Ui,
+    app: &mut YtmGuiApp,
+    jump_to: &mut Option<usize>,
+    move_pair: &mut Option<(usize, usize)>,
+    remove_idx: &mut Option<usize>,
+) {
+    let cur_idx = app.play_queue.current_index();
+    let len = app.play_queue.tracks().len();
+    let tracks = app.play_queue.tracks().to_vec();
+    let table_h = ui.available_height().max(120.0);
+
+    ui.allocate_ui(egui::vec2(ui.available_width(), table_h), |ui| {
+        TableBuilder::new(ui)
+            .id_salt("queue_table")
+            .striped(true)
+            .column(Column::exact(38.0))
+            .column(Column::exact(24.0))
+            .column(Column::remainder().clip(true))
+            .column(Column::exact(44.0))
+            .column(Column::exact(74.0))
+            .body(|body| {
+                body.rows(26.0, tracks.len(), |mut row| {
+                    let idx = row.index();
+                    let t = &tracks[idx];
+                    let active = cur_idx == Some(idx);
+                    row.set_selected(active);
+
+                    row.col(|ui| {
+                        let label = if active {
+                            egui::RichText::new(format!("▶{}", idx + 1))
+                                .strong()
+                                .color(egui::Color32::from_rgb(90, 210, 130))
+                        } else {
+                            egui::RichText::new(format!("{}", idx + 1))
+                        };
+                        if ui.small_button(label).clicked() {
+                            *jump_to = Some(idx);
+                        }
+                    });
+
+                    row.col(|ui| {
+                        if let Some(url) = t.effective_thumbnail_url()
+                            && let Some(tex) = app.artwork.texture_for(ui.ctx(), &url)
+                        {
+                            ui.add(
+                                egui::Image::new((tex.id(), egui::vec2(20.0, 20.0)))
+                                    .corner_radius(3.0),
+                            );
+                        }
+                    });
+
+                    row.col(|ui| {
+                        let text =
+                            format!("{} — {}", t.title, t.primary_artist_name().unwrap_or("-"));
+                        let resp = ui.add(
+                            egui::Label::new(if active {
+                                egui::RichText::new(text).strong()
+                            } else {
+                                egui::RichText::new(text)
+                            })
+                            .truncate()
+                            .sense(egui::Sense::click()),
+                        );
+                        if resp.double_clicked() {
+                            *jump_to = Some(idx);
+                        }
+                    });
+
+                    row.col(|ui| {
+                        if let Some(d) = t.duration_sec {
+                            ui.small(format_duration(u64::from(d)));
+                        }
+                    });
+
+                    row.col(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            if ui
+                                .add_enabled(idx > 0, egui::Button::new("^").small())
+                                .on_hover_text("Move Up")
+                                .clicked()
+                            {
+                                *move_pair = Some((idx, idx - 1));
+                            }
+                            if ui
+                                .add_enabled(idx + 1 < len, egui::Button::new("v").small())
+                                .on_hover_text("Move Down")
+                                .clicked()
+                            {
+                                *move_pair = Some((idx, idx + 1));
+                            }
+                            if ui
+                                .small_button("x")
+                                .on_hover_text("Remove from queue")
+                                .clicked()
+                            {
+                                *remove_idx = Some(idx);
+                            }
+                        });
+                    });
+                });
+            });
+    });
 }
