@@ -202,6 +202,9 @@ async fn handle_cmd(
                 return;
             };
             let result = load_playlist(client, &id).await.map_err(|e| e.to_string());
+            if let Ok(pl) = &result {
+                let _ = state.store.upsert_cached_playlist(pl);
+            }
             let _ = tx.send(WorkerEvent::PlaylistLoaded {
                 playlist_id: id,
                 result,
@@ -380,6 +383,6 @@ async fn handle_cmd(
                 let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
             }
         }
-        other => handle_extended_cmd(state, other, tx).await,
+        other => handle_extended_cmd(state, other, tx, ctx).await,
     }
 }

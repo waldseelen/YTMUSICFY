@@ -41,6 +41,16 @@ impl BrowserKind {
             Self::Firefox => "firefox",
         }
     }
+
+    #[must_use]
+    pub fn ytdlp_candidates(self) -> Vec<String> {
+        let base = self.ytdlp_arg();
+        if cfg!(target_os = "linux") && !matches!(self, Self::Firefox) {
+            vec![format!("{base}+gnomekeyring"), base.to_string()]
+        } else {
+            vec![base.to_string()]
+        }
+    }
 }
 
 pub async fn import_auth_inner(
@@ -70,38 +80,56 @@ pub async fn import_browser_auth_inner(
     let tmp_path = paths
         .data_dir()
         .join(format!("ytm-browser-cookies-{}.txt", std::process::id()));
-    let _ = std::fs::remove_file(&tmp_path);
 
-    let output = tokio::process::Command::new("yt-dlp")
-        .args([
-            "--cookies-from-browser",
-            browser.ytdlp_arg(),
-            "--cookies",
-            &tmp_path.to_string_lossy(),
-            "--skip-download",
-            "--no-playlist",
-            "--quiet",
-            "https://music.youtube.com/",
-        ])
-        .output()
-        .await
-        .context("running yt-dlp (install yt-dlp or paste headers manually)")?;
+    let mut last_err = String::new();
+    for spec in browser.ytdlp_candidates() {
+        let _ = std::fs::remove_file(&tmp_path);
+        let output = tokio::process::Command::new("yt-dlp")
+            .args([
+                "--ignore-config",
+                "--cookies-from-browser",
+                &spec,
+                "--cookies",
+                &tmp_path.to_string_lossy(),
+                "--skip-download",
+                "--no-playlist",
+                "--quiet",
+                "https://www.youtube.com/watch?v=BaW_jenozKc",
+            ])
+            .output()
+            .await
+            .context("running yt-dlp (install yt-dlp or paste headers manually)")?;
 
-    let cookie_txt = std::fs::read_to_string(&tmp_path);
-    let _ = std::fs::remove_file(&tmp_path);
+        let cookie_txt = std::fs::read_to_string(&tmp_path);
+        let _ = std::fs::remove_file(&tmp_path);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "yt-dlp failed reading {} cookies: {}",
-            browser.label(),
-            stderr.trim()
-        );
+        if let Ok(raw_netscape) = cookie_txt
+            && let Ok(cookie_header) = netscape_cookies_to_header(&raw_netscape)
+        {
+            return import_auth_inner(paths, cfg, &cookie_header).await;
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stderr.is_empty() {
+            last_err = stderr;
+        }
+        if last_err.contains("secretstorage") {
+            anyhow::bail!(
+                "yt-dlp needs Python `secretstorage` to decrypt {} keyring cookies. Run: sudo pacman -S python-secretstorage",
+                browser.label()
+            );
+        }
     }
-    let raw_netscape = cookie_txt.context("reading exported browser cookies")?;
-    let cookie_header = netscape_cookies_to_header(&raw_netscape)
-        .context("missing signed-in YouTube Music cookies in browser profile")?;
-    import_auth_inner(paths, cfg, &cookie_header).await
+
+    anyhow::bail!(
+        "yt-dlp failed reading {} cookies: {}",
+        browser.label(),
+        if last_err.is_empty() {
+            "no signed-in YouTube Music cookies found".to_string()
+        } else {
+            last_err
+        }
+    );
 }
 
 pub(crate) async fn handle_bootstrap(
@@ -111,6 +139,11 @@ pub(crate) async fn handle_bootstrap(
     use ytm_core::InnerTubeClientTrait;
     use ytm_store::SnapshotStore;
 
+    if let Ok(cached) = state.store.load_all_cached_playlists()
+        && !cached.is_empty()
+    {
+        let _ = tx.send(crate::state::WorkerEvent::PlaylistCacheHydrated(cached));
+    }
     if let Ok(snaps) = state.store.list_snapshots(None).await {
         let _ = tx.send(crate::state::WorkerEvent::SnapshotsLoaded(Ok(snaps)));
     }

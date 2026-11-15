@@ -77,6 +77,9 @@ pub enum WorkerCmd {
         browse_id: String,
     },
     SetAudioQuality(AudioQuality),
+    IndexAllPlaylists {
+        missing_only: bool,
+    },
 }
 
 /// Events emitted from Tokio background worker back to UI thread.
@@ -124,6 +127,7 @@ pub enum WorkerEvent {
         quality: AudioQuality,
         preferred_browser: Option<BrowserKind>,
     },
+    PlaylistCacheHydrated(Vec<Playlist>),
 }
 
 // Keep unused-import-free compilation cleanly if KeeperStrategy isn't directly named here.

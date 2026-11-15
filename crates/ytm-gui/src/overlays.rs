@@ -8,7 +8,7 @@ use ytm_store::ExportFormat;
 
 use crate::interaction::status_badge;
 use crate::navigation::{NavHistory, ToastState};
-use crate::state::{AsyncState, DropPrompt, GuiTab, PendingMutation, WorkerCmd};
+use crate::state::{AsyncState, DragDropMode, DropPrompt, GuiTab, PendingMutation, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 
 #[allow(clippy::too_many_arguments)]
@@ -83,7 +83,11 @@ pub fn show_top_bar(
                     out_dir: PathBuf::from(export_dir.trim()),
                 });
             }
-            if ui.button("Refresh Library").clicked() {
+            if ui
+                .button("Refresh Library")
+                .on_hover_text("Reload your YouTube Music playlists list")
+                .clicked()
+            {
                 *library = AsyncState::Loading("Refreshing library...".to_string());
                 let _ = cmd_tx.send(WorkerCmd::RefreshLibrary);
             }
@@ -162,11 +166,12 @@ fn stage_move_tracks(
     ));
 }
 
-/// Immediately stages Copy (`Ctrl`) or Move (`Shift`) on drop, or opens `DropPrompt` popup.
+/// Immediately stages Copy (`Ctrl`) or Move (`Shift`) or applies `drag_mode`, else opens `DropPrompt`.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_cross_playlist_drop(
     ctx: &egui::Context,
     prompt: DropPrompt,
+    drag_mode: DragDropMode,
     drop_prompt: &mut Option<DropPrompt>,
     playlist_cache: &HashMap<String, Playlist>,
     library: &AsyncState<Vec<PlaylistSummary>>,
@@ -180,7 +185,10 @@ pub fn handle_cross_playlist_drop(
         library,
     );
     let (ctrl, shift) = ctx.input(|i| (i.modifiers.ctrl || i.modifiers.mac_cmd, i.modifiers.shift));
-    if ctrl && target_editable {
+    let want_copy = ctrl || (!shift && drag_mode == DragDropMode::Copy);
+    let want_move = shift || (!ctrl && drag_mode == DragDropMode::Move);
+
+    if want_copy && target_editable {
         stage_copy_tracks(
             sync_queue,
             &prompt.target_playlist_id,
@@ -190,7 +198,7 @@ pub fn handle_cross_playlist_drop(
         );
         return;
     }
-    if shift && target_editable && src_can_remove {
+    if want_move && target_editable && src_can_remove {
         stage_move_tracks(
             sync_queue,
             &prompt.source_playlist_id,

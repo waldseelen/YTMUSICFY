@@ -3,6 +3,7 @@ pub mod error;
 pub mod export;
 pub mod models;
 pub mod paths;
+pub mod playlist_cache;
 pub mod snapshot;
 pub mod traits;
 

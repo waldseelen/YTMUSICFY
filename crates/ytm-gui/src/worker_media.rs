@@ -1,16 +1,21 @@
+use std::collections::HashSet;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
+use eframe::egui;
 use ytm_core::InnerTubeClientTrait;
 use ytm_store::SnapshotStore;
 
 use crate::worker::BackendState;
+use crate::worker_exec::{emit_progress, load_playlist};
 use crate::worker_msgs::{WorkerCmd, WorkerEvent};
 
-/// Execute playlist metadata update, like toggle, browse, radio `next`, or lyrics fetch.
+/// Execute playlist metadata update, like toggle, browse, radio `next`, lyrics, or repertoire indexing.
 pub(crate) async fn handle_extended_cmd(
     state: &mut BackendState,
     cmd: WorkerCmd,
     tx: &Sender<WorkerEvent>,
+    ctx: &egui::Context,
 ) {
     let Some(client) = &state.client else {
         let msg = "Not authenticated: sign in under Auth tab first.".to_string();
@@ -114,6 +119,72 @@ pub(crate) async fn handle_extended_cmd(
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::LyricsLoaded(res));
+        }
+        WorkerCmd::IndexAllPlaylists { missing_only } => {
+            let cached_ids: HashSet<String> = if missing_only {
+                state
+                    .store
+                    .load_all_cached_playlists()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| p.id)
+                    .collect()
+            } else {
+                HashSet::new()
+            };
+            let libs = match client.get_library_playlists().await {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = tx.send(WorkerEvent::StatusToast {
+                        ok: false,
+                        message: format!("Repertoire index failed: {e}"),
+                    });
+                    return;
+                }
+            };
+            let targets: Vec<_> = libs
+                .into_iter()
+                .filter(|p| !missing_only || !cached_ids.contains(&p.id))
+                .collect();
+            let total = targets.len();
+            if total == 0 {
+                let _ = tx.send(WorkerEvent::StatusToast {
+                    ok: true,
+                    message: "All playlists are already indexed locally.".to_string(),
+                });
+                return;
+            }
+            let mut indexed = 0usize;
+            for (idx, sum) in targets.iter().enumerate() {
+                emit_progress(
+                    tx,
+                    ctx,
+                    idx,
+                    total,
+                    format!("Indexing {}/{total}: {}", idx + 1, sum.title),
+                );
+                let result = load_playlist(client, &sum.id)
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Ok(pl) = &result {
+                    let _ = state.store.upsert_cached_playlist(pl);
+                    indexed += 1;
+                }
+                let _ = tx.send(WorkerEvent::PlaylistLoaded {
+                    playlist_id: sum.id.clone(),
+                    result,
+                });
+                if idx + 1 < total {
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                }
+            }
+            emit_progress(tx, ctx, total, total, "Indexing complete".to_string());
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: true,
+                message: format!(
+                    "Indexed {indexed}/{total} playlist(s) locally for instant search."
+                ),
+            });
         }
         _ => {}
     }

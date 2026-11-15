@@ -13,6 +13,7 @@ mod playlist_meta_modal;
 mod sidebar;
 mod state;
 mod sync_queue;
+mod tab_bar;
 mod tab_router;
 mod views;
 mod worker;

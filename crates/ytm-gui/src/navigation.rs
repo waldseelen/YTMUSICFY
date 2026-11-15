@@ -135,7 +135,9 @@ pub fn show_status_bar(
         *toast = None;
     }
     ui.horizontal(|ui| {
-        ui.label("Ctrl+1..9 Tabs | Ctrl+F Search | Ctrl+Enter Sync | Alt+◀/▶ History");
+        ui.label(
+            "Ctrl+1..9 Tabs | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync | Alt+◀/▶ History",
+        );
         if let Some((done, total, msg)) = batch_progress {
             ui.separator();
             let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
@@ -191,11 +193,18 @@ pub fn apply_global_input(
     active_tab: &mut GuiTab,
     selected_playlist_id: &mut Option<String>,
     focus_search_once: &mut bool,
-    sync_queue: &SyncQueue,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<ToastState>,
     pending_modal: &mut Option<PendingMutation>,
     nav_history: &mut NavHistory,
 ) -> bool {
     let g = poll_global_input(ctx);
+    if g.undo_last
+        && let Some(eid) = sync_queue.last_entry_id()
+    {
+        sync_queue.remove_entry(eid);
+        *toast = Some(ToastState::info(true, "Undid last staged action (Ctrl+Z)."));
+    }
     if let Some(delta) = g.zoom_delta {
         *ui_scale = (*ui_scale + delta).clamp(0.8, 1.6);
     } else if g.reset_zoom {

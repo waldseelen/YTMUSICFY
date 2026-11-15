@@ -9,16 +9,19 @@ use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
 use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::state::{
-    AsyncState, ConfirmedMutation, DragTrackPayload, DropPrompt, GuiTab, PendingMutation,
-    SetOpsForm, SplitPaneState, WorkerCmd,
+    AsyncState, ConfirmedMutation, DragDropMode, DragTrackPayload, DropPrompt, GuiTab,
+    PendingMutation, SetOpsForm, SidebarSearchMode, SplitPaneState, WorkerCmd,
 };
 use crate::sync_queue::{StagedOp, SyncQueue};
+use crate::views::repertoire_tree::collect_repertoire_matches;
 
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     library: &AsyncState<Vec<PlaylistSummary>>,
     sidebar_filter: &mut String,
+    search_mode: &mut SidebarSearchMode,
+    drag_mode: DragDropMode,
     new_playlist_title: &mut String,
     selected_playlist_id: &mut Option<String>,
     loading_playlists: &mut HashSet<String>,
@@ -35,15 +38,58 @@ pub fn show(
     focused_idx: &mut Option<usize>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
-    ui.strong("Library Playlists");
+    ui.horizontal(|ui| {
+        ui.strong("Library");
+        ui.selectable_value(search_mode, SidebarSearchMode::Playlists, "Lists")
+            .on_hover_text("Filter sidebar playlist titles");
+        if ui
+            .selectable_value(search_mode, SidebarSearchMode::AllTracks, "All Tracks")
+            .on_hover_text("Search artist/title across ALL playlists and open File-Tree view")
+            .clicked()
+        {
+            *active_tab = GuiTab::Inspector;
+        }
+    });
+    let hint = match *search_mode {
+        SidebarSearchMode::Playlists => "Filter playlists...",
+        SidebarSearchMode::AllTracks => "Search artist/song across all lists...",
+    };
+    let prev_filter = sidebar_filter.clone();
+    let box_w = (ui.available_width() - 42.0).clamp(140.0, 220.0);
     search_box_with_clear(
         ui,
         "sidebar_filter_box",
         sidebar_filter,
-        "Filter playlists...",
-        ui.available_width() - 28.0,
+        hint,
+        box_w,
         focus_filter,
     );
+    if *search_mode == SidebarSearchMode::AllTracks
+        && *sidebar_filter != prev_filter
+        && !sidebar_filter.trim().is_empty()
+    {
+        *active_tab = GuiTab::Inspector;
+    }
+    if *search_mode == SidebarSearchMode::AllTracks {
+        let total_pl = library.data().map_or(0, Vec::len);
+        let cached_pl = library.data().map_or(0, |list| {
+            list.iter()
+                .filter(|p| playlist_cache.contains_key(&p.id))
+                .count()
+        });
+        ui.horizontal(|ui| {
+            ui.small(format!("Indexed: {cached_pl}/{total_pl}"));
+            if ui
+                .small_button("Index All")
+                .on_hover_text(
+                    "Download uncached playlists locally (350ms paced) for offline search",
+                )
+                .clicked()
+            {
+                let _ = cmd_tx.send(WorkerCmd::IndexAllPlaylists { missing_only: true });
+            }
+        });
+    }
     ui.horizontal(|ui| {
         let new_resp = ui.add(
             egui::TextEdit::singleline(new_playlist_title)
@@ -90,9 +136,27 @@ pub fn show(
 
     let dirty_ids = sync_queue.affected_playlist_ids();
     let needle = sidebar_filter.trim().to_ascii_lowercase();
+    let track_hit_counts: HashMap<String, usize> =
+        if *search_mode == SidebarSearchMode::AllTracks && !needle.is_empty() {
+            collect_repertoire_matches(&needle, playlists, playlist_cache, sync_queue)
+                .into_iter()
+                .map(|m| (m.playlist.id, m.tracks.len()))
+                .collect()
+        } else {
+            HashMap::new()
+        };
     let filtered: Vec<&PlaylistSummary> = playlists
         .iter()
-        .filter(|pl| needle.is_empty() || pl.title.to_ascii_lowercase().contains(&needle))
+        .filter(|pl| {
+            if needle.is_empty() {
+                true
+            } else if *search_mode == SidebarSearchMode::AllTracks {
+                track_hit_counts.contains_key(&pl.id)
+                    || pl.title.to_ascii_lowercase().contains(&needle)
+            } else {
+                pl.title.to_ascii_lowercase().contains(&needle)
+            }
+        })
         .collect();
 
     let sidebar_active = ui.rect_contains_pointer(ui.max_rect())
@@ -141,9 +205,17 @@ pub fn show(
             } else {
                 ""
             };
-            let label = format!("{dirty_mark}{} ({count}){loading_mark}", pl.title);
+            let hit_mark = track_hit_counts
+                .get(&pl.id)
+                .map_or_else(String::new, |h| format!(" [{h}★]"));
+            let label = format!("{dirty_mark}{} ({count}){hit_mark}{loading_mark}", pl.title);
 
-            let resp = ui.selectable_label(selected || kb_focused, label);
+            let resp = ui.add(
+                egui::Button::new(label)
+                    .selected(selected || kb_focused)
+                    .frame(selected || kb_focused)
+                    .truncate(),
+            );
             if kb_focused {
                 resp.scroll_to_me(Some(egui::Align::Center));
             }
@@ -173,6 +245,7 @@ pub fn show(
                 handle_cross_playlist_drop(
                     ui.ctx(),
                     prompt,
+                    drag_mode,
                     drop_prompt,
                     playlist_cache,
                     library,

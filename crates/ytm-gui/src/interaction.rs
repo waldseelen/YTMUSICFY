@@ -10,6 +10,7 @@ pub struct GlobalInput {
     pub switch_tab: Option<GuiTab>,
     pub focus_search: bool,
     pub trigger_sync: bool,
+    pub undo_last: bool,
     pub zoom_delta: Option<f32>,
     pub reset_zoom: bool,
     pub nav_delta: i8,
@@ -44,6 +45,9 @@ pub fn poll_global_input(ctx: &egui::Context) -> GlobalInput {
             }
             if i.key_pressed(egui::Key::Enter) {
                 out.trigger_sync = true;
+            }
+            if i.key_pressed(egui::Key::Z) && !ctx.wants_keyboard_input() {
+                out.undo_last = true;
             }
             if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
                 out.zoom_delta = Some(0.1);

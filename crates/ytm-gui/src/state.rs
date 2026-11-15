@@ -53,11 +53,11 @@ pub enum GuiTab {
 impl GuiTab {
     pub const ALL: [Self; 11] = [
         Self::Browse,
-        Self::Inspector,
         Self::QueueLyrics,
-        Self::Dedupe,
-        Self::Sort,
+        Self::Inspector,
         Self::SetOps,
+        Self::Sort,
+        Self::Dedupe,
         Self::Health,
         Self::GenreSplit,
         Self::Snapshots,
@@ -322,6 +322,56 @@ impl Default for GenreSplitForm {
         Self {
             min_tracks: 5,
             custom_genres_toml: String::new(),
+        }
+    }
+}
+
+/// Search bar mode in the top-left sidebar (`Lists` filters titles, `AllTracks` searches entire repertoire).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarSearchMode {
+    #[default]
+    Playlists,
+    AllTracks,
+}
+
+/// Default action when dropping tracks onto another playlist (`Ctrl`=Copy / `Shift`=Move still override).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DragDropMode {
+    #[default]
+    Ask,
+    Move,
+    Copy,
+}
+
+impl DragDropMode {
+    pub const ALL: [Self; 3] = [Self::Ask, Self::Move, Self::Copy];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ask => "Ask",
+            Self::Move => "Move",
+            Self::Copy => "Copy",
+        }
+    }
+}
+
+/// UI state for the horizontal Repertoire File-Tree search & drag-drop workspace.
+#[derive(Debug, Clone)]
+pub struct RepertoireTreeState {
+    pub collapsed_playlists: std::collections::HashSet<String>,
+    pub selected_keys: std::collections::HashSet<String>,
+    pub target_playlist_id: Option<String>,
+    pub split_ratio: f32,
+}
+
+impl Default for RepertoireTreeState {
+    fn default() -> Self {
+        Self {
+            collapsed_playlists: std::collections::HashSet::new(),
+            selected_keys: std::collections::HashSet::new(),
+            target_playlist_id: None,
+            split_ratio: 0.52,
         }
     }
 }

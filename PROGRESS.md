@@ -4,7 +4,7 @@ Sole authority for dates, verification gate statuses, and operational session hi
 
 ---
 
-## Current Gate Status (2026-11-15)
+## Current Gate Status (2026-11-16)
 
 - `Gate 0A (Reference Audit)`: **PASS** `.refs/RESEARCH_NOTES.md` and 7 sanitized fixtures in `tests/fixtures/` verified; `.refs/` gitignored
 - `Gate 0B (Workspace & Contract Lock)`: **PASS** exit 0, 0 warnings
@@ -17,12 +17,25 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 7 (Runtime Auth, Browser Import & 20-Item UX/DnD Upgrade)`: **PASS** Runtime `INNERTUBE_API_KEY` discovery + `yt-dlp` Netscape `#HttpOnly_` browser import (`Brave`/`Chrome`/`Chromium`/`Firefox`) + 20-item DnD, auto-scroll, keyboard/accessibility, toast/undo, and resizable Split Diff upgrades, `44/44` workspace tests PASS, 0 warnings
 - `Gate 8 (Spotify-Tier Audio Player, Artwork, Playlist Meta & Discover)`: **PASS** `mpv` IPC playback + `PlayQueue` + persistent player bar + LRU thumbnail cache (`image` 0.25) + playlist rename/description/privacy/delete + `♥`/`♡` Like + `Browse` (`FEmusic_home`/Artist/Album) + Radio & Lyrics (`next` + `MPLYt_*`), `49/49` workspace tests PASS, 0 warnings
 - `Gate 9 (Non-Blocking mpv Actor, Premium Cookie Bridge, Secret Service & Quality UI)`: **PASS** background `mpv-actor` thread + `TableBuilder`/clip-rect UI fixes + `0600` Netscape cookie bridge (`web_music,tv,android`) + `secret-tool` OS keyring with `0600` fallback + silent `preferred_browser` refresh + `AudioQuality` selector, `50/50` workspace tests PASS, 0 warnings
+- `Gate 10 (UI/UX Accessibility, Grouped Tabs, Persistent Order Sync & Repertoire File-Tree)`: **PASS** full-cell column `sort_header` (`A-Z`/`Z-A`) + 4-group color-coded responsive 2-row `tab_bar` with hover tooltips + prominent `"Save Order to YTM (N moves · tracks unchanged)"` LIS bar + `ytm-store` SQLite `playlist_cache` & paced `IndexAllPlaylists` + `[Lists | All Tracks]` sidebar search + horizontal split `repertoire_tree`/`repertoire_target` drag-drop (`Ask`/`Move`/`Copy`) + `Ctrl+Z` undo, `53/53` workspace tests PASS, 0 warnings
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace -- --test-threads=4`: **PASS** exit 0, 50/50 tests passed (`ytm-core`: 7 unit + 7 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 11 unit)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`4.59s`, binaries `./target/release/ytm-gui` symlinked at `~/.local/bin/ytm-gui` & `./target/release/ytm`)
-- `wc -l`: **PASS** all source `.rs` files <= 386 lines (`max = 386` in `crates/ytm-core/src/client.rs`)
+- `cargo test --workspace -- --test-threads=4`: **PASS** exit 0, 53/53 tests passed (`ytm-core`: 7 unit + 7 integration, `ytm-store`: 3 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 7 integration, `ytm-cli`: 2 unit + 2 integration, `ytm-gui`: 13 unit)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`6.62s`, binaries `./target/release/ytm-gui` symlinked at `~/.local/bin/ytm-gui` & `./target/release/ytm`)
+- `wc -l`: **PASS** all source `.rs` files <= 400 lines (`max = 400` in `crates/ytm-gui/src/views/inspect.rs`)
+
+---
+
+## 2026-11-16 — Wave 10 UI/UX Accessibility, Grouped Tabs, Persistent Order Sync & Repertoire File-Tree
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-store/src/{db,lib,playlist_cache}.rs`: `playlist_cache` SQLite table + `upsert_cached_playlist` / `load_all_cached_playlists` / `delete_cached_playlist` + roundtrip test
+  - `crates/ytm-gui/src/{tab_bar,tab_router,state,interaction,navigation,overlays,sidebar,app,app_events,main}.rs`: 4-group color-coded responsive tab bar (`tab_bar.rs`) + hover tooltips + `[Lists | All Tracks]` search mode + `DragDropMode` (`Ask`/`Move`/`Copy`) + `Ctrl+Z` staged undo
+  - `crates/ytm-gui/src/views/{inspect_sort,inspect_helpers,inspect,repertoire_tree,repertoire_target,split_pane,mod}.rs`: full-cell `sort_header` (`A-Z`/`Z-A`), prominent LIS `"Save Order to YTM"` action bar, horizontal File-Tree <-> Target Workspace drag-and-drop search
+  - `crates/ytm-gui/src/{worker,worker_auth,worker_media,worker_msgs}.rs`: SQLite `PlaylistCacheHydrated` on `Bootstrap`, automatic cache upsert on `LoadPlaylist`, paced `350ms` `IndexAllPlaylists` worker task, `yt-dlp` `brave+gnomekeyring` & video URL cookie extraction fix
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace -- --test-threads=4` (53/53 PASS), and `cargo build --release --bin ytm-gui --bin ytm` (6.62s) exited 0 with 0 warnings; max file length 400 lines (`<= 400`).
 
 ---
 

@@ -2,21 +2,13 @@ use eframe::egui;
 
 use crate::app::YtmGuiApp;
 use crate::playback_ops::dispatch_play_actions;
-use crate::state::{AsyncState, GuiTab, WorkerCmd};
+use crate::state::{AsyncState, GuiTab, SidebarSearchMode, WorkerCmd};
+use crate::tab_bar::show_tab_bar;
 use crate::views;
 
 pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
     let sync_len = app.sync_queue.len();
-    ui.horizontal_wrapped(|ui| {
-        for tab in GuiTab::ALL {
-            let label = if tab == GuiTab::Sync && sync_len > 0 {
-                format!("Sync ({sync_len})")
-            } else {
-                tab.label().to_string()
-            };
-            ui.selectable_value(&mut app.active_tab, tab, label);
-        }
-    });
+    show_tab_bar(ui, &mut app.active_tab, sync_len);
     ui.separator();
 
     let sel_id = app.selected_playlist_id.as_deref();
@@ -44,40 +36,62 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             pending_actions = views::queue_lyrics::show(ui, app);
         }
         GuiTab::Inspector => {
-            let is_loading = sel_id.is_some_and(|id| app.loading_playlists.contains(id));
-            let load_err = sel_id
-                .and_then(|id| app.playlist_errors.get(id))
-                .map(String::as_str);
-            pending_actions = views::inspect::show(
-                ui,
-                draft_active.as_ref(),
-                &mut app.selected_playlist_id,
-                is_loading,
-                load_err,
-                playlists,
-                &app.library,
-                &mut app.loading_playlists,
-                &mut app.playlist_cache,
-                &mut app.sync_queue,
-                &mut app.inspect_sort,
-                &mut app.inspect_selected,
-                &mut app.inspect_last_clicked,
-                &mut app.inspect_focused_row,
-                &mut app.inspect_jump_input,
-                &mut app.inspect_search,
-                &mut app.ytm_query,
-                &app.search_results,
-                &mut app.export_dir,
-                &mut app.export_fmt,
-                &mut app.split_state,
-                &mut app.drop_prompt,
-                &mut app.meta_modal,
-                &mut app.pending_modal,
-                &mut app.artwork,
-                &mut app.toast,
-                app.focus_search_once,
-                &app.cmd_tx,
-            );
+            if app.sidebar_search_mode == SidebarSearchMode::AllTracks
+                && !app.sidebar_filter.trim().is_empty()
+            {
+                pending_actions = views::repertoire_tree::show(
+                    ui,
+                    &mut app.sidebar_filter,
+                    &mut app.sidebar_search_mode,
+                    playlists,
+                    &app.library,
+                    &mut app.loading_playlists,
+                    &app.playlist_cache,
+                    &mut app.sync_queue,
+                    &mut app.repertoire_tree,
+                    &mut app.drag_mode,
+                    &mut app.selected_playlist_id,
+                    &mut app.active_tab,
+                    &mut app.drop_prompt,
+                    &mut app.toast,
+                    &app.cmd_tx,
+                );
+            } else {
+                let is_loading = sel_id.is_some_and(|id| app.loading_playlists.contains(id));
+                let load_err = sel_id
+                    .and_then(|id| app.playlist_errors.get(id))
+                    .map(String::as_str);
+                pending_actions = views::inspect::show(
+                    ui,
+                    draft_active.as_ref(),
+                    &mut app.selected_playlist_id,
+                    is_loading,
+                    load_err,
+                    playlists,
+                    &app.library,
+                    &mut app.loading_playlists,
+                    &mut app.playlist_cache,
+                    &mut app.sync_queue,
+                    &mut app.inspect_sort,
+                    &mut app.inspect_selected,
+                    &mut app.inspect_last_clicked,
+                    &mut app.inspect_focused_row,
+                    &mut app.inspect_jump_input,
+                    &mut app.inspect_search,
+                    &mut app.ytm_query,
+                    &app.search_results,
+                    &mut app.export_dir,
+                    &mut app.export_fmt,
+                    &mut app.split_state,
+                    &mut app.drop_prompt,
+                    &mut app.meta_modal,
+                    &mut app.pending_modal,
+                    &mut app.artwork,
+                    &mut app.toast,
+                    app.focus_search_once,
+                    &app.cmd_tx,
+                );
+            }
         }
         GuiTab::Dedupe => views::dedupe::show(
             ui,

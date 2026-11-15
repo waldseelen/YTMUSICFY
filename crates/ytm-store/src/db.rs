@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_playlist_created
     ON snapshots (playlist_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS playlist_cache (
+    playlist_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 "#;
 
 /// Local SQLite persistence and atomic disk snapshot store.

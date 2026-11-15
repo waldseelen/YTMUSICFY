@@ -8,6 +8,8 @@ use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, DragTrackPayload, InspectColumn, InspectSortState};
 use crate::sync_queue::{StagedOp, SyncQueue};
+use crate::views::inspect_sort::sort_column_label;
+pub use crate::views::inspect_sort::{sort_header, sort_tracks_slice};
 
 pub fn show_selection_bar(
     ui: &mut egui::Ui,
@@ -74,34 +76,75 @@ pub fn show_sort_stage_bar(
         .filter_map(|t| t.set_video_id.clone())
         .collect();
 
-    ui.horizontal_wrapped(|ui| {
-        if current_sids.len() == pl.tracks.len() && current_sids != target_sids {
-            let (_, moves) = compute_minimal_moves(&current_sids, &target_sids);
-            if editable
-                && !moves.is_empty()
-                && ui
-                    .button(format!(
-                        "Stage Sorted Order to Sync ({} LIS moves)",
-                        moves.len()
-                    ))
-                    .clicked()
-            {
-                match sync_queue.stage_reorder(&pl.id, &pl.title, target_sids, playlist_cache) {
-                    Ok(n) => {
-                        *sort_state = InspectSortState::default();
-                        *toast = Some(ToastState::staged(
-                            format!("Staged {n} LIS move(s) in Sync."),
-                            sync_queue.last_entry_id(),
-                        ));
+    let dir_label = if sort_state.asc { "A-Z" } else { "Z-A" };
+    egui::Frame::group(ui.style())
+        .fill(egui::Color32::from_rgb(30, 44, 38))
+        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(66, 168, 112)))
+        .corner_radius(4.0)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(130, 220, 165),
+                    format!(
+                        "Order Preview: {} ({dir_label})",
+                        sort_column_label(sort_state.column)
+                    ),
+                );
+                if !editable {
+                    ui.weak("(Read-only playlist — preview only)");
+                } else if current_sids.len() != pl.tracks.len() {
+                    ui.add_enabled(false, egui::Button::new("Save Order to YTM"))
+                        .on_disabled_hover_text(
+                            "Some tracks lack setVideoId. Force Refresh from YTM first.",
+                        );
+                } else if current_sids != target_sids {
+                    let (_, moves) = compute_minimal_moves(&current_sids, &target_sids);
+                    if !moves.is_empty() {
+                        let btn = egui::Button::new(
+                            egui::RichText::new(format!(
+                                "Save Order to YTM ({} moves · tracks unchanged)",
+                                moves.len()
+                            ))
+                            .strong()
+                            .color(egui::Color32::from_rgb(16, 20, 18)),
+                        )
+                        .fill(egui::Color32::from_rgb(90, 200, 130));
+                        if ui
+                            .add(btn)
+                            .on_hover_text(
+                                "Stages minimal LIS moves into Sync. Track list stays identical; only YouTube Music's permanent order is rewritten on Sync.",
+                            )
+                            .clicked()
+                        {
+                            match sync_queue.stage_reorder(
+                                &pl.id,
+                                &pl.title,
+                                target_sids,
+                                playlist_cache,
+                            ) {
+                                Ok(n) => {
+                                    *sort_state = InspectSortState::default();
+                                    *toast = Some(ToastState::staged(
+                                        format!("Staged {n} LIS move(s) — click Sync Now (Ctrl+Enter) to save order."),
+                                        sync_queue.last_entry_id(),
+                                    ));
+                                }
+                                Err(e) => *toast = Some(ToastState::info(false, e)),
+                            }
+                        }
                     }
-                    Err(e) => *toast = Some(ToastState::info(false, e)),
+                } else {
+                    ui.weak("(Matches current YTM order)");
                 }
-            }
-        }
-        if ui.button("Reset # Order").clicked() {
-            *sort_state = InspectSortState::default();
-        }
-    });
+                if ui
+                    .button("Reset to YTM Order (#)")
+                    .on_hover_text("Discard preview sort and show default playlist position order")
+                    .clicked()
+                {
+                    *sort_state = InspectSortState::default();
+                }
+            });
+        });
 }
 
 pub fn show_quick_search_results(
@@ -168,72 +211,6 @@ pub fn show_quick_search_results(
         }
     });
     actions
-}
-
-pub fn sort_header(
-    header: &mut egui_extras::TableRow<'_, '_>,
-    title: &str,
-    col: InspectColumn,
-    sort_state: &mut InspectSortState,
-) {
-    header.col(|ui| {
-        let active = sort_state.column == col;
-        let arrow = if active {
-            if sort_state.asc { " ▲" } else { " ▼" }
-        } else {
-            ""
-        };
-        if ui
-            .selectable_label(active, format!("{title}{arrow}"))
-            .clicked()
-        {
-            if active {
-                sort_state.asc = !sort_state.asc;
-            } else {
-                sort_state.column = col;
-                sort_state.asc = true;
-            }
-        }
-    });
-}
-
-pub fn sort_tracks_slice(tracks: &mut [&Track], sort: InspectSortState) {
-    tracks.sort_by(|a, b| {
-        let ord = match sort.column {
-            InspectColumn::Position => a.position.cmp(&b.position),
-            InspectColumn::Title => a
-                .title
-                .to_ascii_lowercase()
-                .cmp(&b.title.to_ascii_lowercase()),
-            InspectColumn::Artist => a
-                .primary_artist_name()
-                .unwrap_or("")
-                .to_ascii_lowercase()
-                .cmp(&b.primary_artist_name().unwrap_or("").to_ascii_lowercase()),
-            InspectColumn::Album => a
-                .album
-                .as_ref()
-                .map_or("", |x| x.name.as_str())
-                .to_ascii_lowercase()
-                .cmp(
-                    &b.album
-                        .as_ref()
-                        .map_or("", |x| x.name.as_str())
-                        .to_ascii_lowercase(),
-                ),
-            InspectColumn::Duration => a.duration_sec.cmp(&b.duration_sec),
-            InspectColumn::Type => a
-                .music_video_type
-                .short_label()
-                .cmp(b.music_video_type.short_label()),
-            InspectColumn::Status => a
-                .availability
-                .is_available()
-                .cmp(&b.availability.is_available()),
-        };
-        let ord = ord.then_with(|| a.position.cmp(&b.position));
-        if sort.asc { ord } else { ord.reverse() }
-    });
 }
 
 pub fn compute_drop_reorder(

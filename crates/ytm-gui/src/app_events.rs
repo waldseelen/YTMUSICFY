@@ -158,5 +158,16 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             }
             app.player.configure(cookie_jar, quality);
         }
+        WorkerEvent::PlaylistCacheHydrated(cached) => {
+            for pl in cached {
+                if let AsyncState::Ready(list) = &mut app.library
+                    && let Some(sum) = list.iter_mut().find(|s| s.id == pl.id)
+                    && sum.track_count.is_none()
+                {
+                    sum.track_count = Some(pl.tracks.len());
+                }
+                app.playlist_cache.entry(pl.id.clone()).or_insert(pl);
+            }
+        }
     }
 }

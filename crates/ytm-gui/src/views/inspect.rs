@@ -92,7 +92,11 @@ pub fn show(
                 "Read-only / Copy source"
             }
         ));
-        if ui.button("Refresh").clicked() {
+        if ui
+            .button("Refresh")
+            .on_hover_text("Reload this playlist fresh from YouTube Music")
+            .clicked()
+        {
             playlist_cache.remove(&pl.id);
             if loading_playlists.insert(pl.id.clone()) {
                 let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
@@ -103,7 +107,11 @@ pub fn show(
         } else {
             "Split Diff View"
         };
-        if ui.selectable_label(split.enabled, split_btn).clicked() {
+        if ui
+            .selectable_label(split.enabled, split_btn)
+            .on_hover_text("Compare this playlist side-by-side against another list and drag tracks across")
+            .clicked()
+        {
             split.enabled = !split.enabled;
         }
         if !pl.tracks.is_empty()
@@ -118,7 +126,11 @@ pub fn show(
             });
         }
         if editable {
-            if ui.button("✎ Edit Details").clicked() {
+            if ui
+                .button("✎ Edit Details")
+                .on_hover_text("Rename playlist, update description, or change privacy")
+                .clicked()
+            {
                 *meta_modal = Some(PlaylistMetaModal::new(
                     pl.id.clone(),
                     pl.title.clone(),
@@ -126,7 +138,11 @@ pub fn show(
                     pl.privacy,
                 ));
             }
-            if ui.button("🗑 Delete").clicked() {
+            if ui
+                .button("🗑 Delete")
+                .on_hover_text("Permanently delete playlist after saving a local snapshot")
+                .clicked()
+            {
                 *pending_modal = Some(PendingMutation {
                     title: format!("Delete Playlist '{}'", pl.title),
                     summary: format!(

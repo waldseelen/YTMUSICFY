@@ -8,7 +8,7 @@ use ytm_ops::normalize_track;
 use crate::interaction::search_box_with_clear;
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
-use crate::state::{AsyncState, DiffFilter, DragTrackPayload, DropPrompt};
+use crate::state::{AsyncState, DiffFilter, DragDropMode, DragTrackPayload, DropPrompt};
 use crate::sync_queue::SyncQueue;
 use crate::views::inspect_helpers::format_duration;
 
@@ -105,6 +105,7 @@ pub fn render_split_pane(
                 handle_cross_playlist_drop(
                     ui.ctx(),
                     prompt,
+                    DragDropMode::Ask,
                     drop_prompt,
                     playlist_cache,
                     library,

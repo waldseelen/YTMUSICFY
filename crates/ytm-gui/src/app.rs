@@ -16,9 +16,9 @@ use crate::player::PlayerController;
 use crate::playlist_meta_modal::{PlaylistMetaModal, show_playlist_meta_modal};
 use crate::sidebar;
 use crate::state::{
-    AsyncState, BrowserKind, DedupeForm, DropPrompt, GenreSplitForm, GuiTab, HealthForm,
-    InspectSortState, PendingMutation, SetOpsForm, SortForm, SplitPaneState, WorkerCmd,
-    WorkerEvent,
+    AsyncState, BrowserKind, DedupeForm, DragDropMode, DropPrompt, GenreSplitForm, GuiTab,
+    HealthForm, InspectSortState, PendingMutation, RepertoireTreeState, SetOpsForm,
+    SidebarSearchMode, SortForm, SplitPaneState, WorkerCmd, WorkerEvent,
 };
 use crate::sync_queue::SyncQueue;
 use crate::tab_router::show_central_panel;
@@ -29,7 +29,10 @@ pub struct YtmGuiApp {
     pub(crate) cmd_tx: Sender<WorkerCmd>,
     evt_rx: Receiver<WorkerEvent>,
     pub(crate) active_tab: GuiTab,
-    sidebar_filter: String,
+    pub(crate) sidebar_filter: String,
+    pub(crate) sidebar_search_mode: SidebarSearchMode,
+    pub(crate) drag_mode: DragDropMode,
+    pub(crate) repertoire_tree: RepertoireTreeState,
     new_playlist_title: String,
     pub(crate) selected_playlist_id: Option<String>,
     pub(crate) session: AsyncState<SessionStatus>,
@@ -108,6 +111,9 @@ impl YtmGuiApp {
             evt_rx,
             active_tab: GuiTab::Inspector,
             sidebar_filter: String::new(),
+            sidebar_search_mode: SidebarSearchMode::default(),
+            drag_mode: DragDropMode::default(),
+            repertoire_tree: RepertoireTreeState::default(),
             new_playlist_title: String::new(),
             selected_playlist_id: None,
             session: AsyncState::Loading("Verifying InnerTube session...".to_string()),
@@ -191,7 +197,8 @@ impl eframe::App for YtmGuiApp {
             &mut self.active_tab,
             &mut self.selected_playlist_id,
             &mut self.focus_search_once,
-            &self.sync_queue,
+            &mut self.sync_queue,
+            &mut self.toast,
             &mut self.pending_modal,
             &mut self.nav_history,
         );
@@ -242,13 +249,17 @@ impl eframe::App for YtmGuiApp {
         let prev_selected = self.selected_playlist_id.clone();
         let focus_sidebar = self.focus_search_once
             && (self.active_tab != GuiTab::Inspector || self.selected_playlist_id.is_none());
-        egui::SidePanel::left("library_sidebar")
+        egui::SidePanel::left("library_sidebar_v2")
             .default_width(250.0)
+            .min_width(220.0)
+            .max_width(360.0)
             .show(ctx, |ui| {
                 sidebar::show(
                     ui,
                     &self.library,
                     &mut self.sidebar_filter,
+                    &mut self.sidebar_search_mode,
+                    self.drag_mode,
                     &mut self.new_playlist_title,
                     &mut self.selected_playlist_id,
                     &mut self.loading_playlists,
