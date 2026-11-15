@@ -29,3 +29,6 @@ ytm-core.workspace = true
 ytm-enrich.workspace = true
 ytm-ops.workspace = true
 ytm-store.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -11,11 +11,25 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `Gate 1 (Core Infrastructure)`: **PASS** `ytm-core` & `ytm-store` 15 tests PASS, 0 warnings
 - `Gate 2 (Ops & Enrich)`: **PASS** `ytm-ops` & `ytm-enrich` 15 tests PASS, 0 warnings (`31/31` workspace tests PASS)
 - `Gate 3 (CLI & TUI)`: **PASS** `ytm-cli` wired across all 11 commands & 5-tab Ratatui TUI, `32/32` workspace tests PASS, 0 warnings
+- `Gate 4 (E2E QA, Docs & Release)`: **PASS** E2E suite, `TestBackend` TUI render, `README.md`, and release build PASS (`34/34` workspace tests PASS, 0 warnings)
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0, 32/32 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit)
-- `wc -l crates/*/src/**/*.rs`: **PASS** max 390 lines (`crates/ytm-enrich/src/splitter.rs`), all <= 400
+- `cargo test --workspace`: **PASS** exit 0, 34/34 tests passed (`ytm-core`: 5 unit + 5 integration, `ytm-store`: 2 unit + 3 integration, `ytm-ops`: 3 unit + 5 integration, `ytm-enrich`: 1 unit + 6 integration, `ytm-cli`: 2 unit + 2 integration)
+- `cargo build --release`: **PASS** exit 0 (`57.65s`, binary `./target/release/ytm`)
+- `wc -l crates/*/src/**/*.rs crates/*/src/*.rs`: **PASS** 45 files, 7277 lines total, max 390 lines (`crates/ytm-enrich/src/splitter.rs`), all <= 400
+
+---
+
+## 2026-11-15 — Wave 4 E2E Integration QA, Release Build & Documentation (`ytm-architect`)
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-cli/Cargo.toml`: pinned `tempfile.workspace = true` under `[dev-dependencies]`
+  - `crates/ytm-cli/tests/e2e_pipeline_test.rs`: `StatefulMockClient`, `MockVerifier`, `e2e_cli_dry_run_mutate_snapshot_restore_and_idempotent_genre_split`, `e2e_health_upgrade_and_headless_tui_tabs` (all 5 `ActiveTab` frames verified with `TestBackend`)
+  - `README.md`: cross-platform Linux & Windows (PowerShell) build, `ProjectDirs` paths, DevTools/`browser.json` auth import, Brand Account `X-Goog-PageId` guide, safety defaults, CLI command reference
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (34/34 PASS), and `cargo build --release` (57.65s) all exited 0 with 0 warnings; `./target/release/ytm --help` verified.
+- **Remaining gaps**: None (all planned waves 0A–4 complete).
 
 ---
 
