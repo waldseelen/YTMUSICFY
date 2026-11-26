@@ -42,9 +42,16 @@ Pre-built binaries and verified checksums are published on [**GitHub Releases**]
 | **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.1.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
 | **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.1.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
-### Verify Downloads (`SHA256SUMS.txt`)
+### Verify Downloads (`SHA256SUMS.txt` — Release `v0.1.0`)
 
-_Pending `v0.1.0` CI artifact checksums — populated automatically after release upload._
+| Artifact | SHA-256 |
+| :--- | :--- |
+| `ytm-architect-v0.1.0-linux-x86_64.tar.gz` | `eaa6c5c1a59131d7496b2119420a167ba0f7e468081e49bb56f5b801548005c6` |
+| `ytm` (Linux x86_64 CLI/TUI) | `808e48ce74c4fff8cfcb1e4c319afcc85e4e0c5a632c18c33b4d870a03e9f062` |
+| `ytm-gui` (Linux x86_64 GUI) | `57c7b1d27fc2a5e237cb89e05057b17974e670499aa0f6fc8cae4b02134f4fa7` |
+| `ytm-architect-v0.1.0-windows-x86_64.zip` | `189606203cab13101962b4a88dcb9e4cb5a75101cb90e5bb9b5922f470273a71` |
+| `ytm.exe` (Windows x86_64 CLI/TUI) | `f4d226542dc286a7fa15ac93352e0d2bee52870a5f75b4ec0053e149d6b332a7` |
+| `ytm-gui.exe` (Windows x86_64 GUI) | `b7f484e5319e81d91f589c661c666ae98982ab840043eef0e758bc8521403d9f` |
 
 #### Linux
 ```bash

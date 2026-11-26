@@ -17,6 +17,7 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
 - `cargo test --workspace`: **PASS** exit 0 (`125/125` tests passed: `ytm-cli` 6, `ytm-core` 31, `ytm-enrich` 14, `ytm-gui` 48, `ytm-ops` 14, `ytm-store` 12)
 - `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`Finished release profile [optimized] target(s) in 12.14s`)
+- `GitHub Release v0.1.0 (Linux & Windows)`: **PUBLISHED** (`ubuntu-latest` + `windows-latest` CI run `45839060451`, `SHA256SUMS.txt` verified in `README.md`)
 - `wc -l`: **PASS** 0 files > 400 LOC across all `.rs` files (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
 
 ---
