@@ -1,29 +1,51 @@
+use std::sync::mpsc::Sender;
+
 use eframe::egui;
-use ytm_core::{BrowseCardKind, BrowsePage, BrowsePageKind, Track};
+use ytm_core::{
+    BROWSE_EXPLORE, BROWSE_HISTORY, BROWSE_HOME, BROWSE_LIKED_ALBUMS, BrowseCardKind, BrowsePage,
+    BrowsePageKind, PlaylistAccess, PlaylistSummary, Track,
+};
 
 use crate::artwork::ArtworkCache;
+use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
-use crate::state::AsyncState;
+use crate::state::{AsyncState, WorkerCmd};
+use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
 use crate::views::inspect_helpers::format_duration;
 
-/// Render Home (`FEmusic_home`), Artist, Album, or Browse shelf view.
+/// Render Home (`FEmusic_home`), Explore, History, Artist, Album, or Browse shelf view.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     browse_target: &mut String,
     browse_state: &AsyncState<BrowsePage>,
+    playlists: &[PlaylistSummary],
+    sync_queue: &mut SyncQueue,
     artwork: &mut ArtworkCache,
+    toast: &mut Option<ToastState>,
+    cmd_tx: &Sender<WorkerCmd>,
 ) -> Vec<PlayAction> {
     let mut actions = Vec::new();
 
     ui.horizontal_wrapped(|ui| {
-        if ui.button("🏠 Home (FEmusic_home)").clicked() {
-            actions.push(PlayAction::OpenBrowse("FEmusic_home".to_string()));
+        if ui.button("Home").clicked() {
+            actions.push(PlayAction::OpenBrowse(BROWSE_HOME.to_string()));
         }
+        if ui.button("Explore").clicked() {
+            actions.push(PlayAction::OpenBrowse(BROWSE_EXPLORE.to_string()));
+        }
+        if ui.button("History").clicked() {
+            actions.push(PlayAction::OpenBrowse(BROWSE_HISTORY.to_string()));
+        }
+        if ui.button("Library Albums").clicked() {
+            actions.push(PlayAction::OpenBrowse(BROWSE_LIKED_ALBUMS.to_string()));
+        }
+        ui.separator();
         ui.label("Browse ID:");
         let resp = ui.add(
             egui::TextEdit::singleline(browse_target)
-                .desired_width(200.0)
+                .desired_width(180.0)
                 .hint_text("FEmusic_home / UC... / MPREb_..."),
         );
         let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -80,11 +102,30 @@ pub fn show(
                 }
                 if !section.tracks.is_empty() {
                     for (tidx, track) in section.tracks.iter().enumerate() {
-                        render_track_row(ui, track, &section.tracks, tidx, artwork, &mut actions);
+                        render_track_row(
+                            ui,
+                            track,
+                            &section.tracks,
+                            tidx,
+                            playlists,
+                            sync_queue,
+                            artwork,
+                            toast,
+                            &mut actions,
+                        );
                     }
                 }
             });
             ui.add_space(6.0);
+        }
+        if let Some(token) = &page.continuation {
+            ui.add_space(6.0);
+            if ui.button("Load More").clicked() {
+                let _ = cmd_tx.send(WorkerCmd::LoadBrowseContinuation {
+                    browse_id: page.browse_id.clone(),
+                    token: token.clone(),
+                });
+            }
         }
     });
 
@@ -195,12 +236,16 @@ fn render_card(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_track_row(
     ui: &mut egui::Ui,
     track: &Track,
     list: &[Track],
     idx: usize,
+    playlists: &[PlaylistSummary],
+    sync_queue: &mut SyncQueue,
     artwork: &mut ArtworkCache,
+    toast: &mut Option<ToastState>,
     actions: &mut Vec<PlayAction>,
 ) {
     ui.horizontal(|ui| {
@@ -249,6 +294,31 @@ fn render_track_row(
         }
         if ui.small_button("📻").on_hover_text("Start Radio").clicked() {
             actions.push(PlayAction::StartRadio(track.clone()));
+        }
+        let has_editable = playlists
+            .iter()
+            .any(|p| p.access() == PlaylistAccess::EditableOwned);
+        if has_editable {
+            ui.menu_button("+ Stage", |ui| {
+                for dest in playlists
+                    .iter()
+                    .filter(|p| p.access() == PlaylistAccess::EditableOwned)
+                {
+                    if ui.button(&dest.title).clicked() {
+                        let eid = sync_queue.push(StagedOp::AddTracks {
+                            playlist_id: dest.id.clone(),
+                            playlist_title: dest.title.clone(),
+                            tracks: vec![track.clone()],
+                            allow_duplicates: false,
+                        });
+                        *toast = Some(ToastState::staged(
+                            format!("Staged '{}' -> '{}'", track.title, dest.title),
+                            Some(eid),
+                        ));
+                        ui.close_menu();
+                    }
+                }
+            });
         }
     });
 }

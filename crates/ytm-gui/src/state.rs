@@ -1,13 +1,82 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use ytm_core::{ClientConfig, Track};
+use ytm_core::{ClientConfig, SessionStatus, Track};
 use ytm_enrich::EnrichmentConfig;
-use ytm_ops::{
-    DedupeConfig, KeeperStrategy, SetAlgebraOp, SortDirection, SortField, SortKey, SortSpec,
-};
 
 use crate::auth_store::AudioQuality;
 use crate::sync_queue::StagedEntry;
+
+#[path = "state_forms.rs"]
+mod forms;
+pub use forms::*;
+
+/// Governance mode controlling whether `SetLikeStatus` stages in `SyncQueue` or executes immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MutationPolicy {
+    #[default]
+    StrictLock,
+    QuickLike,
+}
+
+/// Explicit authentication finite-state machine replacing parallel boolean session flags.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SessionState {
+    #[default]
+    Unauthenticated,
+    Verifying,
+    Authenticated(SessionStatus),
+    Expired {
+        reason: String,
+        last_known: Option<SessionStatus>,
+    },
+}
+
+/// Monotonic counter incremented on every `SyncQueue` edit to key memoized drafts.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+pub struct DraftRevision(pub u64);
+
+impl DraftRevision {
+    /// Increments the draft revision in place and returns the new revision.
+    pub fn bump(&mut self) -> Self {
+        self.0 += 1;
+        *self
+    }
+}
+
+/// Deterministic fingerprint locking tool previews to their source playlist, draft, and form state.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlanFingerprint {
+    pub playlist_id: String,
+    pub draft_revision: DraftRevision,
+    pub form_hash: u64,
+}
+
+/// Identifier for a cancellable background worker job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct JobId(pub u64);
+
+/// Per-entry verification result emitted during `SyncQueue` dispatch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DispatchEntryOutcome {
+    Succeeded {
+        entry_id: u64,
+        chunks_sent: usize,
+        confirmed_items: usize,
+        readback_verified: bool,
+    },
+    AbortedDrift {
+        entry_id: u64,
+        reason: String,
+    },
+    Failed {
+        entry_id: u64,
+        completed_chunks: usize,
+        total_chunks: usize,
+        error: String,
+    },
+}
 
 /// Explicit state machine preventing invalid parallel boolean flags.
 #[derive(Debug, Clone, Default)]
@@ -38,8 +107,9 @@ impl<T> AsyncState<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuiTab {
     Browse,
-    Inspector,
+    Search,
     QueueLyrics,
+    Inspector,
     Dedupe,
     Sort,
     SetOps,
@@ -48,29 +118,33 @@ pub enum GuiTab {
     Snapshots,
     Sync,
     Auth,
+    Settings,
 }
 
 impl GuiTab {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Browse,
+        Self::Search,
         Self::QueueLyrics,
         Self::Inspector,
-        Self::SetOps,
-        Self::Sort,
         Self::Dedupe,
+        Self::Sort,
+        Self::SetOps,
         Self::Health,
         Self::GenreSplit,
         Self::Snapshots,
         Self::Sync,
         Self::Auth,
+        Self::Settings,
     ];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Browse => "Browse",
-            Self::Inspector => "Inspector",
+            Self::Browse => "Home & Explore",
+            Self::Search => "Search",
             Self::QueueLyrics => "Queue & Lyrics",
+            Self::Inspector => "Inspector",
             Self::Dedupe => "Dedupe",
             Self::Sort => "Sort (LIS)",
             Self::SetOps => "Set Algebra",
@@ -79,6 +153,7 @@ impl GuiTab {
             Self::Snapshots => "Snapshots",
             Self::Sync => "Sync",
             Self::Auth => "Auth",
+            Self::Settings => "Settings",
         }
     }
 }
@@ -177,6 +252,10 @@ pub struct GuiAppConfig {
     pub enrichment: EnrichmentConfig,
     pub preferred_browser: Option<BrowserKind>,
     pub audio_quality: AudioQuality,
+    #[serde(default)]
+    pub mutation_policy: MutationPolicy,
+    #[serde(default)]
+    pub auto_refresh_browser_cookies: bool,
 }
 
 /// Confirmed immediate actions gated behind modal confirmation.
@@ -202,179 +281,26 @@ pub struct PendingMutation {
     pub action: ConfirmedMutation,
 }
 
-/// Form parameters for Dedupe view.
-#[derive(Debug, Clone)]
-pub struct DedupeForm {
-    pub threshold: f64,
-    pub duration_tol: u32,
-    pub ignore_duration: bool,
-    pub exact_only: bool,
-    pub keep: KeeperStrategy,
-}
-
-impl Default for DedupeForm {
-    fn default() -> Self {
-        let d = DedupeConfig::default();
-        Self {
-            threshold: d.fuzzy_threshold,
-            duration_tol: d.duration_tolerance_sec,
-            ignore_duration: d.ignore_duration,
-            exact_only: d.exact_only,
-            keep: d.keep,
-        }
-    }
-}
-
-/// Form parameters for LIS minimal-move Sort view.
-#[derive(Debug, Clone)]
-pub struct SortForm {
-    pub keys: Vec<SortKey>,
-    pub artist_spread: bool,
-    pub use_seed: bool,
-    pub seed: u64,
-}
-
-impl Default for SortForm {
-    fn default() -> Self {
-        Self {
-            keys: vec![
-                SortKey {
-                    field: SortField::Artist,
-                    direction: SortDirection::Asc,
-                },
-                SortKey {
-                    field: SortField::Title,
-                    direction: SortDirection::Asc,
-                },
-            ],
-            artist_spread: false,
-            use_seed: true,
-            seed: 42,
-        }
-    }
-}
-
-impl SortForm {
-    #[must_use]
-    pub fn to_spec(&self) -> SortSpec {
-        let has_shuffle = self.keys.iter().any(|k| k.field == SortField::Shuffle);
-        SortSpec {
-            keys: self.keys.clone(),
-            artist_spread: self.artist_spread || has_shuffle,
-            seed: if has_shuffle && self.use_seed {
-                Some(self.seed)
-            } else {
-                None
-            },
-        }
-    }
-}
-
-/// Form parameters for Set Algebra view.
-#[derive(Debug, Clone)]
-pub struct SetOpsForm {
-    pub op: SetAlgebraOp,
-    pub playlist_a: String,
-    pub playlist_b: String,
-    pub fuzzy: bool,
-    pub target_playlist: String,
-}
-
-impl Default for SetOpsForm {
-    fn default() -> Self {
-        Self {
-            op: SetAlgebraOp::Diff,
-            playlist_a: "LM".to_string(),
-            playlist_b: String::new(),
-            fuzzy: true,
-            target_playlist: String::new(),
-        }
-    }
-}
-
-/// Form parameters for Health Scanner view.
-#[derive(Debug, Clone)]
-pub struct HealthForm {
-    pub find_official: bool,
-    pub prune_unavailable: bool,
-    pub upgrade: bool,
-}
-
-impl Default for HealthForm {
-    fn default() -> Self {
-        Self {
-            find_official: true,
-            prune_unavailable: true,
-            upgrade: true,
-        }
-    }
-}
-
-/// Form parameters for Genre Split view.
-#[derive(Debug, Clone)]
-pub struct GenreSplitForm {
-    pub min_tracks: usize,
-    pub custom_genres_toml: String,
-}
-
-impl Default for GenreSplitForm {
-    fn default() -> Self {
-        Self {
-            min_tracks: 5,
-            custom_genres_toml: String::new(),
-        }
-    }
-}
-
-/// Search bar mode in the top-left sidebar (`Lists` filters titles, `AllTracks` searches entire repertoire).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SidebarSearchMode {
-    #[default]
-    Playlists,
-    AllTracks,
-}
-
-/// Default action when dropping tracks onto another playlist (`Ctrl`=Copy / `Shift`=Move still override).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DragDropMode {
-    #[default]
-    Ask,
-    Move,
-    Copy,
-}
-
-impl DragDropMode {
-    pub const ALL: [Self; 3] = [Self::Ask, Self::Move, Self::Copy];
-
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Ask => "Ask",
-            Self::Move => "Move",
-            Self::Copy => "Copy",
-        }
-    }
-}
-
-/// UI state for the horizontal Repertoire File-Tree search & drag-drop workspace.
-#[derive(Debug, Clone)]
-pub struct RepertoireTreeState {
-    pub collapsed_playlists: std::collections::HashSet<String>,
-    pub selected_keys: std::collections::HashSet<String>,
-    pub target_playlist_id: Option<String>,
-    pub split_ratio: f32,
-}
-
-impl Default for RepertoireTreeState {
-    fn default() -> Self {
-        Self {
-            collapsed_playlists: std::collections::HashSet::new(),
-            selected_keys: std::collections::HashSet::new(),
-            target_playlist_id: None,
-            split_ratio: 0.52,
-        }
-    }
-}
-
 pub use crate::worker_auth::BrowserKind;
 pub use crate::worker_msgs::{WorkerCmd, WorkerEvent};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gui_app_config_defaults_missing_governance_fields() {
+        let cfg: GuiAppConfig = toml::from_str("").expect("deserialize empty config");
+        assert_eq!(cfg.mutation_policy, MutationPolicy::StrictLock);
+        assert!(!cfg.auto_refresh_browser_cookies);
+    }
+
+    #[test]
+    fn draft_revision_bump_and_session_state_default() {
+        let mut rev = DraftRevision::default();
+        assert_eq!(rev, DraftRevision(0));
+        assert_eq!(rev.bump(), DraftRevision(1));
+        assert_eq!(rev.bump(), DraftRevision(2));
+        assert_eq!(SessionState::default(), SessionState::Unauthenticated);
+    }
+}

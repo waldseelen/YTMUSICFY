@@ -1,15 +1,16 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use ytm_core::PlaylistPrivacy;
 
-use crate::worker_msgs::WorkerCmd;
+use crate::navigation::ToastState;
+use crate::sync_queue::{StagedOp, SyncQueue};
 
 /// Form state for editing an owned playlist's title, description, and privacy.
 #[derive(Debug, Clone)]
 pub struct PlaylistMetaModal {
     pub playlist_id: String,
     pub original_title: String,
+    pub original_description: String,
+    pub original_privacy: PlaylistPrivacy,
     pub title: String,
     pub description: String,
     pub privacy: PlaylistPrivacy,
@@ -26,10 +27,33 @@ impl PlaylistMetaModal {
         Self {
             playlist_id,
             original_title: title.clone(),
+            original_description: description.clone(),
+            original_privacy: privacy,
             title,
             description,
             privacy,
         }
+    }
+
+    /// Computes a sparse metadata update op containing only fields that changed.
+    #[must_use]
+    pub fn to_staged_op(&self) -> Option<StagedOp> {
+        let trimmed_title = self.title.trim();
+        let title =
+            (trimmed_title != self.original_title.trim()).then(|| trimmed_title.to_string());
+        let description =
+            (self.description != self.original_description).then(|| self.description.clone());
+        let privacy = (self.privacy != self.original_privacy).then_some(self.privacy);
+        if title.is_none() && description.is_none() && privacy.is_none() {
+            return None;
+        }
+        Some(StagedOp::UpdatePlaylistMeta {
+            playlist_id: self.playlist_id.clone(),
+            playlist_title: self.original_title.clone(),
+            title,
+            description,
+            privacy,
+        })
     }
 }
 
@@ -37,7 +61,8 @@ impl PlaylistMetaModal {
 pub fn show_playlist_meta_modal(
     ctx: &egui::Context,
     modal_state: &mut Option<PlaylistMetaModal>,
-    cmd_tx: &Sender<WorkerCmd>,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<ToastState>,
 ) {
     let Some(form) = modal_state else {
         return;
@@ -101,7 +126,7 @@ pub fn show_playlist_meta_modal(
             }
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(valid_title, egui::Button::new("Save Changes"))
+                    .add_enabled(valid_title, egui::Button::new("Stage Metadata Edit"))
                     .clicked()
                 {
                     save = true;
@@ -113,14 +138,47 @@ pub fn show_playlist_meta_modal(
         });
 
     if save {
-        let _ = cmd_tx.send(WorkerCmd::UpdatePlaylistMeta {
-            playlist_id: form.playlist_id.clone(),
-            title: Some(form.title.trim().to_string()),
-            description: Some(form.description.clone()),
-            privacy: Some(form.privacy),
-        });
+        if let Some(op) = form.to_staged_op() {
+            let label = form.original_title.clone();
+            let eid = sync_queue.push(op);
+            *toast = Some(ToastState::staged(
+                format!("Staged metadata update for '{label}' in Sync."),
+                Some(eid),
+            ));
+        } else {
+            *toast = Some(ToastState::info(true, "No metadata changes to stage."));
+        }
         *modal_state = None;
     } else if close {
         *modal_state = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renaming_playlist_emits_sparse_update_with_none_for_unchanged_fields() {
+        let mut modal = PlaylistMetaModal::new(
+            "PL1".to_string(),
+            "Original".to_string(),
+            "Keep this description".to_string(),
+            PlaylistPrivacy::Unlisted,
+        );
+        assert!(modal.to_staged_op().is_none());
+
+        modal.title = "  Renamed  ".to_string();
+        let op = modal.to_staged_op().expect("sparse op");
+        assert_eq!(
+            op,
+            StagedOp::UpdatePlaylistMeta {
+                playlist_id: "PL1".to_string(),
+                playlist_title: "Original".to_string(),
+                title: Some("Renamed".to_string()),
+                description: None,
+                privacy: None,
+            }
+        );
     }
 }

@@ -1,10 +1,12 @@
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
+use ytm_core::{LyricsPayload, PlaylistPrivacy};
 
 use crate::app::YtmGuiApp;
 use crate::navigation::ToastState;
 use crate::playback_ops::{PlayAction, start_playing_track};
 use crate::state::{AsyncState, WorkerCmd};
+use crate::sync_queue::StagedOp;
 use crate::views::async_banner;
 use crate::views::inspect_helpers::format_duration;
 
@@ -37,6 +39,25 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
                 {
                     actions.push(PlayAction::StartRadio(cur));
                 }
+                if !app.play_queue.tracks().is_empty()
+                    && ui
+                        .button("+ Stage as Playlist")
+                        .on_hover_text("Stage current play queue as a new private playlist in Sync")
+                        .clicked()
+                {
+                    let tracks = app.play_queue.tracks().to_vec();
+                    let title = format!("Queue Mix ({})", tracks.len());
+                    let eid = app.sync_queue.push(StagedOp::CreatePlaylist {
+                        title: title.clone(),
+                        description: "Saved from ytm-gui Play Queue".to_string(),
+                        privacy: PlaylistPrivacy::Private,
+                        tracks,
+                    });
+                    app.toast = Some(ToastState::staged(
+                        format!("Staged '{title}' in Sync."),
+                        Some(eid),
+                    ));
+                }
                 if !app.play_queue.tracks().is_empty() && ui.button("Clear").clicked() {
                     app.play_queue.clear();
                     app.player.stop();
@@ -59,14 +80,29 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
             ui.horizontal_wrapped(|ui| {
                 ui.heading("Lyrics");
                 if let Some(lbid) = app.lyrics_browse_id.as_ref()
-                    && ui.button("↻ Reload").clicked()
+                    && let Some(cur) = app.play_queue.current_track()
+                    && ui.button("↻ Load / Reload").clicked()
                 {
-                    app.lyrics_state = AsyncState::Loading("Loading lyrics...".to_string());
-                    let _ = app.cmd_tx.send(WorkerCmd::LoadLyrics {
+                    app.lyrics_payload = AsyncState::Loading("Loading lyrics...".to_string());
+                    let _ = app.cmd_tx.send(WorkerCmd::LoadLyricsPayload {
+                        video_id: cur.video_id.clone(),
                         browse_id: lbid.clone(),
                     });
                 }
             });
+            // Lazy-fetch lyrics only while Lyrics panel is visible and uncorrelated with current track.
+            if let Some(lbid) = app.lyrics_browse_id.clone()
+                && let Some(cur) = app.play_queue.current_track()
+                && app.lyrics_video_id.as_deref() != Some(cur.video_id.as_str())
+                && !app.lyrics_payload.is_loading()
+            {
+                app.lyrics_video_id = Some(cur.video_id.clone());
+                app.lyrics_payload = AsyncState::Loading("Loading lyrics...".to_string());
+                let _ = app.cmd_tx.send(WorkerCmd::LoadLyricsPayload {
+                    video_id: cur.video_id.clone(),
+                    browse_id: lbid,
+                });
+            }
             if let Some(cur) = app.play_queue.current_track() {
                 ui.add(
                     egui::Label::new(
@@ -82,7 +118,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
             }
             ui.separator();
 
-            match &app.lyrics_state {
+            let pos_ms = (app.player.snapshot().position_sec.max(0.0) * 1000.0) as u64;
+            match &app.lyrics_payload {
                 AsyncState::Idle => {
                     if app.play_queue.current_track().is_none() {
                         ui.label("Play a track to fetch lyrics.");
@@ -99,11 +136,29 @@ pub fn show(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<PlayAction> {
                 AsyncState::Ready(None) => {
                     ui.label("Lyrics unavailable for this track.");
                 }
-                AsyncState::Ready(Some(text)) => {
+                AsyncState::Ready(Some(LyricsPayload::Plain(text))) => {
                     egui::ScrollArea::vertical()
                         .id_salt("lyrics_scroll")
                         .show(ui, |ui| {
                             ui.add(egui::Label::new(text.as_str()).wrap());
+                        });
+                }
+                AsyncState::Ready(Some(LyricsPayload::Synced(lines))) => {
+                    egui::ScrollArea::vertical()
+                        .id_salt("lyrics_synced_scroll")
+                        .show(ui, |ui| {
+                            for line in lines {
+                                let active = pos_ms >= line.start_ms && pos_ms <= line.end_ms;
+                                let rt = if active {
+                                    egui::RichText::new(&line.text)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(90, 210, 130))
+                                } else {
+                                    egui::RichText::new(&line.text)
+                                        .color(egui::Color32::from_gray(175))
+                                };
+                                ui.add(egui::Label::new(rt).wrap());
+                            }
                         });
                 }
             }

@@ -1,24 +1,150 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use eframe::egui;
-use ytm_core::{InnerTubeClient, InnerTubeClientTrait, Playlist, ReqwestTransport};
-use ytm_ops::compute_minimal_moves;
-use ytm_store::{ExportFormat, SnapshotStore, SqliteStore, export_playlist_to_path};
+use ytm_core::{
+    InnerTubeClient, InnerTubeClientTrait, Playlist, PlaylistFetchResult, ReqwestTransport,
+};
+use ytm_ops::{compute_restore_moves, plan_restore_diff};
+use ytm_store::{
+    AppPaths, CachedPlaylistRecord, ExportFormat, PersistedStagedOp, SnapshotStore, SqliteStore,
+    export_playlist_to_path,
+};
 
-use crate::state::{ConfirmedMutation, WorkerEvent};
+use crate::auth_store::{load_credentials_secure, write_mpv_cookie_jar};
+use crate::state::{ConfirmedMutation, GuiAppConfig, MutationPolicy, WorkerEvent};
 use crate::sync_queue::{StagedEntry, StagedOp};
+
+#[path = "worker_sync.rs"]
+mod worker_sync;
+
+pub async fn load_playlist_with_manifest<C: InnerTubeClientTrait>(
+    client: &C,
+    id_or_lm: &str,
+) -> Result<PlaylistFetchResult> {
+    if id_or_lm.eq_ignore_ascii_case("LM") {
+        Ok(client.get_liked_songs_with_manifest().await?)
+    } else {
+        Ok(client.get_playlist_with_manifest(id_or_lm).await?)
+    }
+}
 
 pub async fn load_playlist<C: InnerTubeClientTrait>(
     client: &C,
     id_or_lm: &str,
 ) -> Result<Playlist> {
-    if id_or_lm.eq_ignore_ascii_case("LM") {
-        Ok(client.get_liked_songs().await?)
+    Ok(load_playlist_with_manifest(client, id_or_lm)
+        .await?
+        .playlist)
+}
+
+pub(crate) fn cache_fetched_playlist(
+    store: &SqliteStore,
+    fetched: &PlaylistFetchResult,
+    tx: &Sender<WorkerEvent>,
+) {
+    let record = CachedPlaylistRecord {
+        playlist: fetched.playlist.clone(),
+        manifest: Some(fetched.manifest.clone()),
+        fetched_at: Utc::now().timestamp(),
+    };
+    let _ = store.upsert_cached_playlist_record(&record);
+    let _ = tx.send(WorkerEvent::PlaylistManifestLoaded {
+        playlist_id: fetched.playlist.id.clone(),
+        manifest: fetched.manifest.clone(),
+    });
+}
+
+pub(crate) fn persist_staged_entries(store: &SqliteStore, entries: &[StagedEntry]) -> Result<()> {
+    let now = Utc::now().timestamp();
+    let rows: Vec<PersistedStagedOp> = entries
+        .iter()
+        .enumerate()
+        .map(|(seq, entry)| {
+            Ok(PersistedStagedOp {
+                entry_id: entry.id,
+                seq,
+                selected: entry.selected,
+                op_json: serde_json::to_string(&entry.op)?,
+                created_at: now,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    store.replace_staged_ops(&rows)?;
+    Ok(())
+}
+
+pub(crate) fn load_persisted_staged_entries(store: &SqliteStore) -> Result<Vec<StagedEntry>> {
+    let rows = store.load_staged_ops()?;
+    let mut entries = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Ok(op) = serde_json::from_str::<StagedOp>(&row.op_json) {
+            entries.push(StagedEntry {
+                id: row.entry_id,
+                op,
+                selected: row.selected,
+            });
+        }
+    }
+    Ok(entries)
+}
+
+pub(crate) fn load_config(paths: &AppPaths) -> GuiAppConfig {
+    let path = paths.config_file();
+    let mut cfg = if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| toml::from_str::<GuiAppConfig>(&s).ok())
+            .unwrap_or_default()
     } else {
-        Ok(client.get_playlist(id_or_lm).await?)
+        GuiAppConfig::default()
+    };
+    if cfg.enrichment.lastfm_api_key.is_none()
+        && let Ok(val) = std::env::var("YTM_LASTFM_API_KEY")
+        && !val.trim().is_empty()
+    {
+        cfg.enrichment.lastfm_api_key = Some(val.trim().to_string());
+    }
+    cfg
+}
+
+pub(crate) fn load_saved_client(
+    paths: &AppPaths,
+    cfg: &GuiAppConfig,
+) -> Result<InnerTubeClient<ReqwestTransport>> {
+    let creds = load_credentials_secure(paths)?;
+    let _ = write_mpv_cookie_jar(paths, &creds);
+    let transport = ReqwestTransport::new(cfg.innertube.max_retries)?;
+    Ok(InnerTubeClient::new(
+        transport,
+        creds,
+        cfg.innertube.clone(),
+    ))
+}
+
+pub(crate) fn hydrate_gui_startup_state(
+    store: &SqliteStore,
+    policy: MutationPolicy,
+    tx: &Sender<WorkerEvent>,
+) {
+    let _ = tx.send(WorkerEvent::MutationPolicyLoaded(policy));
+    if let Ok(records) = store.load_all_cached_playlist_records() {
+        for rec in records {
+            if let Some(manifest) = rec.manifest {
+                let _ = tx.send(WorkerEvent::PlaylistManifestLoaded {
+                    playlist_id: rec.playlist.id,
+                    manifest,
+                });
+            }
+        }
+    }
+    if let Ok(entries) = load_persisted_staged_entries(store)
+        && !entries.is_empty()
+    {
+        let _ = tx.send(WorkerEvent::StagedOpsLoaded(entries));
     }
 }
 
@@ -49,16 +175,26 @@ pub async fn run_confirmed_mutation<C: InnerTubeClientTrait>(
             execute_restore_snapshot(client, store, &snapshot_id).await
         }
         ConfirmedMutation::ExecuteSync { entries } => {
-            execute_sync_queue(client, store, &entries, tx, ctx).await
+            worker_sync::execute_sync_queue(client, store, &entries, tx, ctx).await
         }
         ConfirmedMutation::DeletePlaylist {
             playlist_id,
             playlist_title,
         } => {
-            if let Ok(live) = load_playlist(client, &playlist_id).await {
-                let _ = store.save_snapshot(&live, "pre-delete").await;
+            let fetched = load_playlist_with_manifest(client, &playlist_id).await?;
+            if fetched.manifest.completeness.is_mutation_locked() {
+                anyhow::bail!(
+                    "Refusing to delete '{}': fetch incomplete ({:?}).",
+                    playlist_title,
+                    fetched.manifest.completeness
+                );
             }
+            store
+                .save_snapshot(&fetched.playlist, "pre-delete")
+                .await
+                .with_context(|| format!("mandatory pre-delete snapshot for '{playlist_id}'"))?;
             client.delete_playlist(&playlist_id).await?;
+            let _ = store.delete_cached_playlist(&playlist_id);
             Ok((
                 format!("Deleted playlist '{playlist_title}' ({playlist_id})"),
                 vec!["__LIBRARY__".to_string()],
@@ -67,134 +203,7 @@ pub async fn run_confirmed_mutation<C: InnerTubeClientTrait>(
     }
 }
 
-async fn execute_sync_queue<C: InnerTubeClientTrait>(
-    client: &C,
-    store: &SqliteStore,
-    entries: &[StagedEntry],
-    tx: &Sender<WorkerEvent>,
-    ctx: &egui::Context,
-) -> Result<(String, Vec<String>)> {
-    let total = entries.len().max(1);
-    let mut snapshotted: HashSet<String> = HashSet::new();
-    let mut touched_ids: Vec<String> = Vec::new();
-    let mut created_any = false;
-
-    for (idx, entry) in entries.iter().enumerate() {
-        emit_progress(
-            tx,
-            ctx,
-            idx,
-            total,
-            format!("Sync {}/{total}: {}", idx + 1, entry.op.summary()),
-        );
-        if let Some(pid) = entry.op.target_playlist_id()
-            && !snapshotted.contains(pid)
-        {
-            let live = load_playlist(client, pid).await?;
-            store.save_snapshot(&live, "pre-sync").await?;
-            snapshotted.insert(pid.to_string());
-            touched_ids.push(pid.to_string());
-        }
-
-        match &entry.op {
-            StagedOp::Reorder {
-                playlist_id, moves, ..
-            } => {
-                if !moves.is_empty() {
-                    client.move_playlist_items(playlist_id, moves).await?;
-                }
-            }
-            StagedOp::AddTracks {
-                playlist_id,
-                tracks,
-                allow_duplicates,
-                ..
-            } => {
-                let ids: Vec<String> = tracks
-                    .iter()
-                    .filter(|t| !t.video_id.is_empty())
-                    .map(|t| t.video_id.clone())
-                    .collect();
-                if !ids.is_empty() {
-                    client
-                        .add_playlist_items(playlist_id, &ids, *allow_duplicates)
-                        .await?;
-                }
-            }
-            StagedOp::RemoveTracks {
-                playlist_id,
-                tracks,
-                ..
-            } => {
-                let pairs: Vec<(String, String)> = tracks
-                    .iter()
-                    .filter_map(|t| t.set_video_id.clone().map(|sid| (t.video_id.clone(), sid)))
-                    .collect();
-                if !pairs.is_empty() {
-                    client.remove_playlist_items(playlist_id, &pairs).await?;
-                }
-            }
-            StagedOp::CreatePlaylist {
-                title,
-                description,
-                privacy,
-                tracks,
-            } => {
-                let ids: Vec<String> = tracks
-                    .iter()
-                    .filter(|t| !t.video_id.is_empty())
-                    .map(|t| t.video_id.clone())
-                    .collect();
-                client
-                    .create_playlist(title, description, *privacy, &ids)
-                    .await?;
-                created_any = true;
-            }
-            StagedOp::UpgradeTracks {
-                playlist_id,
-                upgrades,
-                ..
-            } => {
-                let add_ids: Vec<String> = upgrades
-                    .iter()
-                    .map(|(_, atv)| atv.video_id.clone())
-                    .collect();
-                let remove_pairs: Vec<(String, String)> = upgrades
-                    .iter()
-                    .filter_map(|(old, _)| {
-                        old.set_video_id
-                            .clone()
-                            .map(|sid| (old.video_id.clone(), sid))
-                    })
-                    .collect();
-                if !add_ids.is_empty() {
-                    client
-                        .add_playlist_items(playlist_id, &add_ids, false)
-                        .await?;
-                }
-                if !remove_pairs.is_empty() {
-                    client
-                        .remove_playlist_items(playlist_id, &remove_pairs)
-                        .await?;
-                }
-            }
-        }
-    }
-
-    if created_any {
-        touched_ids.push("__LIBRARY__".to_string());
-    }
-    emit_progress(tx, ctx, total, total, "Sync complete".to_string());
-    Ok((
-        format!(
-            "Synced {} queued action(s) to YouTube Music.",
-            entries.len()
-        ),
-        touched_ids,
-    ))
-}
-
-async fn execute_restore_snapshot<C: InnerTubeClientTrait>(
+pub(crate) async fn execute_restore_snapshot<C: InnerTubeClientTrait>(
     client: &C,
     store: &SqliteStore,
     snapshot_id: &str,
@@ -203,87 +212,55 @@ async fn execute_restore_snapshot<C: InnerTubeClientTrait>(
         .load_snapshot(snapshot_id)
         .await
         .with_context(|| format!("loading snapshot {snapshot_id}"))?;
-    let live = load_playlist(client, &snap.playlist.id).await?;
-
-    let mut desired_counts: HashMap<&str, usize> = HashMap::new();
-    for t in &snap.playlist.tracks {
-        if !t.video_id.is_empty() {
-            *desired_counts.entry(t.video_id.as_str()).or_insert(0) += 1;
-        }
+    let fetched = load_playlist_with_manifest(client, &snap.playlist.id).await?;
+    if fetched.manifest.completeness.is_mutation_locked() {
+        anyhow::bail!(
+            "Refusing snapshot restore onto '{}': fetch incomplete ({:?}).",
+            snap.playlist.title,
+            fetched.manifest.completeness
+        );
     }
-
-    let mut kept_counts: HashMap<String, usize> = HashMap::new();
-    let mut to_remove: Vec<(String, String)> = Vec::new();
-    for t in &live.tracks {
-        let want = desired_counts
-            .get(t.video_id.as_str())
-            .copied()
-            .unwrap_or(0);
-        let seen = kept_counts.entry(t.video_id.clone()).or_insert(0);
-        if *seen < want {
-            *seen += 1;
-        } else if let Some(sid) = &t.set_video_id {
-            to_remove.push((t.video_id.clone(), sid.clone()));
-        }
-    }
-
-    let mut remaining_kept = kept_counts;
-    let mut to_add: Vec<String> = Vec::new();
-    for t in &snap.playlist.tracks {
-        if t.video_id.is_empty() {
-            continue;
-        }
-        let rem = remaining_kept.get_mut(&t.video_id).map(|c| {
-            if *c > 0 {
-                *c -= 1;
-                true
-            } else {
-                false
-            }
-        });
-        if rem != Some(true) {
-            to_add.push(t.video_id.clone());
-        }
-    }
+    let live = fetched.playlist;
+    let diff = plan_restore_diff(&live, &snap.playlist);
 
     store
         .save_snapshot(&live, &format!("pre-restore:{}", snap.metadata.id))
-        .await?;
-    if !to_remove.is_empty() {
-        client.remove_playlist_items(&live.id, &to_remove).await?;
-    }
-    if !to_add.is_empty() {
-        let allow_dupes = desired_counts.values().any(|&cnt| cnt > 1);
-        client
-            .add_playlist_items(&live.id, &to_add, allow_dupes)
+        .await
+        .context("mandatory pre-restore snapshot")?;
+    if !diff.to_remove.is_empty() {
+        let rep = client
+            .remove_playlist_items_report(&live.id, &diff.to_remove)
             .await?;
+        if !rep.is_complete_success() {
+            anyhow::bail!(
+                "{}",
+                rep.first_error()
+                    .unwrap_or("Snapshot restore remove failed")
+            );
+        }
+    }
+    if !diff.to_add.is_empty() {
+        let rep = client
+            .add_playlist_items_report(&live.id, &diff.to_add, diff.allow_duplicates)
+            .await?;
+        if !rep.is_complete_success() {
+            anyhow::bail!(
+                "{}",
+                rep.first_error().unwrap_or("Snapshot restore add failed")
+            );
+        }
     }
 
     let updated = load_playlist(client, &live.id).await?;
-    let mut set_queues: HashMap<&str, VecDeque<String>> = HashMap::new();
-    let mut current_set_ids = Vec::new();
-    for t in &updated.tracks {
-        if let Some(sid) = &t.set_video_id {
-            current_set_ids.push(sid.clone());
-            set_queues
-                .entry(t.video_id.as_str())
-                .or_default()
-                .push_back(sid.clone());
-        }
-    }
-    let mut target_set_ids = Vec::new();
-    for t in &snap.playlist.tracks {
-        if let Some(sid) = set_queues
-            .get_mut(t.video_id.as_str())
-            .and_then(VecDeque::pop_front)
-        {
-            target_set_ids.push(sid);
-        }
-    }
-    if current_set_ids.len() == target_set_ids.len() && !target_set_ids.is_empty() {
-        let (_, moves) = compute_minimal_moves(&current_set_ids, &target_set_ids);
-        if !moves.is_empty() {
-            client.move_playlist_items(&live.id, &moves).await?;
+    let moves = compute_restore_moves(&updated, &snap.playlist);
+    if !moves.is_empty() {
+        let rep = client.move_playlist_items_report(&live.id, &moves).await?;
+        if !rep.is_complete_success() {
+            anyhow::bail!(
+                "{}",
+                rep.first_error()
+                    .unwrap_or("Snapshot restore reorder failed")
+            );
         }
     }
 
@@ -350,3 +327,7 @@ pub async fn backup_inner(
         out_dir.display()
     ))
 }
+
+#[cfg(test)]
+#[path = "worker_exec_tests.rs"]
+mod tests;

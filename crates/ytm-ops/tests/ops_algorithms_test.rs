@@ -6,8 +6,8 @@ use ytm_core::{
 };
 use ytm_ops::{
     DedupeConfig, HealthIssueKind, KeeperStrategy, MatchMode, SetAlgebraOp, SortSpec,
-    apply_move_actions, compute_minimal_moves, normalize_track, plan_dedupe, plan_set_op,
-    plan_sort, scan_playlist_health,
+    apply_move_actions, compute_minimal_moves, compute_restore_moves, normalize_track, plan_dedupe,
+    plan_restore_diff, plan_set_op, plan_sort, scan_playlist_health,
 };
 
 fn make_track(
@@ -355,4 +355,34 @@ fn set_algebra_and_health_scanner_cover_all_modes() {
     );
     assert_eq!(report.upgrade_candidates.len(), 1);
     assert_eq!(report.upgrade_candidates[0].official_atv.video_id, "V4");
+}
+
+#[test]
+fn restore_plan_handles_duplicates_missing_set_id_and_moves() {
+    let pl = |pairs: &[(&str, Option<&str>)]| {
+        let tracks = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (v, s))| make_track(v, *s, i, v, "X", Some(180), MusicVideoType::AudioTrack))
+            .collect();
+        make_playlist("PL_R", "R", tracks)
+    };
+    let snap = pl(&[("V1", Some("S1")), ("V2", Some("S2")), ("V1", Some("S3"))]);
+    let live = pl(&[
+        ("V2", Some("L1")),
+        ("V1", Some("L2")),
+        ("V3", None),
+        ("V4", Some("L4")),
+    ]);
+    let plan = plan_restore_diff(&live, &snap);
+    assert_eq!(plan.to_remove, vec![("V4".to_string(), "L4".to_string())]);
+    assert_eq!(plan.to_add, vec!["V1"]);
+    assert!(plan.allow_duplicates);
+    assert_eq!(plan.target_video_order, vec!["V1", "V2", "V1"]);
+    let updated = pl(&[("V2", Some("L1")), ("V1", Some("L2")), ("V1", Some("L5"))]);
+    let moves = compute_restore_moves(&updated, &snap);
+    assert_eq!(
+        apply_move_actions(&["L1".into(), "L2".into(), "L5".into()], &moves),
+        vec!["L2", "L1", "L5"]
+    );
 }

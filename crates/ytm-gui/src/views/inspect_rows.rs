@@ -10,6 +10,7 @@ use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::DragTrackPayload;
 use crate::sync_queue::SyncQueue;
+use crate::views::inspect_helpers::format_duration;
 use crate::views::inspect_menu::{RowMenuContext, attach_row_context_menu};
 
 /// Per-frame output collected from rendering track rows.
@@ -272,9 +273,9 @@ pub fn render_inspect_rows(
         });
 
         row.col(|ui| {
-            ui.label(
+            ui.monospace(
                 t.duration_sec
-                    .map_or_else(|| "-".to_string(), |d| d.to_string()),
+                    .map_or_else(|| "-".to_string(), |d| format_duration(u64::from(d))),
             );
         });
         row.col(|ui| {

@@ -3,6 +3,7 @@ pub mod error;
 pub mod health;
 pub mod models;
 pub mod normalize;
+pub mod restore_plan;
 pub mod set_ops;
 pub mod sort;
 
@@ -15,5 +16,6 @@ pub use models::{
     SortPlan, SortSpec, UpgradeCandidate,
 };
 pub use normalize::{NormalizedTrack, normalize_track};
+pub use restore_plan::{RestoreDiffPlan, compute_restore_moves, plan_restore_diff};
 pub use set_ops::plan_set_op;
 pub use sort::{apply_move_actions, compute_minimal_moves, plan_sort};

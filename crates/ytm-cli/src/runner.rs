@@ -5,8 +5,8 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use ytm_core::{
-    AuthCredentials, ClientConfig, InnerTubeClient, InnerTubeClientTrait, Playlist,
-    ReqwestTransport, SessionStatus, parse_auth_input,
+    AuthCredentials, ClientConfig, FetchManifest, InnerTubeClient, InnerTubeClientTrait, Playlist,
+    PlaylistFetchResult, ReqwestTransport, SessionStatus, parse_auth_input,
 };
 use ytm_enrich::MetadataProvider;
 use ytm_store::{
@@ -18,8 +18,8 @@ use crate::cli::{AuthCommands, Commands, SnapshotCommands};
 use crate::config::AppConfig;
 use crate::mutations::{handle_dedupe, handle_health, handle_set, handle_sort};
 use crate::render::{
-    make_progress_bar, render_inspect_table, render_playlists_table, render_snapshot_detail,
-    render_snapshots_table,
+    make_progress_bar, render_fetch_manifest_summary, render_inspect_table, render_playlists_table,
+    render_snapshot_detail, render_snapshots_table,
 };
 use crate::restore::{handle_snapshot_restore, handle_split_genre};
 use crate::tui::TuiApp;
@@ -63,16 +63,41 @@ pub struct RuntimeContext<'a, C, S, P, V, W> {
     pub out: &'a mut W,
 }
 
+/// Loads `"LM"` or any playlist by ID together with its [`FetchManifest`] telemetry.
+pub async fn load_playlist_with_manifest<C: InnerTubeClientTrait>(
+    client: &C,
+    id_or_lm: &str,
+) -> Result<PlaylistFetchResult> {
+    if id_or_lm.eq_ignore_ascii_case("LM") {
+        Ok(client.get_liked_songs_with_manifest().await?)
+    } else {
+        Ok(client.get_playlist_with_manifest(id_or_lm).await?)
+    }
+}
+
 /// Loads `"LM"` via `get_liked_songs` or any playlist by ID via `get_playlist`.
 pub async fn load_playlist_by_id<C: InnerTubeClientTrait>(
     client: &C,
     id_or_lm: &str,
 ) -> Result<Playlist> {
-    if id_or_lm.eq_ignore_ascii_case("LM") {
-        Ok(client.get_liked_songs().await?)
-    } else {
-        Ok(client.get_playlist(id_or_lm).await?)
+    Ok(load_playlist_with_manifest(client, id_or_lm)
+        .await?
+        .playlist)
+}
+
+/// Blocks `--execute` when fetch completeness is `Truncated` or `Degraded` unless `--force-incomplete` is set.
+pub fn ensure_manifest_safe_for_execute(
+    manifest: &FetchManifest,
+    force_incomplete: bool,
+    context: &str,
+) -> Result<()> {
+    if manifest.completeness.is_mutation_locked() && !force_incomplete {
+        bail!(
+            "Refusing to execute {context}: fetch is {:?} (pass --force-incomplete to override)",
+            manifest.completeness
+        );
     }
+    Ok(())
 }
 
 /// Parses, verifies, and persists credentials with `0600` secret permissions.
@@ -165,11 +190,20 @@ where
             }
         }
         Commands::Inspect { playlist, json } => {
-            let pl = load_playlist_by_id(ctx.client, playlist).await?;
+            let fetched = load_playlist_with_manifest(ctx.client, playlist).await?;
             if *json {
-                writeln!(ctx.out, "{}", serde_json::to_string_pretty(&pl)?)?;
+                writeln!(
+                    ctx.out,
+                    "{}",
+                    serde_json::to_string_pretty(&fetched.playlist)?
+                )?;
             } else {
-                writeln!(ctx.out, "{}", render_inspect_table(&pl))?;
+                writeln!(
+                    ctx.out,
+                    "{}",
+                    render_fetch_manifest_summary(&fetched.manifest)
+                )?;
+                writeln!(ctx.out, "{}", render_inspect_table(&fetched.playlist))?;
             }
         }
         Commands::Backup {

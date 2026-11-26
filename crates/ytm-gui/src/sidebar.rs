@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistPrivacy, PlaylistSummary};
 
+use crate::draft_cache::DraftCache;
 use crate::interaction::{auto_scroll_on_drag, search_box_with_clear};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
@@ -26,6 +27,7 @@ pub fn show(
     selected_playlist_id: &mut Option<String>,
     loading_playlists: &mut HashSet<String>,
     playlist_cache: &mut HashMap<String, Playlist>,
+    draft_cache: &mut DraftCache,
     sync_queue: &mut SyncQueue,
     split_state: &mut SplitPaneState,
     set_form: &mut SetOpsForm,
@@ -194,9 +196,8 @@ pub fn show(
         for (vis_idx, pl) in filtered.iter().enumerate() {
             let selected = selected_playlist_id.as_deref() == Some(pl.id.as_str());
             let kb_focused = *focused_idx == Some(vis_idx);
-            let draft_count = sync_queue
-                .working_playlist(&pl.id, playlist_cache)
-                .map(|p| p.tracks.len())
+            let draft_count = draft_cache
+                .track_count(&pl.id, sync_queue, playlist_cache)
                 .or(pl.track_count);
             let count = draft_count.map_or_else(|| "?".to_string(), |c| c.to_string());
             let dirty_mark = if dirty_ids.contains(&pl.id) { "*" } else { "" };
@@ -301,6 +302,7 @@ pub fn show(
                 }
                 if ui.button("Force Refresh from YTM").clicked() {
                     playlist_cache.remove(&pl.id);
+                    draft_cache.invalidate_playlist(&pl.id);
                     if loading_playlists.insert(pl.id.clone()) {
                         let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
                     }
@@ -309,15 +311,33 @@ pub fn show(
                 let editable_pl = pl.owned && !pl.id.eq_ignore_ascii_case("LM");
                 if editable_pl {
                     ui.separator();
-                    if ui.button("Edit Details / Privacy...").clicked() {
-                        let cached = playlist_cache.get(&pl.id);
-                        let desc = cached.and_then(|c| c.description.clone()).unwrap_or_default();
-                        let priv_val = cached.map_or(PlaylistPrivacy::Private, |c| c.privacy);
+                    let hydrated = draft_cache.get_or_compute(&pl.id, sync_queue, playlist_cache);
+                    let edit_btn = ui
+                        .add_enabled(
+                            hydrated.is_some(),
+                            egui::Button::new("Edit Details / Privacy..."),
+                        )
+                        .on_disabled_hover_text(
+                            "Load playlist first so description and privacy are hydrated.",
+                        );
+                    if edit_btn.clicked()
+                        && let Some(ref cached) = hydrated
+                    {
                         *meta_modal = Some(PlaylistMetaModal::new(
-                            pl.id.clone(),
-                            pl.title.clone(),
-                            desc,
-                            priv_val,
+                            cached.id.clone(),
+                            cached.title.clone(),
+                            cached.description.clone().unwrap_or_default(),
+                            cached.privacy,
+                        ));
+                        ui.close_menu();
+                    }
+                    if hydrated.is_none() && ui.button("Load Details to Edit...").clicked() {
+                        if loading_playlists.insert(pl.id.clone()) {
+                            let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
+                        }
+                        *toast = Some(ToastState::info(
+                            true,
+                            format!("Loading '{}' metadata before editing...", pl.title),
                         ));
                         ui.close_menu();
                     }

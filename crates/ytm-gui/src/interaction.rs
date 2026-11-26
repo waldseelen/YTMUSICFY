@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use eframe::egui;
 
 use crate::state::GuiTab;
+use crate::tab_bar::Workspace;
 
 /// Decoded global keyboard & mouse-gesture actions for the current frame.
 #[derive(Debug, Default)]
@@ -10,35 +11,43 @@ pub struct GlobalInput {
     pub switch_tab: Option<GuiTab>,
     pub focus_search: bool,
     pub trigger_sync: bool,
+    pub toggle_sync_drawer: bool,
+    pub toggle_palette: bool,
     pub undo_last: bool,
+    pub redo_last: bool,
+    pub toggle_play_pause: bool,
+    pub toggle_mute: bool,
     pub zoom_delta: Option<f32>,
     pub reset_zoom: bool,
     pub nav_delta: i8,
 }
 
-/// Polls global shortcuts (`Ctrl+1..9`, `Ctrl+F`, `Ctrl+Enter`, `Ctrl+/-/0`, `Alt+Left/Right`, mouse Extra1/Extra2).
+/// Polls global shortcuts (`Ctrl+1..5` Workspaces, `Ctrl+K`, `Ctrl+Shift+S`, `Ctrl+F`, `Ctrl+Enter`, `Ctrl+Z`, `Ctrl+Shift+Z`, `Space`, `M`, `Ctrl+/-/0`, `Alt+Left/Right`, mouse Extra1/Extra2).
 #[must_use]
 pub fn poll_global_input(ctx: &egui::Context) -> GlobalInput {
     let mut out = GlobalInput::default();
+    let typing = ctx.wants_keyboard_input();
     ctx.input(|i| {
         if i.modifiers.ctrl || i.modifiers.mac_cmd {
-            let num_keys = [
+            let ws_keys = [
                 egui::Key::Num1,
                 egui::Key::Num2,
                 egui::Key::Num3,
                 egui::Key::Num4,
                 egui::Key::Num5,
-                egui::Key::Num6,
-                egui::Key::Num7,
-                egui::Key::Num8,
-                egui::Key::Num9,
             ];
-            for (idx, key) in num_keys.iter().enumerate() {
+            for (idx, key) in ws_keys.iter().enumerate() {
                 if i.key_pressed(*key)
-                    && let Some(&tab) = GuiTab::ALL.get(idx)
+                    && let Some(&ws) = Workspace::ALL.get(idx)
                 {
-                    out.switch_tab = Some(tab);
+                    out.switch_tab = Some(ws.default_tab());
                 }
+            }
+            if i.key_pressed(egui::Key::K) {
+                out.toggle_palette = true;
+            }
+            if i.modifiers.shift && i.key_pressed(egui::Key::S) {
+                out.toggle_sync_drawer = true;
             }
             if i.key_pressed(egui::Key::F) {
                 out.focus_search = true;
@@ -46,8 +55,12 @@ pub fn poll_global_input(ctx: &egui::Context) -> GlobalInput {
             if i.key_pressed(egui::Key::Enter) {
                 out.trigger_sync = true;
             }
-            if i.key_pressed(egui::Key::Z) && !ctx.wants_keyboard_input() {
-                out.undo_last = true;
+            if i.key_pressed(egui::Key::Z) && !typing {
+                if i.modifiers.shift {
+                    out.redo_last = true;
+                } else {
+                    out.undo_last = true;
+                }
             }
             if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
                 out.zoom_delta = Some(0.1);
@@ -55,6 +68,13 @@ pub fn poll_global_input(ctx: &egui::Context) -> GlobalInput {
                 out.zoom_delta = Some(-0.1);
             } else if i.key_pressed(egui::Key::Num0) {
                 out.reset_zoom = true;
+            }
+        } else if !typing {
+            if i.key_pressed(egui::Key::Space) {
+                out.toggle_play_pause = true;
+            }
+            if i.key_pressed(egui::Key::M) {
+                out.toggle_mute = true;
             }
         }
         if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {

@@ -23,4 +23,7 @@ pub enum StoreError {
 
     #[error("invalid export format '{0}' (expected json, csv, or m3u8)")]
     InvalidExportFormat(String),
+
+    #[error("blocking store task failed: {0}")]
+    TaskJoin(String),
 }

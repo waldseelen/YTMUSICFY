@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use comfy_table::{Cell, ContentArrangement, Table, presets::UTF8_FULL};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use ytm_core::{Playlist, PlaylistSummary};
+use ytm_core::{FetchCompleteness, FetchManifest, MutationBatchReport, Playlist, PlaylistSummary};
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{Snapshot, SnapshotMetadata};
@@ -29,6 +29,50 @@ fn new_table(headers: &[&str]) -> Table {
     table.set_content_arrangement(ContentArrangement::Dynamic);
     table.set_header(headers.iter().copied());
     table
+}
+
+/// Renders a concise single-line [`FetchManifest`] summary (`declared vs fetched vs unavailable vs dropped`).
+#[must_use]
+pub fn render_fetch_manifest_summary(manifest: &FetchManifest) -> String {
+    let declared = manifest
+        .declared_track_count
+        .map_or_else(|| "?".to_string(), |n| n.to_string());
+    let (dropped, status) = match &manifest.completeness {
+        FetchCompleteness::Complete => (0usize, "Complete".to_string()),
+        FetchCompleteness::PartialHidden {
+            hidden_estimate, ..
+        } => (0usize, format!("PartialHidden(hidden~{hidden_estimate})")),
+        FetchCompleteness::Truncated {
+            pages_fetched,
+            max_pages,
+        } => (
+            0usize,
+            format!("Truncated({pages_fetched}/{max_pages} pages)"),
+        ),
+        FetchCompleteness::Degraded { dropped_renderers } => (
+            dropped_renderers.len(),
+            format!("Degraded({})", dropped_renderers.join(",")),
+        ),
+    };
+    format!(
+        "Manifest: declared={declared} fetched={} unavailable={} dropped={dropped} status={status}",
+        manifest.fetched_tracks, manifest.unavailable_tracks
+    )
+}
+
+/// Renders per-chunk stats for a [`MutationBatchReport`].
+#[must_use]
+pub fn render_mutation_batch_report(label: &str, report: &MutationBatchReport) -> String {
+    let err_suffix = report
+        .first_error()
+        .map_or_else(String::new, |e| format!(" | first_error={e}"));
+    format!(
+        "Batch[{label}]: chunks_succeeded={}/{} failed={} confirmed_added={}{err_suffix}",
+        report.succeeded_chunks(),
+        report.total_chunks,
+        report.failed_chunks(),
+        report.added_items().len(),
+    )
 }
 
 /// Renders library playlists overview table.

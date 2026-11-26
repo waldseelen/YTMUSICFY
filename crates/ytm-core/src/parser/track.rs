@@ -3,19 +3,45 @@ use serde_json::Value;
 use crate::models::{AlbumRef, ArtistRef, MusicVideoType, Track, TrackAvailability};
 use crate::parser::tree::{extract_runs_text, find_first_by_key, parse_duration_seconds};
 
+/// Parse `musicResponsiveListItemRenderer` entries into canonical `Track` structs
+/// while recording unrecognized or dropped renderer names (excluding pagination/message items).
+#[must_use]
+pub fn parse_tracks_with_diagnostics(
+    items: &[Value],
+    start_pos: usize,
+) -> (Vec<Track>, Vec<String>) {
+    let mut tracks = Vec::new();
+    let mut dropped_renderers = Vec::new();
+    for entry in items {
+        if let Some(renderer) = entry.get("musicResponsiveListItemRenderer") {
+            if let Some(track) = parse_single_track(renderer, start_pos + tracks.len()) {
+                tracks.push(track);
+            } else {
+                dropped_renderers.push("musicResponsiveListItemRenderer(unparsed)".to_string());
+            }
+            continue;
+        }
+        if entry.get("continuationItemRenderer").is_some() || entry.get("messageRenderer").is_some()
+        {
+            continue;
+        }
+        if let Some(obj) = entry.as_object() {
+            if let Some(first_key) = obj.keys().next() {
+                dropped_renderers.push(first_key.clone());
+            } else {
+                dropped_renderers.push("emptyObject".to_string());
+            }
+        } else {
+            dropped_renderers.push("nonObjectItem".to_string());
+        }
+    }
+    (tracks, dropped_renderers)
+}
+
 /// Parse `musicResponsiveListItemRenderer` entries into canonical `Track` structs.
 #[must_use]
 pub fn parse_tracks_from_items(items: &[Value], start_pos: usize) -> Vec<Track> {
-    let mut tracks = Vec::new();
-    for entry in items {
-        let Some(renderer) = entry.get("musicResponsiveListItemRenderer") else {
-            continue;
-        };
-        if let Some(track) = parse_single_track(renderer, start_pos + tracks.len()) {
-            tracks.push(track);
-        }
-    }
-    tracks
+    parse_tracks_with_diagnostics(items, start_pos).0
 }
 
 fn parse_single_track(renderer: &Value, position: usize) -> Option<Track> {
@@ -179,9 +205,16 @@ fn parse_columns(renderer: &Value) -> (String, Vec<ArtistRef>, Option<AlbumRef>,
     }
     if artists.is_empty() {
         if let Some(second) = fallback_texts.get(1) {
-            if !second.is_empty() && parse_duration_seconds(second).is_none() {
+            for raw_seg in second.split(['•', '·']) {
+                let seg = raw_seg.trim();
+                if seg.is_empty()
+                    || parse_duration_seconds(seg).is_some()
+                    || is_view_or_play_count(seg)
+                {
+                    continue;
+                }
                 artists.push(ArtistRef {
-                    name: second.clone(),
+                    name: seg.to_string(),
                     browse_id: None,
                 });
             }
@@ -191,12 +224,34 @@ fn parse_columns(renderer: &Value) -> (String, Vec<ArtistRef>, Option<AlbumRef>,
     (title, artists, album, duration_sec)
 }
 
+fn is_view_or_play_count(seg: &str) -> bool {
+    let lower = seg.trim().to_ascii_lowercase();
+    let has_digit = lower.chars().any(|c| c.is_ascii_digit());
+    has_digit
+        && [
+            "views",
+            "view",
+            "plays",
+            "play",
+            "listeners",
+            "görüntüleme",
+            "oynatma",
+            "dinleme",
+        ]
+        .iter()
+        .any(|kw| lower.ends_with(kw) || lower.contains(&format!(" {kw}")))
+}
+
 fn classify_availability(renderer: &Value, title: &str) -> TrackAvailability {
-    let lower = title.to_ascii_lowercase();
-    if lower == "[deleted video]" || lower == "song deleted" {
+    let lower = title.to_lowercase();
+    if lower == "[deleted video]"
+        || lower == "song deleted"
+        || lower == "[silinmiş video]"
+        || lower == "şarkı silindi"
+    {
         return TrackAvailability::Deleted;
     }
-    if lower == "[private video]" {
+    if lower == "[private video]" || lower == "[gizli video]" {
         return TrackAvailability::Private;
     }
     let policy = renderer
@@ -206,5 +261,63 @@ fn classify_availability(renderer: &Value, title: &str) -> TrackAvailability {
     if policy == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT" {
         return TrackAvailability::Unplayable("greyed out in InnerTube".to_string());
     }
+    if find_first_by_key(renderer, "watchEndpoint").is_none()
+        && find_first_by_key(renderer, "playNavigationEndpoint").is_none()
+    {
+        return TrackAvailability::Unplayable("missing playback endpoint".to_string());
+    }
     TrackAvailability::Available
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn diagnostics_records_unknown_renderers_and_skips_pagination_and_messages() {
+        let items = vec![
+            json!({
+                "musicResponsiveListItemRenderer": {
+                    "playlistItemData": { "videoId": "vid1", "playlistSetVideoId": "set1" },
+                    "overlay": { "musicItemThumbnailOverlayRenderer": { "content": { "musicPlayButtonRenderer": { "playNavigationEndpoint": { "watchEndpoint": { "videoId": "vid1" } } } } } },
+                    "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Song 1" }] } } },
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Artist A • 1.4M views • 3:45" }] } } }
+                    ]
+                }
+            }),
+            json!({ "messageRenderer": { "text": { "runs": [{ "text": "Unavailable videos are hidden" }] } } }),
+            json!({ "continuationItemRenderer": { "continuationEndpoint": { "continuationCommand": { "token": "TOK" } } } }),
+            json!({ "unexpectedMusicRenderer": { "foo": 1 } }),
+        ];
+
+        let (tracks, dropped) = parse_tracks_with_diagnostics(&items, 0);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].artists.len(), 1);
+        assert_eq!(tracks[0].artists[0].name, "Artist A");
+        assert_eq!(dropped, vec!["unexpectedMusicRenderer"]);
+    }
+
+    #[test]
+    fn classify_availability_detects_missing_endpoints_across_locales() {
+        let items = vec![json!({
+            "musicResponsiveListItemRenderer": {
+                "playlistItemData": { "videoId": "vid_unavail", "playlistSetVideoId": "set_u" },
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Video no disponible" }] } } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Artist X • Artist Y" }] } } }
+                ]
+            }
+        })];
+
+        let (tracks, dropped) = parse_tracks_with_diagnostics(&items, 0);
+        assert!(dropped.is_empty());
+        assert_eq!(tracks.len(), 1);
+        assert!(!tracks[0].availability.is_available());
+        assert_eq!(tracks[0].artists.len(), 2);
+        assert_eq!(tracks[0].artists[0].name, "Artist X");
+        assert_eq!(tracks[0].artists[1].name, "Artist Y");
+    }
 }

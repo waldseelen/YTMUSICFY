@@ -1,0 +1,114 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [{ "key": "logged_in", "value": "1" }]
+      }
+    ]
+  },
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicEditablePlaylistDetailHeaderRenderer": {
+                      "playlistId": "PLHiddenTest",
+                      "header": {
+                        "musicResponsiveHeaderRenderer": {
+                          "title": { "runs": [{ "text": "Hidden Test" }] },
+                          "secondSubtitle": {
+                            "runs": [
+                              { "text": "4 songs" },
+                              { "text": " • " },
+                              { "text": "14 minutes" }
+                            ]
+                          }
+                        }
+                      },
+                      "editHeader": {
+                        "musicPlaylistEditHeaderRenderer": {
+                          "privacy": "PRIVATE"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "secondaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "musicPlaylistShelfRenderer": {
+                "playlistId": "PLHiddenTest",
+                "contents": [
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "playlistItemData": {
+                        "videoId": "vid_h1",
+                        "playlistSetVideoId": "SET_H1"
+                      },
+                      "overlay": {
+                        "musicItemThumbnailOverlayRenderer": {
+                          "content": {
+                            "musicPlayButtonRenderer": {
+                              "playNavigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "vid_h1",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Track One" }] }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Artist One" }] }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationEndpoint": {
+                        "continuationCommand": {
+                          "token": "CONT_EMPTY_INTERMEDIATE",
+                          "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "messageRenderer": {
+                      "text": { "runs": [{ "text": "Unavailable videos are hidden" }] }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

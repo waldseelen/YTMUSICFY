@@ -2,12 +2,18 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
 
 use eframe::egui;
-use ytm_core::{BrowsePage, Playlist, PlaylistSummary, SessionStatus, Track};
+use ytm_core::{
+    BrowsePage, FetchManifest, LyricsPayload, Playlist, PlaylistSummary, SearchFilter, SearchPage,
+    SessionStatus, Track,
+};
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{AppPaths, ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::artwork::ArtworkCache;
+use crate::command_palette::{FocusPane, show_command_palette};
+use crate::draft_cache::DraftCache;
+use crate::media_controls::{MediaKeyEvent, OsMediaBridge};
 use crate::navigation::{NavHistory, ToastState, apply_global_input, show_status_bar};
 use crate::overlays::{show_confirmation_modal, show_drop_prompt, show_top_bar};
 use crate::play_queue::PlayQueue;
@@ -16,9 +22,10 @@ use crate::player::PlayerController;
 use crate::playlist_meta_modal::{PlaylistMetaModal, show_playlist_meta_modal};
 use crate::sidebar;
 use crate::state::{
-    AsyncState, BrowserKind, DedupeForm, DragDropMode, DropPrompt, GenreSplitForm, GuiTab,
-    HealthForm, InspectSortState, PendingMutation, RepertoireTreeState, SetOpsForm,
-    SidebarSearchMode, SortForm, SplitPaneState, WorkerCmd, WorkerEvent,
+    AsyncState, BrowserKind, DedupeForm, DraftRevision, DragDropMode, DropPrompt, GenreSplitForm,
+    GuiAppConfig, GuiTab, HealthForm, InspectSortState, JobId, MutationPolicy, PendingMutation,
+    RepertoireTreeState, SetOpsForm, SidebarSearchMode, SortForm, SplitPaneState, WorkerCmd,
+    WorkerEvent,
 };
 use crate::sync_queue::SyncQueue;
 use crate::tab_router::show_central_panel;
@@ -38,10 +45,24 @@ pub struct YtmGuiApp {
     pub(crate) session: AsyncState<SessionStatus>,
     pub(crate) library: AsyncState<Vec<PlaylistSummary>>,
     pub(crate) playlist_cache: HashMap<String, Playlist>,
+    pub(crate) playlist_manifests: HashMap<String, FetchManifest>,
+    pub(crate) draft_cache: DraftCache,
     pub(crate) loading_playlists: HashSet<String>,
     pub(crate) playlist_errors: HashMap<String, String>,
     pub(crate) batch_progress: Option<(usize, usize, String)>,
+    pub(crate) active_job_id: Option<JobId>,
     pub(crate) sync_queue: SyncQueue,
+    last_persisted_rev: DraftRevision,
+    pub(crate) mutation_policy: MutationPolicy,
+    pub(crate) gui_config: GuiAppConfig,
+    pub(crate) sync_drawer_open: bool,
+    pub(crate) catalog_query: String,
+    pub(crate) catalog_filter: SearchFilter,
+    pub(crate) catalog_results: AsyncState<SearchPage>,
+    pub(crate) lyrics_payload: AsyncState<Option<LyricsPayload>>,
+    pub(crate) lyrics_video_id: Option<String>,
+    pub(crate) palette_open: bool,
+    pub(crate) palette_query: String,
     pub(crate) split_state: SplitPaneState,
     pub(crate) inspect_sort: InspectSortState,
     pub(crate) inspect_selected: HashSet<usize>,
@@ -79,6 +100,10 @@ pub struct YtmGuiApp {
     pub(crate) sidebar_focused_idx: Option<usize>,
     pub(crate) play_queue: PlayQueue,
     pub(crate) player: PlayerController,
+    pub(crate) media_bridge: OsMediaBridge,
+    pub(crate) focus_pane: FocusPane,
+    pub(crate) muted: bool,
+    pub(crate) prev_volume: f64,
     pub(crate) last_ended_counter: u64,
     pub(crate) browse_target: String,
     pub(crate) browse_state: AsyncState<BrowsePage>,
@@ -95,16 +120,14 @@ impl YtmGuiApp {
             .map(|p| p.data_dir().join("exports").display().to_string())
             .unwrap_or_else(|_| "./backups".to_string());
         let _ = cmd_tx.send(WorkerCmd::Bootstrap);
-        let mut app = Self::init_with_channels(cmd_tx, evt_rx, default_export);
-        app.player = PlayerController::new(Some(cc.egui_ctx.clone()));
-        app.artwork = ArtworkCache::new(Some(cc.egui_ctx.clone()));
-        app
+        Self::init_with_channels(cmd_tx, evt_rx, default_export, Some(cc.egui_ctx.clone()))
     }
 
     pub(crate) fn init_with_channels(
         cmd_tx: Sender<WorkerCmd>,
         evt_rx: Receiver<WorkerEvent>,
         default_export: String,
+        egui_ctx: Option<egui::Context>,
     ) -> Self {
         Self {
             cmd_tx,
@@ -119,9 +142,23 @@ impl YtmGuiApp {
             session: AsyncState::Loading("Verifying InnerTube session...".to_string()),
             library: AsyncState::Loading("Loading library playlists...".to_string()),
             playlist_cache: HashMap::new(),
+            playlist_manifests: HashMap::new(),
+            draft_cache: DraftCache::default(),
             loading_playlists: HashSet::new(),
             playlist_errors: HashMap::new(),
             sync_queue: SyncQueue::default(),
+            last_persisted_rev: DraftRevision::default(),
+            mutation_policy: MutationPolicy::default(),
+            gui_config: GuiAppConfig::default(),
+            sync_drawer_open: false,
+            catalog_query: String::new(),
+            catalog_filter: SearchFilter::Songs,
+            catalog_results: AsyncState::Idle,
+            lyrics_payload: AsyncState::Idle,
+            lyrics_video_id: None,
+            palette_open: false,
+            palette_query: String::new(),
+            active_job_id: None,
             split_state: SplitPaneState::default(),
             inspect_sort: InspectSortState::default(),
             inspect_selected: HashSet::new(),
@@ -159,15 +196,23 @@ impl YtmGuiApp {
             inspect_jump_input: String::new(),
             sidebar_focused_idx: None,
             play_queue: PlayQueue::default(),
-            player: PlayerController::new(None),
+            player: PlayerController::new(egui_ctx.clone()),
+            media_bridge: OsMediaBridge::new(),
+            focus_pane: FocusPane::default(),
+            muted: false,
+            prev_volume: 100.0,
             last_ended_counter: 0,
             browse_target: "FEmusic_home".to_string(),
             browse_state: AsyncState::Idle,
             lyrics_browse_id: None,
             lyrics_state: AsyncState::Idle,
-            artwork: ArtworkCache::new(None),
+            artwork: ArtworkCache::new(egui_ctx),
             meta_modal: None,
         }
+    }
+
+    pub(crate) fn mark_staged_persisted(&mut self) {
+        self.last_persisted_rev = self.sync_queue.revision();
     }
 
     pub(crate) fn drain_events(&mut self) {
@@ -185,12 +230,11 @@ impl eframe::App for YtmGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
         poll_track_end_advance(self);
-        ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         let base_ppp = *self
             .base_pixels_per_point
             .get_or_insert_with(|| ctx.pixels_per_point());
-        let navigated_via_history = apply_global_input(
+        let input_out = apply_global_input(
             ctx,
             base_ppp,
             &mut self.ui_scale,
@@ -202,6 +246,46 @@ impl eframe::App for YtmGuiApp {
             &mut self.pending_modal,
             &mut self.nav_history,
         );
+        let navigated_via_history = input_out.navigated_via_history;
+        if input_out.toggle_palette {
+            self.palette_open = !self.palette_open;
+        }
+        if input_out.toggle_sync_drawer {
+            self.sync_drawer_open = !self.sync_drawer_open;
+        }
+        if input_out.toggle_play_pause {
+            self.player.toggle_pause();
+        }
+        if input_out.toggle_mute {
+            if self.muted {
+                self.player.set_volume(self.prev_volume.max(10.0));
+                self.muted = false;
+            } else {
+                self.prev_volume = self.player.snapshot().volume;
+                self.player.set_volume(0.0);
+                self.muted = true;
+            }
+        }
+        for ev in self.media_bridge.poll_events() {
+            match ev {
+                MediaKeyEvent::TogglePause | MediaKeyEvent::Play | MediaKeyEvent::Pause => {
+                    self.player.toggle_pause();
+                }
+                MediaKeyEvent::Next => {
+                    if let Some(nxt) = self.play_queue.advance().cloned() {
+                        crate::playback_ops::start_playing_track(&nxt, self);
+                    }
+                }
+                MediaKeyEvent::Previous => {
+                    if let Some(prev) = self.play_queue.previous().cloned() {
+                        crate::playback_ops::start_playing_track(&prev, self);
+                    }
+                }
+                MediaKeyEvent::Stop => self.player.stop(),
+            }
+        }
+        self.media_bridge
+            .sync_state(self.play_queue.current_track(), &self.player.snapshot());
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             show_top_bar(
@@ -222,9 +306,11 @@ impl eframe::App for YtmGuiApp {
             show_status_bar(
                 ui,
                 self.batch_progress.as_ref(),
+                self.active_job_id,
                 &mut self.toast,
                 &mut self.sync_queue,
                 &mut self.active_tab,
+                &self.cmd_tx,
             );
         });
 
@@ -264,6 +350,7 @@ impl eframe::App for YtmGuiApp {
                     &mut self.selected_playlist_id,
                     &mut self.loading_playlists,
                     &mut self.playlist_cache,
+                    &mut self.draft_cache,
                     &mut self.sync_queue,
                     &mut self.split_state,
                     &mut self.set_form,
@@ -282,11 +369,43 @@ impl eframe::App for YtmGuiApp {
             self.inspect_last_clicked = None;
             self.inspect_focused_row = None;
             self.inspect_sort = InspectSortState::default();
+            self.dedupe_plan = AsyncState::Idle;
+            self.sort_plan = AsyncState::Idle;
+            self.health_report = AsyncState::Idle;
+            self.genre_plan = AsyncState::Idle;
+        }
+
+        if self.sync_drawer_open {
+            egui::SidePanel::right("sync_staging_drawer")
+                .default_width(360.0)
+                .min_width(280.0)
+                .max_width(520.0)
+                .show(ctx, |ui| {
+                    views::sync::show(
+                        ui,
+                        &mut self.sync_queue,
+                        &mut self.pending_modal,
+                        &mut self.toast,
+                    );
+                });
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             show_central_panel(ui, self);
         });
+        let playlists_slice = self.library.data().map(Vec::as_slice).unwrap_or(&[]);
+        show_command_palette(
+            ctx,
+            &mut self.palette_open,
+            &mut self.palette_query,
+            playlists_slice,
+            &mut self.active_tab,
+            &mut self.selected_playlist_id,
+            &mut self.sync_drawer_open,
+            &mut self.loading_playlists,
+            &self.playlist_cache,
+            &self.cmd_tx,
+        );
         self.focus_search_once = false;
         if !navigated_via_history {
             self.nav_history
@@ -302,47 +421,32 @@ impl eframe::App for YtmGuiApp {
             &mut self.toast,
         );
         show_confirmation_modal(ctx, &mut self.pending_modal, &self.cmd_tx);
-        show_playlist_meta_modal(ctx, &mut self.meta_modal, &self.cmd_tx);
+        show_playlist_meta_modal(
+            ctx,
+            &mut self.meta_modal,
+            &mut self.sync_queue,
+            &mut self.toast,
+        );
+
+        if self.sync_queue.revision() != self.last_persisted_rev {
+            self.mark_staged_persisted();
+            let _ = self
+                .cmd_tx
+                .send(WorkerCmd::SaveStagedOps(self.sync_queue.entries().to_vec()));
+        }
+
+        let actively_working = self.toast.is_some()
+            || self.batch_progress.is_some()
+            || self.session.is_loading()
+            || self.library.is_loading()
+            || !self.loading_playlists.is_empty()
+            || self.player.snapshot().state.is_active();
+        if actively_working {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::mpsc;
-
-    use super::*;
-
-    #[test]
-    fn worker_events_transition_app_states_cleanly() {
-        let (cmd_tx, _cmd_rx) = mpsc::channel();
-        let (evt_tx, evt_rx) = mpsc::channel();
-        let mut app = YtmGuiApp::init_with_channels(cmd_tx, evt_rx, "./backups".to_string());
-
-        assert!(app.session.is_loading());
-        evt_tx
-            .send(WorkerEvent::SessionLoaded(Ok(SessionStatus {
-                authenticated: true,
-                account_name: Some("Tester".to_string()),
-                channel_handle: Some("@test".to_string()),
-                auth_user: "0".to_string(),
-                brand_page_id: None,
-            })))
-            .expect("send event");
-        app.drain_events();
-        assert_eq!(
-            app.session.data().and_then(|s| s.account_name.as_deref()),
-            Some("Tester")
-        );
-
-        evt_tx
-            .send(WorkerEvent::MutationFinished {
-                ok: true,
-                message: "done".to_string(),
-                reload_ids: vec!["PL1".to_string()],
-            })
-            .expect("send mutation finished");
-        app.drain_events();
-        assert!(app.loading_playlists.contains("PL1"));
-        assert_eq!(app.toast.as_ref().map(|t| t.message.as_str()), Some("done"));
-    }
-}
+#[path = "app_tests.rs"]
+mod tests;

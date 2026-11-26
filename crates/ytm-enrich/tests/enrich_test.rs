@@ -10,8 +10,9 @@ use ytm_core::{
 use ytm_enrich::{
     EnrichError, EnrichedTrackMetadata, EnrichmentConfig, EnrichmentService, EnrichmentSource,
     GenreMatcher, MetadataProvider, MockEnrichmentHttp, PacedLimiter, plan_genre_split,
+    splitter::build_cache_key,
 };
-use ytm_store::{CachedTrackEnrichment, EnrichmentCacheStore, SqliteStore};
+use ytm_store::{CachedArtistGenre, CachedTrackEnrichment, EnrichmentCacheStore, SqliteStore};
 
 fn sample_track(id: &str, artist: &str, title: &str) -> Track {
     Track {
@@ -289,4 +290,78 @@ async fn musicbrainz_rate_limit_retries_and_gracefully_falls_back() {
         .await
         .expect("rate limit degrades cleanly");
     assert_eq!(degraded.primary_genre, "Other");
+}
+
+#[tokio::test]
+async fn artist_cache_first_avoids_musicbrainz_calls_and_sleeps_for_five_tracks() {
+    let store = Arc::new(SqliteStore::open_in_memory(None).expect("mem store"));
+    store
+        .upsert_artist_genre(&CachedArtistGenre {
+            artist_name_norm: "daft punk".to_string(),
+            raw_tags: vec!["french house".to_string(), "electronic".to_string()],
+            primary_genre: "Electronic".to_string(),
+            source: "musicbrainz".to_string(),
+            updated_at: Utc::now().timestamp(),
+        })
+        .await
+        .expect("seed artist_genres");
+
+    let http = MockEnrichmentHttp::with_responses(Vec::new());
+    let cfg = EnrichmentConfig {
+        musicbrainz_interval_ms: 1100,
+        artist_cache_first: true,
+        ..Default::default()
+    };
+    let svc = EnrichmentService::new(store, http, cfg, GenreMatcher::built_in_default());
+    let start = Instant::now();
+
+    for i in 0..5 {
+        let track = sample_track(&format!("DP_{i}"), "Daft Punk", &format!("Track {i}"));
+        let res = svc
+            .enrich_track(&track)
+            .await
+            .expect("artist cache-first hit");
+        assert_eq!(res.source, EnrichmentSource::Cache);
+        assert_eq!(res.primary_genre, "Electronic");
+    }
+    assert!(start.elapsed() < Duration::from_millis(500));
+}
+
+#[tokio::test]
+async fn normalized_cache_key_strips_noise_nfkc_and_splits_ugc_titles() {
+    let store = Arc::new(SqliteStore::open_in_memory(None).expect("mem store"));
+    store
+        .upsert_track_enrichment(&CachedTrackEnrichment {
+            cache_key: "daft punk::around the world".to_string(),
+            video_id: Some("VID_DP".to_string()),
+            tags: vec!["french house".to_string()],
+            primary_genre: "Electronic".to_string(),
+            release_year: Some(1997),
+            bpm: None,
+            source: "musicbrainz".to_string(),
+            updated_at: Utc::now().timestamp(),
+        })
+        .await
+        .expect("seed cache");
+
+    let mut ugc = sample_track(
+        "VID_UGC",
+        "RandomUploader",
+        "Ｄａｆｔ　Ｐｕｎｋ - Ａｒｏｕｎｄ　ｔｈｅ　Ｗｏｒｌｄ (Official Video) [Lyrics] (Remastered 2021) feat. Someone",
+    );
+    ugc.music_video_type = MusicVideoType::UserGenerated;
+    let (key, artist_norm, title_norm) = build_cache_key(&ugc);
+    assert_eq!(key, "daft punk::around the world");
+    assert_eq!(artist_norm, "daft punk");
+    assert_eq!(title_norm, "around the world");
+
+    let svc = EnrichmentService::new(
+        store,
+        MockEnrichmentHttp::with_responses(Vec::new()),
+        EnrichmentConfig::default(),
+        GenreMatcher::built_in_default(),
+    );
+    let res = svc.enrich_track(&ugc).await.expect("normalized cache hit");
+    assert_eq!(res.source, EnrichmentSource::Cache);
+    assert_eq!(res.primary_genre, "Electronic");
 }

@@ -3,13 +3,18 @@ use std::sync::mpsc::Sender;
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
-use ytm_core::Playlist;
+use ytm_core::{FetchManifest, Playlist, PlaylistAccess};
 use ytm_ops::{SortDirection, SortField, SortKey, SortPlan};
 
 use crate::navigation::ToastState;
 use crate::state::{AsyncState, SortForm, WorkerCmd};
 use crate::sync_queue::SyncQueue;
 use crate::views::async_banner;
+use crate::views::components::{
+    hash_form, load_plan_fingerprint, make_fingerprint, store_plan_fingerprint,
+};
+
+const FP_SALT: &str = "sort_plan_fp";
 
 const ALL_FIELDS: [SortField; 8] = [
     SortField::Artist,
@@ -25,6 +30,8 @@ const ALL_FIELDS: [SortField; 8] = [
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    active_playlist: Option<&Playlist>,
+    manifest: Option<&FetchManifest>,
     selected_playlist_id: Option<&str>,
     form: &mut SortForm,
     plan_state: &mut AsyncState<SortPlan>,
@@ -92,7 +99,23 @@ pub fn show(
         }
     });
 
-    ui.horizontal(|ui| {
+    let keys_sig: Vec<(String, String)> = form
+        .keys
+        .iter()
+        .map(|k| (format!("{:?}", k.field), format!("{:?}", k.direction)))
+        .collect();
+    let form_sig = hash_form(&(keys_sig, form.artist_spread, form.use_seed, form.seed));
+    let current_fp =
+        selected_playlist_id.map(|pid| make_fingerprint(pid, sync_queue.revision(), form_sig));
+    let stored_fp = load_plan_fingerprint(ui.ctx(), FP_SALT);
+    let plan_is_fresh = current_fp.is_some() && current_fp == stored_fp;
+
+    let manifest_locked = manifest.is_some_and(|m| m.completeness.is_mutation_locked());
+    let editable = active_playlist
+        .is_some_and(|p| p.access() == PlaylistAccess::EditableOwned)
+        && !manifest_locked;
+
+    ui.horizontal_wrapped(|ui| {
         let can_plan = selected_playlist_id.is_some() && !plan_state.is_loading();
         if ui
             .add_enabled(
@@ -102,6 +125,9 @@ pub fn show(
             .clicked()
             && let Some(pid) = selected_playlist_id
         {
+            if let Some(fp) = &current_fp {
+                store_plan_fingerprint(ui.ctx(), FP_SALT, fp.clone());
+            }
             *plan_state = AsyncState::Loading("Computing minimal LIS moves...".to_string());
             let _ = cmd_tx.send(WorkerCmd::PlanSort {
                 playlist_id: pid.to_string(),
@@ -111,29 +137,49 @@ pub fn show(
 
         if let Some(plan) = plan_state.data()
             && !plan.moves.is_empty()
-            && ui.button("Stage Sort Moves to Sync").clicked()
         {
-            let target_sids: Vec<String> = plan
-                .target_order
-                .iter()
-                .filter_map(|t| t.set_video_id.clone())
-                .collect();
-            match sync_queue.stage_reorder(
-                &plan.playlist_id,
-                &plan.playlist_title,
-                target_sids,
-                playlist_cache,
-            ) {
-                Ok(n) => {
-                    *toast = Some(ToastState::staged(
-                        format!(
-                            "Staged {n} LIS moves for '{}' in Sync.",
-                            plan.playlist_title
-                        ),
-                        sync_queue.last_entry_id(),
-                    ));
+            let can_stage = editable && plan_is_fresh;
+            if ui
+                .add_enabled(can_stage, egui::Button::new("Stage Sort Moves to Sync"))
+                .clicked()
+            {
+                let target_sids: Vec<String> = plan
+                    .target_order
+                    .iter()
+                    .filter_map(|t| t.set_video_id.clone())
+                    .collect();
+                match sync_queue.stage_reorder(
+                    &plan.playlist_id,
+                    &plan.playlist_title,
+                    target_sids,
+                    playlist_cache,
+                ) {
+                    Ok(n) => {
+                        *toast = Some(ToastState::staged(
+                            format!(
+                                "Staged {n} LIS moves for '{}' in Sync.",
+                                plan.playlist_title
+                            ),
+                            sync_queue.last_entry_id(),
+                        ));
+                    }
+                    Err(e) => *toast = Some(ToastState::info(false, e)),
                 }
-                Err(e) => *toast = Some(ToastState::info(false, e)),
+            }
+            if !plan_is_fresh {
+                ui.colored_label(
+                    egui::Color32::from_rgb(235, 180, 70),
+                    "Sort parameters or draft changed — re-compute to stage.",
+                );
+            } else if !editable {
+                ui.colored_label(
+                    egui::Color32::from_rgb(235, 100, 100),
+                    if manifest_locked {
+                        "Fetch truncated/degraded — refresh playlist before staging."
+                    } else {
+                        "Read-only / LM playlist — staging disabled."
+                    },
+                );
             }
         }
     });

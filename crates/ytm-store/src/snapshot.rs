@@ -53,29 +53,34 @@ impl SnapshotStore for SqliteStore {
         let payload_json = serde_json::to_string_pretty(&snapshot)
             .map_err(|e| StoreError::Serialization(e.to_string()))?;
 
-        if let Some(dir) = &self.snapshots_dir {
+        if let Some(dir) = self.snapshots_dir.clone() {
             let file_path = dir.join(&safe_id).join(format!("{id}.json"));
-            write_atomic(&file_path, payload_json.as_bytes())?;
+            let bytes = payload_json.as_bytes().to_vec();
+            tokio::task::spawn_blocking(move || write_atomic(&file_path, &bytes))
+                .await
+                .map_err(|e| StoreError::TaskJoin(e.to_string()))??;
         }
 
         let created_at_secs = now.timestamp();
         let item_count_i64 = i64::try_from(metadata.item_count).unwrap_or(i64::MAX);
-        self.with_conn(|conn| {
+        let meta_for_db = metadata.clone();
+        self.with_conn_blocking(move |conn| {
             conn.execute(
                 "INSERT INTO snapshots (id, playlist_id, playlist_title, reason, created_at, item_count, payload_json)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    metadata.id,
-                    metadata.playlist_id,
-                    metadata.playlist_title,
-                    metadata.reason,
+                    meta_for_db.id,
+                    meta_for_db.playlist_id,
+                    meta_for_db.playlist_title,
+                    meta_for_db.reason,
                     created_at_secs,
                     item_count_i64,
                     payload_json,
                 ],
             )?;
             Ok(())
-        })?;
+        })
+        .await?;
 
         tracing::debug!(snapshot_id = %metadata.id, playlist_id = %metadata.playlist_id, "saved snapshot");
         Ok(metadata)
@@ -86,7 +91,7 @@ impl SnapshotStore for SqliteStore {
         playlist_id: Option<&str>,
     ) -> Result<Vec<SnapshotMetadata>, StoreError> {
         let filter = playlist_id.map(str::to_string);
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<SnapshotMetadata> {
                 let ts: i64 = r.get(4)?;
                 let count: i64 = r.get(5)?;
@@ -124,17 +129,20 @@ impl SnapshotStore for SqliteStore {
             }
             Ok(results)
         })
+        .await
     }
 
     async fn load_snapshot(&self, snapshot_id: &str) -> Result<Snapshot, StoreError> {
         let key = snapshot_id.to_string();
-        let payload_json: Option<String> = self.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT payload_json FROM snapshots WHERE id = ?1")?;
-            let row = stmt
-                .query_row(params![key], |r| r.get::<_, String>(0))
-                .optional()?;
-            Ok(row)
-        })?;
+        let payload_json: Option<String> = self
+            .with_conn_blocking(move |conn| {
+                let mut stmt = conn.prepare("SELECT payload_json FROM snapshots WHERE id = ?1")?;
+                let row = stmt
+                    .query_row(params![key], |r| r.get::<_, String>(0))
+                    .optional()?;
+                Ok(row)
+            })
+            .await?;
 
         let raw =
             payload_json.ok_or_else(|| StoreError::SnapshotNotFound(snapshot_id.to_string()))?;

@@ -16,6 +16,7 @@ pub struct PlayerBarOutcome {
     pub seek_to: Option<f64>,
     pub volume_to: Option<f64>,
     pub open_queue_lyrics: bool,
+    pub apply_pending_configure: bool,
     pub actions: Vec<PlayAction>,
 }
 
@@ -36,6 +37,7 @@ pub fn show(
         seek_to: None,
         volume_to: None,
         open_queue_lyrics: false,
+        apply_pending_configure: false,
         actions: Vec::new(),
     };
     let snap = player.snapshot();
@@ -85,6 +87,22 @@ pub fn show(
             egui::Color32::from_rgb(235, 100, 100),
             format!("Player error: {err}"),
         );
+    }
+    if let Some(pq) = snap.pending_configure
+        && snap.state.is_active()
+    {
+        ui.horizontal(|ui| {
+            ui.colored_label(
+                egui::Color32::from_rgb(235, 185, 65),
+                format!(
+                    "Pending stream config ({}) — applies on next track.",
+                    pq.label()
+                ),
+            );
+            if ui.small_button("Apply Now").clicked() {
+                out.apply_pending_configure = true;
+            }
+        });
     }
 
     out

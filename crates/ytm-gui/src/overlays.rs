@@ -8,7 +8,9 @@ use ytm_store::ExportFormat;
 
 use crate::interaction::status_badge;
 use crate::navigation::{NavHistory, ToastState};
-use crate::state::{AsyncState, DragDropMode, DropPrompt, GuiTab, PendingMutation, WorkerCmd};
+use crate::state::{
+    AsyncState, ConfirmedMutation, DragDropMode, DropPrompt, GuiTab, PendingMutation, WorkerCmd,
+};
 use crate::sync_queue::{StagedOp, SyncQueue};
 
 #[allow(clippy::too_many_arguments)]
@@ -149,15 +151,11 @@ fn stage_move_tracks(
     toast: &mut Option<ToastState>,
 ) {
     let count = tracks.len();
-    sync_queue.push(StagedOp::AddTracks {
-        playlist_id: target_id.to_string(),
-        playlist_title: target_title.to_string(),
-        tracks: tracks.clone(),
-        allow_duplicates: false,
-    });
-    let entry_id = sync_queue.push(StagedOp::RemoveTracks {
-        playlist_id: source_id.to_string(),
-        playlist_title: source_title.to_string(),
+    let entry_id = sync_queue.push(StagedOp::MoveTracks {
+        source_playlist_id: source_id.to_string(),
+        source_playlist_title: source_title.to_string(),
+        target_playlist_id: target_id.to_string(),
+        target_playlist_title: target_title.to_string(),
         tracks,
     });
     *toast = Some(ToastState::staged(
@@ -304,7 +302,9 @@ pub fn show_confirmation_modal(
     let Some(pending) = pending_modal.clone() else {
         return;
     };
+    let typed_id = egui::Id::new("delete_confirm_title");
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ctx.memory_mut(|m| m.data.remove::<String>(typed_id));
         *pending_modal = None;
         return;
     }
@@ -318,13 +318,13 @@ pub fn show_confirmation_modal(
                 .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(120));
         });
 
-    let confirm_pressed = ctx.input(|i| {
-        i.key_pressed(egui::Key::Enter)
-            && !i.modifiers.ctrl
-            && !i.modifiers.mac_cmd
-            && !i.modifiers.alt
-    });
-    let mut execute = confirm_pressed;
+    let required_title = match &pending.action {
+        ConfirmedMutation::DeletePlaylist { playlist_title, .. } => Some(playlist_title.as_str()),
+        _ => None,
+    };
+    let mut typed = ctx.memory_mut(|m| m.data.get_temp::<String>(typed_id).unwrap_or_default());
+    let mut execute = false;
+    let mut cancel = false;
     egui::Window::new(&pending.title)
         .order(egui::Order::Foreground)
         .collapsible(false)
@@ -332,18 +332,42 @@ pub fn show_confirmation_modal(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(&pending.summary);
+            if let Some(title) = required_title {
+                ui.add_space(6.0);
+                ui.label(format!("Type '{title}' to confirm permanent deletion:"));
+                ui.add(egui::TextEdit::singleline(&mut typed).desired_width(280.0));
+            }
             ui.add_space(10.0);
+            let can_confirm = required_title.is_none_or(|t| typed.trim() == t.trim());
             ui.horizontal(|ui| {
-                if ui.button("Confirm & Execute (Enter)").clicked() {
+                let btn_label = if required_title.is_some() {
+                    "Confirm & Delete"
+                } else {
+                    "Confirm & Execute"
+                };
+                if ui
+                    .add_enabled(can_confirm, egui::Button::new(btn_label))
+                    .clicked()
+                {
                     execute = true;
                 }
                 if ui.button("Cancel (Esc)").clicked() {
-                    *pending_modal = None;
+                    cancel = true;
                 }
             });
         });
     if execute {
+        ctx.memory_mut(|m| m.data.remove::<String>(typed_id));
         let _ = cmd_tx.send(WorkerCmd::ExecuteMutation(pending.action));
         *pending_modal = None;
+    } else if cancel {
+        ctx.memory_mut(|m| m.data.remove::<String>(typed_id));
+        *pending_modal = None;
+    } else if required_title.is_some() {
+        ctx.memory_mut(|m| m.data.insert_temp(typed_id, typed));
     }
 }
+
+#[cfg(test)]
+#[path = "overlays_tests.rs"]
+mod tests;

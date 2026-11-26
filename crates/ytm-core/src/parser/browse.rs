@@ -5,13 +5,84 @@ use crate::browse_models::{
 };
 use crate::error::CoreError;
 use crate::models::{AlbumRef, ArtistRef, MusicVideoType, Track, TrackAvailability};
+use crate::parser::playlist::extract_continuation_token;
 use crate::parser::track::{extract_thumbnail_url, parse_tracks_from_items};
 use crate::parser::tree::{
     check_innertube_error, extract_runs_text, find_all_by_key, find_first_by_key,
     is_explicitly_logged_out, parse_duration_seconds,
 };
 
-/// Parse InnerTube `browse` response for Home (`FEmusic_home`), Artist, or Album pages.
+fn collect_browse_sections(
+    root: &Value,
+    fallback_thumb: &Option<String>,
+) -> (Vec<BrowseSection>, Option<String>) {
+    let mut sections = Vec::new();
+    let mut continuation = None;
+
+    let mut carousels = Vec::new();
+    find_all_by_key(root, "musicCarouselShelfRenderer", &mut carousels);
+    for shelf in carousels {
+        if let Some(sec) = parse_shelf(shelf, "contents", fallback_thumb) {
+            sections.push(sec);
+        }
+    }
+
+    let mut shelves = Vec::new();
+    find_all_by_key(root, "musicShelfRenderer", &mut shelves);
+    for shelf in shelves {
+        let items = shelf
+            .get("contents")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if continuation.is_none() {
+            continuation = extract_continuation_token(shelf, items);
+        }
+        if let Some(sec) = parse_shelf(shelf, "contents", fallback_thumb) {
+            sections.push(sec);
+        }
+    }
+
+    let mut grids = Vec::new();
+    find_all_by_key(root, "gridRenderer", &mut grids);
+    find_all_by_key(root, "gridContinuation", &mut grids);
+    for grid in grids {
+        let items = grid
+            .get("items")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if continuation.is_none() {
+            continuation = extract_continuation_token(grid, items);
+        }
+        if let Some(sec) = parse_shelf(grid, "items", fallback_thumb) {
+            sections.push(sec);
+        }
+    }
+
+    if continuation.is_none() {
+        let sec_items = find_first_by_key(root, "sectionListRenderer")
+            .and_then(|s| s.get("contents"))
+            .and_then(Value::as_array)
+            .or_else(|| {
+                find_first_by_key(root, "sectionListContinuation")
+                    .and_then(|s| s.get("contents"))
+                    .and_then(Value::as_array)
+            })
+            .or_else(|| {
+                find_first_by_key(root, "appendContinuationItemsAction")
+                    .and_then(|a| a.get("continuationItems"))
+                    .and_then(Value::as_array)
+            })
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        continuation = extract_continuation_token(root, sec_items);
+    }
+
+    (sections, continuation)
+}
+
+/// Parse InnerTube `browse` response for Home, Explore, History, Liked Albums, Artist, or Album pages.
 pub fn parse_browse_page(response: &Value, browse_id: &str) -> Result<BrowsePage, CoreError> {
     check_innertube_error(response)?;
     if is_explicitly_logged_out(response) {
@@ -38,23 +109,7 @@ pub fn parse_browse_page(response: &Value, browse_id: &str) -> Result<BrowsePage
         .filter(|s| !s.is_empty());
     let thumbnail_url = header.and_then(extract_thumbnail_url);
 
-    let mut sections = Vec::new();
-    let mut carousels = Vec::new();
-    find_all_by_key(response, "musicCarouselShelfRenderer", &mut carousels);
-    for shelf in carousels {
-        if let Some(sec) = parse_shelf(shelf, "contents", &thumbnail_url) {
-            sections.push(sec);
-        }
-    }
-
-    let mut shelves = Vec::new();
-    find_all_by_key(response, "musicShelfRenderer", &mut shelves);
-    for shelf in shelves {
-        if let Some(sec) = parse_shelf(shelf, "contents", &thumbnail_url) {
-            sections.push(sec);
-        }
-    }
-
+    let (sections, continuation) = collect_browse_sections(response, &thumbnail_url);
     let tracks: Vec<Track> = sections
         .iter()
         .flat_map(|s| s.tracks.iter().cloned())
@@ -68,6 +123,52 @@ pub fn parse_browse_page(response: &Value, browse_id: &str) -> Result<BrowsePage
         thumbnail_url,
         sections,
         tracks,
+        continuation,
+    })
+}
+
+/// Parse an InnerTube `browse` continuation response into an incremental [`BrowsePage`].
+pub fn parse_browse_continuation(response: &Value) -> Result<BrowsePage, CoreError> {
+    check_innertube_error(response)?;
+    if is_explicitly_logged_out(response) {
+        return Err(CoreError::AuthExpired);
+    }
+
+    let (mut sections, continuation) = collect_browse_sections(response, &None);
+    if sections.is_empty()
+        && let Some(cont_items) = find_first_by_key(response, "appendContinuationItemsAction")
+            .and_then(|a| a.get("continuationItems"))
+            .and_then(Value::as_array)
+    {
+        let tracks = parse_tracks_from_items(cont_items, 0);
+        let cards: Vec<BrowseCard> = cont_items
+            .iter()
+            .filter_map(|i| i.get("musicTwoRowItemRenderer"))
+            .filter_map(parse_two_row_card)
+            .collect();
+        if !tracks.is_empty() || !cards.is_empty() {
+            sections.push(BrowseSection {
+                title: "More".to_string(),
+                cards,
+                tracks,
+            });
+        }
+    }
+
+    let tracks: Vec<Track> = sections
+        .iter()
+        .flat_map(|s| s.tracks.iter().cloned())
+        .collect();
+
+    Ok(BrowsePage {
+        browse_id: String::new(),
+        kind: BrowsePageKind::Unknown,
+        title: String::new(),
+        subtitle: None,
+        thumbnail_url: None,
+        sections,
+        tracks,
+        continuation,
     })
 }
 
@@ -93,14 +194,11 @@ fn parse_shelf(
         }
     }
 
-    let mut cards = Vec::new();
-    for item in items {
-        if let Some(two_row) = item.get("musicTwoRowItemRenderer")
-            && let Some(card) = parse_two_row_card(two_row)
-        {
-            cards.push(card);
-        }
-    }
+    let cards: Vec<BrowseCard> = items
+        .iter()
+        .filter_map(|item| item.get("musicTwoRowItemRenderer"))
+        .filter_map(parse_two_row_card)
+        .collect();
 
     if tracks.is_empty() && cards.is_empty() {
         return None;
@@ -112,7 +210,7 @@ fn parse_shelf(
     })
 }
 
-fn parse_two_row_card(renderer: &Value) -> Option<BrowseCard> {
+pub(crate) fn parse_two_row_card(renderer: &Value) -> Option<BrowseCard> {
     let title = renderer.get("title").map(extract_runs_text)?;
     if title.is_empty() {
         return None;
@@ -168,12 +266,11 @@ pub fn parse_watch_next(response: &Value) -> Result<WatchNextResult, CoreError> 
 
     let mut panel_items = Vec::new();
     find_all_by_key(response, "playlistPanelVideoRenderer", &mut panel_items);
-    let mut tracks = Vec::new();
-    for (idx, item) in panel_items.into_iter().enumerate() {
-        if let Some(t) = parse_panel_video(item, idx) {
-            tracks.push(t);
-        }
-    }
+    let tracks: Vec<Track> = panel_items
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, item)| parse_panel_video(item, idx))
+        .collect();
 
     let mut tabs = Vec::new();
     find_all_by_key(response, "tabRenderer", &mut tabs);

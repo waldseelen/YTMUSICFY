@@ -1,11 +1,14 @@
+use chrono::{TimeZone, Utc};
 use tempfile::TempDir;
 use ytm_core::{
-    AlbumRef, ArtistRef, MusicVideoType, Playlist, PlaylistPrivacy, Track, TrackAvailability,
+    AlbumRef, ArtistRef, FetchCompleteness, FetchManifest, MusicVideoType, Playlist,
+    PlaylistPrivacy, Track, TrackAvailability,
 };
 use ytm_store::{
-    AppPaths, CachedArtistGenre, CachedTrack, CachedTrackEnrichment, EnrichmentCacheStore,
-    ExportFormat, SnapshotStore, SqliteStore, StoreError, export_playlist_to_path,
-    export_playlist_to_string, import_playlist_from_json, write_secret_file,
+    AppPaths, CachedArtistGenre, CachedPlaylistRecord, CachedTrack, CachedTrackEnrichment,
+    EnrichmentCacheStore, ExportFormat, PersistedPlaybackSession, PersistedStagedOp, SnapshotStore,
+    SqliteStore, StoreError, export_playlist_to_path, export_playlist_to_string,
+    import_playlist_from_json, write_secret_file,
 };
 
 fn sample_playlist() -> Playlist {
@@ -190,4 +193,207 @@ fn export_formats_json_csv_m3u8_and_import_roundtrip() {
     assert!(m3u8_str.contains("#EXTINF:413,Pink Floyd - Time, Forever"));
     assert!(m3u8_str.contains("https://music.youtube.com/watch?v=vid1"));
     assert!(!m3u8_str.contains("https://music.youtube.com/watch?v=\n"));
+}
+
+#[tokio::test]
+async fn v1_to_v2_migration_preserves_existing_rows_and_is_idempotent() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("legacy_v1.sqlite");
+    let legacy_playlist = sample_playlist();
+    let legacy_pl_json = serde_json::to_string(&legacy_playlist).expect("serialize playlist");
+    let snap_json = format!(
+        r#"{{"metadata":{{"id":"snap_v1","playlist_id":"PL_TEST_01","playlist_title":"Midnight Synth","reason":"pre-v2","created_at":"2026-01-01T00:00:00Z","item_count":2}},"playlist":{legacy_pl_json}}}"#
+    );
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("create v1 db");
+        conn.execute_batch(
+            "CREATE TABLE snapshots (id TEXT PRIMARY KEY, playlist_id TEXT NOT NULL, playlist_title TEXT NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL, item_count INTEGER NOT NULL, payload_json TEXT NOT NULL);
+             CREATE TABLE playlist_cache (playlist_id TEXT PRIMARY KEY, title TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL);",
+        ).expect("create v1 schema");
+        conn.execute(
+            "INSERT INTO snapshots VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                "snap_v1",
+                "PL_TEST_01",
+                "Midnight Synth",
+                "pre-v2",
+                1_700_000_000i64,
+                2i64,
+                snap_json
+            ],
+        )
+        .expect("insert v1 snapshot");
+        conn.execute(
+            "INSERT INTO playlist_cache VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                "PL_TEST_01",
+                "Midnight Synth",
+                legacy_pl_json,
+                1_700_000_050i64
+            ],
+        )
+        .expect("insert v1 playlist_cache");
+    }
+
+    drop(SqliteStore::open(&db_path, None).expect("migrate v1 -> v2"));
+    let store = SqliteStore::open(&db_path, None).expect("reopen migrated db");
+
+    let snaps = store.list_snapshots(None).await.expect("list snapshots");
+    assert_eq!(snaps.len(), 1);
+    assert_eq!(snaps[0].id, "snap_v1");
+
+    let records = store
+        .load_all_cached_playlist_records()
+        .expect("load records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].playlist, legacy_playlist);
+    assert_eq!(records[0].manifest, None);
+    assert_eq!(records[0].fetched_at, 1_700_000_050);
+}
+
+#[test]
+fn staged_ops_roundtrip_preserves_order_and_selection_across_reopen() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("staged_ops.sqlite");
+    let ops = vec![
+        PersistedStagedOp {
+            entry_id: 101,
+            seq: 0,
+            selected: true,
+            op_json: r#"{"kind":"AddTracks","id":101}"#.into(),
+            created_at: 1_700_000_001,
+        },
+        PersistedStagedOp {
+            entry_id: 55,
+            seq: 1,
+            selected: false,
+            op_json: r#"{"kind":"RemoveTracks","id":55}"#.into(),
+            created_at: 1_700_000_002,
+        },
+        PersistedStagedOp {
+            entry_id: 209,
+            seq: 2,
+            selected: true,
+            op_json: r#"{"kind":"Reorder","id":209}"#.into(),
+            created_at: 1_700_000_003,
+        },
+    ];
+    SqliteStore::open(&db_path, None)
+        .expect("open store")
+        .replace_staged_ops(&ops)
+        .expect("replace");
+
+    let reopened = SqliteStore::open(&db_path, None).expect("reopen store");
+    assert_eq!(reopened.load_staged_ops().expect("load staged ops"), ops);
+
+    reopened.delete_staged_op(55).expect("delete op 55");
+    let after_del = reopened.load_staged_ops().expect("load after delete");
+    assert_eq!(after_del.len(), 2);
+    assert_eq!((after_del[0].entry_id, after_del[1].entry_id), (101, 209));
+
+    reopened
+        .replace_staged_ops(&[ops[1].clone()])
+        .expect("atomic replace");
+    assert_eq!(reopened.load_staged_ops().expect("load replaced").len(), 1);
+
+    reopened.clear_staged_ops().expect("clear staged ops");
+    assert!(reopened.load_staged_ops().expect("empty").is_empty());
+}
+
+#[test]
+fn playlist_cache_record_manifest_roundtrip_and_orphan_pruning() {
+    let store = SqliteStore::open_in_memory(None).expect("open memory store");
+    let mut pl1 = sample_playlist();
+    pl1.id = "PL_KEEP".to_string();
+    pl1.title = "Alpha Mix".to_string();
+    let mut pl2 = sample_playlist();
+    pl2.id = "PL_ORPHAN".to_string();
+    pl2.title = "Beta Mix".to_string();
+
+    let fetched_at = Utc.with_ymd_and_hms(2026, 11, 26, 10, 0, 0).unwrap();
+    let manifest = FetchManifest {
+        declared_track_count: Some(2),
+        fetched_tracks: 2,
+        available_tracks: 1,
+        unavailable_tracks: 1,
+        missing_set_video_id: 0,
+        pages_fetched: 1,
+        completeness: FetchCompleteness::Complete,
+        fetched_at,
+    };
+    let rec1 = CachedPlaylistRecord {
+        playlist: pl1,
+        manifest: Some(manifest),
+        fetched_at: fetched_at.timestamp(),
+    };
+    let rec2 = CachedPlaylistRecord {
+        playlist: pl2,
+        manifest: None,
+        fetched_at: fetched_at.timestamp() + 10,
+    };
+
+    store
+        .upsert_cached_playlist_record(&rec1)
+        .expect("upsert 1");
+    store
+        .upsert_cached_playlist_record(&rec2)
+        .expect("upsert 2");
+    assert_eq!(
+        store.load_all_cached_playlist_records().expect("load"),
+        vec![rec1.clone(), rec2]
+    );
+
+    assert_eq!(
+        store
+            .prune_missing_cached_playlists(&["PL_KEEP".to_string()])
+            .expect("prune"),
+        1
+    );
+    assert_eq!(
+        store.load_all_cached_playlist_records().expect("remaining"),
+        vec![rec1]
+    );
+    assert_eq!(
+        store
+            .prune_missing_cached_playlists(&[])
+            .expect("prune all"),
+        1
+    );
+    assert!(
+        store
+            .load_all_cached_playlist_records()
+            .expect("empty")
+            .is_empty()
+    );
+}
+
+#[test]
+fn playback_session_roundtrips_across_reopen() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("playback.sqlite");
+    {
+        let store = SqliteStore::open(&db_path, None).expect("open store");
+        assert_eq!(store.load_playback_session().expect("initial none"), None);
+        let first = PersistedPlaybackSession {
+            session_json: r#"{"queue":["v1","v2"],"index":0}"#.into(),
+            updated_at: 1_700_001_000,
+        };
+        store.save_playback_session(&first).expect("save first");
+        assert_eq!(
+            store.load_playback_session().expect("load first"),
+            Some(first)
+        );
+        let updated = PersistedPlaybackSession {
+            session_json: r#"{"queue":["v1","v2","v3"],"index":2}"#.into(),
+            updated_at: 1_700_002_000,
+        };
+        store.save_playback_session(&updated).expect("save updated");
+    }
+    let reopened = SqliteStore::open(&db_path, None).expect("reopen");
+    let loaded = reopened
+        .load_playback_session()
+        .expect("load after reopen")
+        .expect("exists");
+    assert_eq!(loaded.updated_at, 1_700_002_000);
+    assert!(loaded.session_json.contains("\"index\":2"));
 }

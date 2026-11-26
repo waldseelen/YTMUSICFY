@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use ytm_core::{
-    BrowsePage, Playlist, PlaylistPrivacy, PlaylistSummary, SessionStatus, Track, WatchNextResult,
+    BrowsePage, FetchManifest, LyricsPayload, Playlist, PlaylistSummary, SearchFilter, SearchPage,
+    SessionStatus, Track, WatchNextResult,
 };
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{
@@ -11,10 +12,13 @@ use ytm_ops::{
 use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::auth_store::AudioQuality;
-use crate::state::ConfirmedMutation;
+use crate::state::{
+    ConfirmedMutation, DispatchEntryOutcome, GuiAppConfig, JobId, MutationPolicy,
+};
+use crate::sync_queue::StagedEntry;
 use crate::worker_auth::BrowserKind;
 
-/// Commands dispatched from UI thread to Tokio background worker.
+/// Commands dispatched from UI thread to Tokio 3-lane background worker.
 #[derive(Debug, Clone)]
 pub enum WorkerCmd {
     Bootstrap,
@@ -23,6 +27,11 @@ pub enum WorkerCmd {
     ImportBrowserAuth(BrowserKind),
     LoadPlaylist(String),
     SearchTracks(String),
+    SearchCatalog {
+        query: String,
+        filter: SearchFilter,
+        continuation: Option<String>,
+    },
     BackupPlaylist {
         target: String,
         format: ExportFormat,
@@ -32,8 +41,16 @@ pub enum WorkerCmd {
         playlist_id: String,
         config: DedupeConfig,
     },
+    PlanDedupeDraft {
+        playlist: Playlist,
+        config: DedupeConfig,
+    },
     PlanSort {
         playlist_id: String,
+        spec: SortSpec,
+    },
+    PlanSortDraft {
+        playlist: Playlist,
         spec: SortSpec,
     },
     PlanSetOp {
@@ -55,18 +72,19 @@ pub enum WorkerCmd {
     RefreshSnapshots,
     LoadSnapshot(String),
     ExecuteMutation(ConfirmedMutation),
-    UpdatePlaylistMeta {
-        playlist_id: String,
-        title: Option<String>,
-        description: Option<String>,
-        privacy: Option<PlaylistPrivacy>,
-    },
+    SaveStagedOps(Vec<StagedEntry>),
+    SavePlaybackSession(String),
+    UpdateGuiConfig(GuiAppConfig),
     SetLikeStatus {
         video_id: String,
         liked: bool,
     },
     LoadBrowse {
         browse_id: String,
+    },
+    LoadBrowseContinuation {
+        browse_id: String,
+        token: String,
     },
     LoadWatchNext {
         video_id: String,
@@ -76,10 +94,15 @@ pub enum WorkerCmd {
     LoadLyrics {
         browse_id: String,
     },
+    LoadLyricsPayload {
+        video_id: String,
+        browse_id: String,
+    },
     SetAudioQuality(AudioQuality),
     IndexAllPlaylists {
         missing_only: bool,
     },
+    CancelJob(JobId),
 }
 
 /// Events emitted from Tokio background worker back to UI thread.
@@ -92,6 +115,17 @@ pub enum WorkerEvent {
         result: Result<Playlist, String>,
     },
     SearchResults(Result<Vec<Track>, String>),
+    CatalogSearchResults {
+        query: String,
+        filter: SearchFilter,
+        append: bool,
+        result: Result<SearchPage, String>,
+    },
+    JobStarted {
+        job_id: JobId,
+        label: String,
+    },
+    JobEnded(JobId),
     Progress {
         done: usize,
         total: usize,
@@ -113,7 +147,20 @@ pub enum WorkerEvent {
         message: String,
         reload_ids: Vec<String>,
     },
+    SyncEntryFinished {
+        entry_id: u64,
+        outcome: DispatchEntryOutcome,
+    },
+    LikeStatusResult {
+        video_id: String,
+        liked: bool,
+        result: Result<(), String>,
+    },
     BrowseLoaded {
+        browse_id: String,
+        result: Result<BrowsePage, String>,
+    },
+    BrowseContinuationLoaded {
         browse_id: String,
         result: Result<BrowsePage, String>,
     },
@@ -122,12 +169,24 @@ pub enum WorkerEvent {
         result: Result<WatchNextResult, String>,
     },
     LyricsLoaded(Result<Option<String>, String>),
+    LyricsPayloadLoaded {
+        video_id: String,
+        result: Result<Option<LyricsPayload>, String>,
+    },
     AudioConfigUpdated {
         cookie_jar: Option<PathBuf>,
         quality: AudioQuality,
         preferred_browser: Option<BrowserKind>,
     },
     PlaylistCacheHydrated(Vec<Playlist>),
+    PlaylistManifestLoaded {
+        playlist_id: String,
+        manifest: FetchManifest,
+    },
+    StagedOpsLoaded(Vec<StagedEntry>),
+    MutationPolicyLoaded(MutationPolicy),
+    PlaybackSessionLoaded(String),
+    GuiConfigLoaded(GuiAppConfig),
 }
 
 // Keep unused-import-free compilation cleanly if KeeperStrategy isn't directly named here.

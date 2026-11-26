@@ -1,6 +1,6 @@
 use crate::app::YtmGuiApp;
 use crate::navigation::ToastState;
-use crate::state::{AsyncState, GuiTab, WorkerCmd, WorkerEvent};
+use crate::state::{AsyncState, DispatchEntryOutcome, GuiTab, WorkerCmd, WorkerEvent};
 
 /// Apply a single background worker event onto `YtmGuiApp` state.
 pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
@@ -48,9 +48,13 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                     {
                         sum.track_count = Some(pl.tracks.len());
                     }
+                    app.draft_cache.invalidate_playlist(&pl.id);
                     app.playlist_cache.insert(pl.id.clone(), pl);
                 }
                 Err(e) => {
+                    if !app.playlist_cache.contains_key(&playlist_id) {
+                        app.draft_cache.invalidate_playlist(&playlist_id);
+                    }
                     app.playlist_errors.insert(playlist_id, e);
                 }
             }
@@ -97,6 +101,42 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             app.batch_progress = None;
             app.toast = Some(ToastState::info(ok, message));
         }
+        WorkerEvent::SyncEntryFinished { entry_id, outcome } => {
+            if matches!(outcome, DispatchEntryOutcome::Succeeded { .. }) {
+                app.sync_queue.remove_entries(&[entry_id]);
+                app.draft_cache.invalidate_all();
+            }
+        }
+        WorkerEvent::LikeStatusResult {
+            video_id,
+            liked,
+            result,
+        } => match result {
+            Ok(()) => {
+                for lm_id in ["LM", "VLLM"] {
+                    if let Some(lm) = app.playlist_cache.get_mut(lm_id) {
+                        if !liked {
+                            lm.tracks.retain(|t| t.video_id != video_id);
+                            lm.track_count = lm.tracks.len();
+                        }
+                        app.draft_cache.invalidate_playlist(lm_id);
+                    }
+                }
+                let msg = if liked {
+                    "Added track to Liked Songs."
+                } else {
+                    "Removed track from Liked Songs."
+                };
+                app.toast = Some(ToastState::info(true, msg));
+            }
+            Err(err) => {
+                app.play_queue.set_liked(&video_id, !liked);
+                app.toast = Some(ToastState::info(
+                    false,
+                    format!("Like update failed: {err}"),
+                ));
+            }
+        },
         WorkerEvent::MutationFinished {
             ok,
             message,
@@ -105,12 +145,13 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             app.batch_progress = None;
             app.toast = Some(ToastState::info(ok, message));
             if ok {
-                app.sync_queue.clear();
                 for id in reload_ids {
                     if id == "__LIBRARY__" {
+                        app.draft_cache.invalidate_all();
                         let _ = app.cmd_tx.send(WorkerCmd::RefreshLibrary);
                     } else {
                         app.playlist_cache.remove(&id);
+                        app.draft_cache.invalidate_playlist(&id);
                         if app.loading_playlists.insert(id.clone()) {
                             let _ = app.cmd_tx.send(WorkerCmd::LoadPlaylist(id));
                         }
@@ -135,10 +176,9 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                         format!("Radio seeded with {cnt} track(s)."),
                     ));
                 }
-                if let Some(lbid) = wn.lyrics_browse_id {
-                    app.lyrics_state = AsyncState::Loading("Loading lyrics...".to_string());
-                    let _ = app.cmd_tx.send(WorkerCmd::LoadLyrics { browse_id: lbid });
-                }
+                // Lyrics are fetched lazily by `views::queue_lyrics` when visible (no wasted POSTs).
+                app.lyrics_video_id = None;
+                app.lyrics_payload = AsyncState::Idle;
             } else if seed_radio && let Err(err) = result {
                 app.toast = Some(ToastState::info(false, format!("Radio load failed: {err}")));
             }
@@ -160,6 +200,9 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         }
         WorkerEvent::PlaylistCacheHydrated(cached) => {
             for pl in cached {
+                if pl.id.eq_ignore_ascii_case("LM") {
+                    app.play_queue.seed_liked_from_tracks(&pl.tracks);
+                }
                 if let AsyncState::Ready(list) = &mut app.library
                     && let Some(sum) = list.iter_mut().find(|s| s.id == pl.id)
                     && sum.track_count.is_none()
@@ -168,6 +211,91 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 }
                 app.playlist_cache.entry(pl.id.clone()).or_insert(pl);
             }
+            app.draft_cache.invalidate_all();
+        }
+        WorkerEvent::PlaylistManifestLoaded {
+            playlist_id,
+            manifest,
+        } => {
+            app.playlist_manifests.insert(playlist_id, manifest);
+        }
+        WorkerEvent::StagedOpsLoaded(entries) => {
+            app.sync_queue.load_entries(entries);
+            app.mark_staged_persisted();
+            app.draft_cache.invalidate_all();
+        }
+        WorkerEvent::MutationPolicyLoaded(policy) => {
+            app.mutation_policy = policy;
+        }
+        WorkerEvent::JobStarted { job_id, label } => {
+            app.active_job_id = Some(job_id);
+            app.batch_progress = Some((0, 1, label));
+        }
+        WorkerEvent::JobEnded(job_id) => {
+            if app.active_job_id == Some(job_id) {
+                app.active_job_id = None;
+                app.batch_progress = None;
+            }
+        }
+        WorkerEvent::CatalogSearchResults {
+            append,
+            result,
+            ..
+        } => match result {
+            Ok(page) => {
+                if append
+                    && let AsyncState::Ready(existing) = &mut app.catalog_results
+                {
+                    existing.tracks.extend(page.tracks);
+                    existing.cards.extend(page.cards);
+                    existing.continuation = page.continuation;
+                } else {
+                    app.catalog_results = AsyncState::Ready(page);
+                }
+            }
+            Err(e) => {
+                app.catalog_results = AsyncState::Failed(e);
+            }
+        },
+        WorkerEvent::BrowseContinuationLoaded { browse_id, result } => match result {
+            Ok(more) => {
+                if let AsyncState::Ready(page) = &mut app.browse_state
+                    && page.browse_id == browse_id
+                {
+                    page.sections.extend(more.sections);
+                    page.tracks.extend(more.tracks);
+                    page.continuation = more.continuation;
+                }
+            }
+            Err(e) => {
+                app.toast = Some(ToastState::info(
+                    false,
+                    format!("Browse load more failed: {e}"),
+                ));
+            }
+        },
+        WorkerEvent::LyricsPayloadLoaded { video_id, result } => {
+            let cur_vid = app
+                .play_queue
+                .current_track()
+                .map(|t| t.video_id.as_str());
+            if cur_vid == Some(video_id.as_str()) {
+                app.lyrics_video_id = Some(video_id);
+                app.lyrics_payload = result.map_or_else(AsyncState::Failed, AsyncState::Ready);
+            }
+        }
+        WorkerEvent::PlaybackSessionLoaded(raw_json) => {
+            if let Ok(snap) =
+                serde_json::from_str::<crate::play_queue::PlayQueueSnapshot>(&raw_json)
+            {
+                app.play_queue.restore_from_snapshot(&snap);
+                app.player.set_volume(snap.volume);
+            }
+        }
+        WorkerEvent::GuiConfigLoaded(cfg) => {
+            app.mutation_policy = cfg.mutation_policy;
+            app.audio_quality = cfg.audio_quality;
+            app.gui_config = cfg;
         }
     }
 }

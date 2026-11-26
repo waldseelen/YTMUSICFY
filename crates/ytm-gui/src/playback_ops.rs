@@ -1,8 +1,12 @@
+use std::sync::mpsc::Sender;
+
 use ytm_core::Track;
 
 use crate::app::YtmGuiApp;
 use crate::navigation::ToastState;
-use crate::state::{AsyncState, GuiTab, WorkerCmd};
+use crate::play_queue::PlayQueue;
+use crate::state::{AsyncState, GuiTab, MutationPolicy, WorkerCmd};
+use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::player_bar::PlayerBarOutcome;
 
 /// High-level playback or navigation intent emitted by table rows, cards, or player bar.
@@ -44,12 +48,14 @@ pub fn dispatch_play_actions(actions: Vec<PlayAction>, app: &mut YtmGuiApp) {
                 app.toast = Some(ToastState::info(true, format!("Added to queue: {title}")));
             }
             PlayAction::ToggleLike(track) => {
-                let next_liked = !app.play_queue.is_liked(&track.video_id);
-                app.play_queue.set_liked(&track.video_id, next_liked);
-                let _ = app.cmd_tx.send(WorkerCmd::SetLikeStatus {
-                    video_id: track.video_id,
-                    liked: next_liked,
-                });
+                handle_toggle_like(
+                    track,
+                    app.mutation_policy,
+                    &mut app.play_queue,
+                    &mut app.sync_queue,
+                    &mut app.toast,
+                    &app.cmd_tx,
+                );
             }
             PlayAction::StartRadio(track) => {
                 if app.play_queue.current_track().map(|t| t.video_id.as_str())
@@ -134,11 +140,127 @@ pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
     if out.open_queue_lyrics {
         app.active_tab = GuiTab::QueueLyrics;
     }
+    if out.apply_pending_configure {
+        app.player.apply_pending_configure();
+    }
     dispatch_play_actions(out.actions, app);
+}
+
+/// Enforces `MutationPolicy` when toggling like/unlike status for a track.
+pub(crate) fn handle_toggle_like(
+    track: Track,
+    policy: MutationPolicy,
+    play_queue: &mut PlayQueue,
+    sync_queue: &mut SyncQueue,
+    toast: &mut Option<ToastState>,
+    cmd_tx: &Sender<WorkerCmd>,
+) {
+    let next_liked = !play_queue.is_liked(&track.video_id);
+    match policy {
+        MutationPolicy::StrictLock => {
+            let verb = if next_liked { "Like" } else { "Unlike" };
+            let title = track.title.clone();
+            let eid = sync_queue.push(StagedOp::SetLikeStatus {
+                video_id: track.video_id,
+                title: track.title,
+                liked: next_liked,
+            });
+            *toast = Some(ToastState::staged(
+                format!("Staged {verb} '{title}' in Sync (StrictLock)."),
+                Some(eid),
+            ));
+        }
+        MutationPolicy::QuickLike => {
+            play_queue.set_liked(&track.video_id, next_liked);
+            let _ = cmd_tx.send(WorkerCmd::SetLikeStatus {
+                video_id: track.video_id,
+                liked: next_liked,
+            });
+        }
+    }
 }
 
 fn current_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(7, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use ytm_core::{MusicVideoType, TrackAvailability};
+
+    use super::*;
+
+    fn mk_track(vid: &str) -> Track {
+        Track {
+            video_id: vid.to_string(),
+            set_video_id: None,
+            position: 0,
+            title: format!("Song {vid}"),
+            artists: Vec::new(),
+            album: None,
+            duration_sec: Some(180),
+            release_year: None,
+            music_video_type: MusicVideoType::AudioTrack,
+            availability: TrackAvailability::Available,
+            thumbnail_url: None,
+        }
+    }
+
+    #[test]
+    fn strict_lock_stages_set_like_status_without_emitting_worker_cmd() {
+        let (tx, rx) = mpsc::channel();
+        let mut pq = PlayQueue::default();
+        let mut sq = SyncQueue::default();
+        let mut toast = None;
+
+        handle_toggle_like(
+            mk_track("V1"),
+            MutationPolicy::StrictLock,
+            &mut pq,
+            &mut sq,
+            &mut toast,
+            &tx,
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(!pq.is_liked("V1"));
+        assert_eq!(sq.len(), 1);
+        assert!(matches!(
+            sq.entries()[0].op,
+            StagedOp::SetLikeStatus {
+                ref video_id,
+                liked: true,
+                ..
+            } if video_id == "V1"
+        ));
+    }
+
+    #[test]
+    fn quick_like_dispatches_worker_cmd_and_toggles_optimistically() {
+        let (tx, rx) = mpsc::channel();
+        let mut pq = PlayQueue::default();
+        let mut sq = SyncQueue::default();
+        let mut toast = None;
+
+        handle_toggle_like(
+            mk_track("V2"),
+            MutationPolicy::QuickLike,
+            &mut pq,
+            &mut sq,
+            &mut toast,
+            &tx,
+        );
+        assert!(pq.is_liked("V2"));
+        assert!(sq.is_empty());
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(WorkerCmd::SetLikeStatus {
+                video_id,
+                liked: true
+            }) if video_id == "V2"
+        ));
+    }
 }

@@ -121,6 +121,17 @@ pub enum PlaylistPrivacy {
     Unlisted,
 }
 
+/// Effective access and mutability tier for a YouTube Music playlist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PlaylistAccess {
+    /// User-owned playlist editable via `browse/edit_playlist`.
+    EditableOwned,
+    /// Auto-managed Liked Music playlist (`LM` / `VLLM`); tracks lack `setVideoId`.
+    LikedMusicAuto,
+    /// External or non-owned playlist that can only be read.
+    ReadOnlyExternal,
+}
+
 /// Lightweight playlist entry returned by library listing (`FEmusic_liked_playlists`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaylistSummary {
@@ -129,6 +140,21 @@ pub struct PlaylistSummary {
     pub track_count: Option<usize>,
     pub owned: bool,
     pub is_liked_music: bool,
+}
+
+impl PlaylistSummary {
+    /// Derive canonical access tier from playlist identity and ownership flags.
+    #[must_use]
+    pub fn access(&self) -> PlaylistAccess {
+        let id = self.id.trim();
+        if self.is_liked_music || id.eq_ignore_ascii_case("LM") || id.eq_ignore_ascii_case("VLLM") {
+            PlaylistAccess::LikedMusicAuto
+        } else if self.owned {
+            PlaylistAccess::EditableOwned
+        } else {
+            PlaylistAccess::ReadOnlyExternal
+        }
+    }
 }
 
 /// Full hydrated playlist including ordered tracks.
@@ -141,6 +167,21 @@ pub struct Playlist {
     pub owned: bool,
     pub track_count: usize,
     pub tracks: Vec<Track>,
+}
+
+impl Playlist {
+    /// Derive canonical access tier from playlist identity and ownership flag.
+    #[must_use]
+    pub fn access(&self) -> PlaylistAccess {
+        let id = self.id.trim();
+        if id.eq_ignore_ascii_case("LM") || id.eq_ignore_ascii_case("VLLM") {
+            PlaylistAccess::LikedMusicAuto
+        } else if self.owned {
+            PlaylistAccess::EditableOwned
+        } else {
+            PlaylistAccess::ReadOnlyExternal
+        }
+    }
 }
 
 /// Ordered move primitive emitted by the LIS minimal-move planner.

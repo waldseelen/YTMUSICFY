@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use serde_json::Value;
 use tracing::{debug, warn};
 use ytm_core::Track;
 use ytm_store::{CachedArtistGenre, CachedTrackEnrichment, EnrichmentCacheStore};
@@ -10,6 +11,8 @@ use ytm_store::{CachedArtistGenre, CachedTrackEnrichment, EnrichmentCacheStore};
 use crate::error::EnrichError;
 pub use crate::genre_split::plan_genre_split;
 use crate::models::{EnrichedTrackMetadata, EnrichmentConfig, EnrichmentSource};
+pub use crate::normalize::build_cache_key;
+use crate::normalize::normalized_track_parts;
 use crate::providers::{
     EnrichmentHttp, ProviderPayload, build_musicbrainz_url, parse_deezer_album_response,
     parse_lastfm_response, parse_listenbrainz_response, parse_musicbrainz_recording_response,
@@ -48,19 +51,6 @@ impl<C, H> EnrichmentService<C, H> {
     }
 }
 
-fn normalize_key_component(raw: &str) -> String {
-    raw.trim().to_ascii_lowercase()
-}
-
-fn build_cache_key(track: &Track) -> (String, String, String) {
-    let artist = track.primary_artist_name().unwrap_or_default().trim();
-    let title = track.title.trim();
-    let artist_norm = normalize_key_component(artist);
-    let title_norm = normalize_key_component(title);
-    let key = format!("{artist_norm}::{title_norm}");
-    (key, artist_norm, title_norm)
-}
-
 #[async_trait]
 impl<C, H> MetadataProvider for EnrichmentService<C, H>
 where
@@ -68,7 +58,11 @@ where
     H: EnrichmentHttp + 'static,
 {
     async fn enrich_track(&self, track: &Track) -> Result<EnrichedTrackMetadata, EnrichError> {
-        let (cache_key, artist_norm, _title_norm) = build_cache_key(track);
+        let parts = normalized_track_parts(track);
+        let cache_key = parts.cache_key;
+        let artist_norm = parts.artist_norm;
+        let artist_display = parts.artist_display;
+        let title_display = parts.title_display;
         let now_ts = Utc::now().timestamp();
         let ttl_secs =
             i64::try_from(self.config.cache_ttl_days.saturating_mul(86_400)).unwrap_or(i64::MAX);
@@ -101,26 +95,45 @@ where
                 .filter(|row| now_ts.saturating_sub(row.updated_at) <= ttl_secs)
         };
 
-        let artist_display = track.primary_artist_name().unwrap_or_default().trim();
-        let title_display = track.title.trim();
-
-        let (mut payload, mut source, mb_degraded) =
-            match self.query_musicbrainz(title_display, artist_display).await {
-                Ok((p, src)) => (p, src, false),
-                Err(err) => {
-                    warn!(
-                        artist = artist_display,
-                        title = title_display,
-                        error = %err,
-                        "musicbrainz lookup failed; falling back to cache/secondary providers"
-                    );
-                    (
-                        ProviderPayload::default(),
-                        EnrichmentSource::MusicBrainz,
-                        true,
-                    )
-                }
+        if self.config.artist_cache_first
+            && let Some(ref artist_row) = artist_cached
+            && !artist_row.raw_tags.is_empty()
+        {
+            let payload = ProviderPayload {
+                raw_tags: artist_row.raw_tags.clone(),
+                ..Default::default()
             };
+            return self
+                .finish_and_cache(
+                    track,
+                    (&cache_key, ""),
+                    payload,
+                    EnrichmentSource::Cache,
+                    true,
+                    now_ts,
+                )
+                .await;
+        }
+
+        let (mut payload, mut source, mb_degraded) = match self
+            .query_musicbrainz(&title_display, &artist_display)
+            .await
+        {
+            Ok((p, src)) => (p, src, false),
+            Err(err) => {
+                warn!(
+                    artist = artist_display,
+                    title = title_display,
+                    error = %err,
+                    "musicbrainz lookup failed; falling back to cache/secondary providers"
+                );
+                (
+                    ProviderPayload::default(),
+                    EnrichmentSource::MusicBrainz,
+                    true,
+                )
+            }
+        };
 
         if payload.raw_tags.is_empty()
             && let Some(ref artist_row) = artist_cached
@@ -130,58 +143,42 @@ where
             source = EnrichmentSource::Cache;
         }
 
-        if payload.raw_tags.is_empty()
-            && let Some(api_key) = &self.config.lastfm_api_key
-            && !artist_display.is_empty()
-        {
-            match self
-                .query_lastfm(artist_display, title_display, api_key)
-                .await
-            {
-                Ok(lfm) if !lfm.raw_tags.is_empty() => {
-                    payload.raw_tags = lfm.raw_tags;
-                    source = EnrichmentSource::LastFm;
-                }
-                Ok(_) => {}
-                Err(err) => warn!(error = %err, "lastfm fallback failed"),
-            }
-        }
+        self.apply_secondary_fallbacks(&artist_display, &title_display, &mut payload, &mut source)
+            .await;
 
-        if payload.raw_tags.is_empty() && self.config.enable_deezer_fallback {
-            match self.query_deezer(artist_display, title_display).await {
-                Ok(dz) if !dz.raw_tags.is_empty() => {
-                    payload.raw_tags = dz.raw_tags;
-                    if payload.release_year.is_none() {
-                        payload.release_year = dz.release_year;
-                    }
-                    if payload.bpm.is_none() {
-                        payload.bpm = dz.bpm;
-                    }
-                    source = EnrichmentSource::Deezer;
-                }
-                Ok(_) => {}
-                Err(err) => warn!(error = %err, "deezer fallback failed"),
-            }
-        }
+        let save_track = !mb_degraded || !payload.raw_tags.is_empty();
+        self.finish_and_cache(
+            track,
+            (&cache_key, &artist_norm),
+            payload,
+            source,
+            save_track,
+            now_ts,
+        )
+        .await
+    }
+}
 
-        if payload.raw_tags.is_empty() && self.config.enable_listenbrainz_fallback {
-            match self.query_listenbrainz(artist_display, title_display).await {
-                Ok(lb) if !lb.raw_tags.is_empty() => {
-                    payload.raw_tags = lb.raw_tags;
-                    source = EnrichmentSource::ListenBrainz;
-                }
-                Ok(_) => {}
-                Err(err) => warn!(error = %err, "listenbrainz fallback failed"),
-            }
-        }
-
+impl<C, H> EnrichmentService<C, H>
+where
+    C: EnrichmentCacheStore + 'static,
+    H: EnrichmentHttp + 'static,
+{
+    async fn finish_and_cache(
+        &self,
+        track: &Track,
+        (cache_key, artist_norm): (&str, &str),
+        payload: ProviderPayload,
+        source: EnrichmentSource,
+        save_track: bool,
+        now_ts: i64,
+    ) -> Result<EnrichedTrackMetadata, EnrichError> {
         let primary_genre = self.matcher.classify(&payload.raw_tags);
         let release_year = payload.release_year.or(track.release_year);
 
-        let should_cache = !mb_degraded || !payload.raw_tags.is_empty();
-        if should_cache {
+        if save_track {
             let track_row = CachedTrackEnrichment {
-                cache_key: cache_key.clone(),
+                cache_key: cache_key.to_string(),
                 video_id: Some(track.video_id.clone()).filter(|id| !id.is_empty()),
                 tags: payload.raw_tags.clone(),
                 primary_genre: primary_genre.clone(),
@@ -195,7 +192,7 @@ where
 
         if !artist_norm.is_empty() && !payload.raw_tags.is_empty() {
             let artist_row = CachedArtistGenre {
-                artist_name_norm: artist_norm,
+                artist_name_norm: artist_norm.to_string(),
                 raw_tags: payload.raw_tags.clone(),
                 primary_genre: primary_genre.clone(),
                 source: source.as_str().to_string(),
@@ -205,7 +202,7 @@ where
         }
 
         Ok(EnrichedTrackMetadata {
-            cache_key,
+            cache_key: cache_key.to_string(),
             raw_tags: payload.raw_tags,
             primary_genre,
             release_year,
@@ -213,12 +210,75 @@ where
             source,
         })
     }
-}
 
-impl<C, H> EnrichmentService<C, H>
-where
-    H: EnrichmentHttp,
-{
+    async fn try_tags(
+        &self,
+        provider: &str,
+        url: &str,
+        parse: fn(&Value) -> ProviderPayload,
+    ) -> Option<Vec<String>> {
+        match self.fetch_optional_json(provider, url).await {
+            Ok(Some(body)) => Some(parse(&body).raw_tags).filter(|t| !t.is_empty()),
+            Ok(None) => None,
+            Err(err) => {
+                warn!(error = %err, "{provider} fallback failed");
+                None
+            }
+        }
+    }
+
+    async fn apply_secondary_fallbacks(
+        &self,
+        artist: &str,
+        title: &str,
+        payload: &mut ProviderPayload,
+        source: &mut EnrichmentSource,
+    ) {
+        if payload.raw_tags.is_empty()
+            && let Some(api_key) = &self.config.lastfm_api_key
+            && !artist.is_empty()
+        {
+            let url = format!(
+                "https://ws.audioscrobbler.com/2.0/?method=track.getTopTags&artist={}&track={}&api_key={}&format=json",
+                percent_encode(artist),
+                percent_encode(title),
+                percent_encode(api_key),
+            );
+            if let Some(tags) = self.try_tags("lastfm", &url, parse_lastfm_response).await {
+                payload.raw_tags = tags;
+                *source = EnrichmentSource::LastFm;
+            }
+        }
+
+        if payload.raw_tags.is_empty() && self.config.enable_deezer_fallback {
+            match self.query_deezer(artist, title).await {
+                Ok(dz) if !dz.raw_tags.is_empty() => {
+                    payload.raw_tags = dz.raw_tags;
+                    payload.release_year = payload.release_year.or(dz.release_year);
+                    payload.bpm = payload.bpm.or(dz.bpm);
+                    *source = EnrichmentSource::Deezer;
+                }
+                Ok(_) => {}
+                Err(err) => warn!(error = %err, "deezer fallback failed"),
+            }
+        }
+
+        if payload.raw_tags.is_empty() && self.config.enable_listenbrainz_fallback {
+            let url = format!(
+                "https://api.listenbrainz.org/1/metadata/recording/?recording_name={}&artist_name={}",
+                percent_encode(title),
+                percent_encode(artist),
+            );
+            if let Some(tags) = self
+                .try_tags("listenbrainz", &url, parse_listenbrainz_response)
+                .await
+            {
+                payload.raw_tags = tags;
+                *source = EnrichmentSource::ListenBrainz;
+            }
+        }
+    }
+
     async fn query_musicbrainz(
         &self,
         title: &str,
@@ -255,32 +315,24 @@ where
                     detail: format!("unexpected HTTP status {status}"),
                 });
             }
-            let payload = parse_musicbrainz_recording_response(&body);
-            return Ok((payload, EnrichmentSource::MusicBrainz));
+            return Ok((
+                parse_musicbrainz_recording_response(&body),
+                EnrichmentSource::MusicBrainz,
+            ));
         }
         Err(EnrichError::RateLimited("musicbrainz".to_string()))
     }
 
-    async fn query_lastfm(
+    async fn fetch_optional_json(
         &self,
-        artist: &str,
-        title: &str,
-        api_key: &str,
-    ) -> Result<ProviderPayload, EnrichError> {
-        let url = format!(
-            "https://ws.audioscrobbler.com/2.0/?method=track.getTopTags&artist={}&track={}&api_key={}&format=json",
-            percent_encode(artist),
-            percent_encode(title),
-            percent_encode(api_key),
-        );
-        let (status, body) = self.http.get_json("lastfm", &url, None).await?;
+        provider: &str,
+        url: &str,
+    ) -> Result<Option<Value>, EnrichError> {
+        let (status, body) = self.http.get_json(provider, url, None).await?;
         if status == 429 {
-            return Err(EnrichError::RateLimited("lastfm".to_string()));
+            return Err(EnrichError::RateLimited(provider.to_string()));
         }
-        if !(200..300).contains(&status) {
-            return Ok(ProviderPayload::default());
-        }
-        Ok(parse_lastfm_response(&body))
+        Ok((200..300).contains(&status).then_some(body))
     }
 
     async fn query_deezer(
@@ -294,48 +346,25 @@ where
             format!("{artist} {title}")
         };
         let search_url = format!("https://api.deezer.com/search?q={}", percent_encode(&query));
-        let (status, body) = self.http.get_json("deezer", &search_url, None).await?;
-        if status == 429 {
-            return Err(EnrichError::RateLimited("deezer".to_string()));
-        }
-        if !(200..300).contains(&status) {
+        let Some(body) = self.fetch_optional_json("deezer", &search_url).await? else {
             return Ok(ProviderPayload::default());
-        }
-
+        };
         if let Some(album_id) = body
             .get("data")
             .and_then(|d| d.as_array())
             .and_then(|arr| arr.first())
             .and_then(|item| item.get("album"))
             .and_then(|al| al.get("id"))
-            .and_then(serde_json::Value::as_u64)
+            .and_then(Value::as_u64)
+            && let Some(al_body) = self
+                .fetch_optional_json(
+                    "deezer",
+                    &format!("https://api.deezer.com/album/{album_id}"),
+                )
+                .await?
         {
-            let album_url = format!("https://api.deezer.com/album/{album_id}");
-            let (al_status, al_body) = self.http.get_json("deezer", &album_url, None).await?;
-            if (200..300).contains(&al_status) {
-                return Ok(parse_deezer_album_response(&al_body));
-            }
+            return Ok(parse_deezer_album_response(&al_body));
         }
         Ok(ProviderPayload::default())
-    }
-
-    async fn query_listenbrainz(
-        &self,
-        artist: &str,
-        title: &str,
-    ) -> Result<ProviderPayload, EnrichError> {
-        let url = format!(
-            "https://api.listenbrainz.org/1/metadata/recording/?recording_name={}&artist_name={}",
-            percent_encode(title),
-            percent_encode(artist),
-        );
-        let (status, body) = self.http.get_json("listenbrainz", &url, None).await?;
-        if status == 429 {
-            return Err(EnrichError::RateLimited("listenbrainz".to_string()));
-        }
-        if !(200..300).contains(&status) {
-            return Ok(ProviderPayload::default());
-        }
-        Ok(parse_listenbrainz_response(&body))
     }
 }

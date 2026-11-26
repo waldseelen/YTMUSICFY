@@ -57,6 +57,24 @@ CREATE TABLE IF NOT EXISTS playlist_cache (
     playlist_id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    manifest_json TEXT,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS staged_ops (
+    entry_id INTEGER PRIMARY KEY,
+    seq INTEGER NOT NULL,
+    selected INTEGER NOT NULL DEFAULT 1,
+    op_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_staged_ops_seq
+    ON staged_ops (seq ASC, entry_id ASC);
+
+CREATE TABLE IF NOT EXISTS playback_session (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    session_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
 "#;
@@ -78,7 +96,9 @@ impl SqliteStore {
             })?;
         }
         let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
+        )?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             snapshots_dir,
@@ -90,6 +110,7 @@ impl SqliteStore {
     /// Open an isolated `:memory:` SQLite database for deterministic unit/integration tests.
     pub fn open_in_memory(snapshots_dir: Option<PathBuf>) -> Result<Self, StoreError> {
         let conn = Connection::open_in_memory()?;
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
             snapshots_dir,
@@ -101,6 +122,7 @@ impl SqliteStore {
     fn migrate(&self) -> Result<(), StoreError> {
         self.with_conn(|conn| {
             conn.execute_batch(SCHEMA_SQL)?;
+            ensure_column_exists(conn, "playlist_cache", "manifest_json", "TEXT")?;
             Ok(())
         })
     }
@@ -112,6 +134,41 @@ impl SqliteStore {
         let guard = self.conn.lock().expect("sqlite mutex");
         f(&guard)
     }
+
+    pub(crate) async fn with_conn_blocking<F, R>(&self, f: F) -> Result<R, StoreError>
+    where
+        F: FnOnce(&Connection) -> Result<R, StoreError> + Send + 'static,
+        R: Send + 'static,
+    {
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || store.with_conn(f))
+            .await
+            .map_err(|e| StoreError::TaskJoin(e.to_string()))?
+    }
+}
+
+fn ensure_column_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    sql_type: &str,
+) -> Result<(), StoreError> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let mut rows = stmt.query([])?;
+    let mut found = false;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        let alter = format!("ALTER TABLE {table} ADD COLUMN {column} {sql_type}");
+        conn.execute_batch(&alter)?;
+    }
+    Ok(())
 }
 
 fn music_video_type_to_db(kind: MusicVideoType) -> &'static str {
@@ -132,7 +189,7 @@ fn music_video_type_from_db(raw: &str) -> MusicVideoType {
 impl EnrichmentCacheStore for SqliteStore {
     async fn get_cached_track(&self, video_id: &str) -> Result<Option<CachedTrack>, StoreError> {
         let video_id = video_id.to_string();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT video_id, title, artists_json, album, duration_sec, release_year, music_video_type, updated_at
                  FROM track_cache WHERE video_id = ?1",
@@ -154,11 +211,12 @@ impl EnrichmentCacheStore for SqliteStore {
                 .optional()?;
             Ok(row)
         })
+        .await
     }
 
     async fn upsert_cached_track(&self, track: &CachedTrack) -> Result<(), StoreError> {
         let track = track.clone();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             conn.execute(
                 "INSERT INTO track_cache (video_id, title, artists_json, album, duration_sec, release_year, music_video_type, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -183,6 +241,7 @@ impl EnrichmentCacheStore for SqliteStore {
             )?;
             Ok(())
         })
+        .await
     }
 
     async fn get_artist_genre(
@@ -190,7 +249,7 @@ impl EnrichmentCacheStore for SqliteStore {
         artist_name_norm: &str,
     ) -> Result<Option<CachedArtistGenre>, StoreError> {
         let key = artist_name_norm.to_string();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT artist_name_norm, raw_tags_json, primary_genre, source, updated_at
                  FROM artist_genres WHERE artist_name_norm = ?1",
@@ -211,13 +270,14 @@ impl EnrichmentCacheStore for SqliteStore {
                 .optional()?;
             Ok(row)
         })
+        .await
     }
 
     async fn upsert_artist_genre(&self, entry: &CachedArtistGenre) -> Result<(), StoreError> {
         let raw_tags_json = serde_json::to_string(&entry.raw_tags)
             .map_err(|e| StoreError::Serialization(e.to_string()))?;
         let entry = entry.clone();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             conn.execute(
                 "INSERT INTO artist_genres (artist_name_norm, raw_tags_json, primary_genre, source, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)
@@ -236,6 +296,7 @@ impl EnrichmentCacheStore for SqliteStore {
             )?;
             Ok(())
         })
+        .await
     }
 
     async fn get_track_enrichment(
@@ -243,7 +304,7 @@ impl EnrichmentCacheStore for SqliteStore {
         cache_key: &str,
     ) -> Result<Option<CachedTrackEnrichment>, StoreError> {
         let key = cache_key.to_string();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT cache_key, video_id, tags_json, primary_genre, release_year, bpm, source, updated_at
                  FROM track_enrichment WHERE cache_key = ?1",
@@ -267,6 +328,7 @@ impl EnrichmentCacheStore for SqliteStore {
                 .optional()?;
             Ok(row)
         })
+        .await
     }
 
     async fn upsert_track_enrichment(
@@ -276,7 +338,7 @@ impl EnrichmentCacheStore for SqliteStore {
         let tags_json = serde_json::to_string(&entry.tags)
             .map_err(|e| StoreError::Serialization(e.to_string()))?;
         let entry = entry.clone();
-        self.with_conn(|conn| {
+        self.with_conn_blocking(move |conn| {
             conn.execute(
                 "INSERT INTO track_enrichment (cache_key, video_id, tags_json, primary_genre, release_year, bpm, source, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -301,5 +363,20 @@ impl EnrichmentCacheStore for SqliteStore {
             )?;
             Ok(())
         })
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_sets_busy_timeout_to_5000_ms() {
+        let store = SqliteStore::open_in_memory(None).expect("open in-memory store");
+        let timeout: i64 = store
+            .with_conn(|conn| Ok(conn.query_row("PRAGMA busy_timeout;", [], |r| r.get(0))?))
+            .expect("query pragma");
+        assert_eq!(timeout, 5000);
     }
 }

@@ -1,34 +1,46 @@
 use std::collections::HashMap;
-use std::fs;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use anyhow::Result;
 use eframe::egui;
+use tokio::sync::{Mutex as AsyncMutex, mpsc as tokio_mpsc};
 use ytm_core::{InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
 use ytm_enrich::{EnrichmentService, MetadataProvider, ReqwestEnrichmentHttp};
 use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
 
-use crate::auth_store::{
-    active_cookie_jar_path, load_credentials_secure, save_gui_config, write_mpv_cookie_jar,
-};
-use crate::state::{GuiAppConfig, WorkerCmd, WorkerEvent};
+use crate::auth_store::{active_cookie_jar_path, save_gui_config};
+use crate::state::{GuiAppConfig, JobId, WorkerCmd, WorkerEvent};
 use crate::worker_auth::{handle_bootstrap, import_auth_inner, import_browser_auth_inner};
-use crate::worker_exec::{backup_inner, emit_progress, load_playlist, run_confirmed_mutation};
-use crate::worker_media::handle_extended_cmd;
+use crate::worker_exec::{
+    backup_inner, cache_fetched_playlist, emit_progress, hydrate_gui_startup_state, load_config,
+    load_playlist, load_playlist_with_manifest, load_saved_client, persist_staged_entries,
+    run_confirmed_mutation,
+};
+use crate::worker_media::{handle_interactive_cmd, spawn_index_all_job};
 use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
     let (evt_tx, evt_rx) = mpsc::channel::<WorkerEvent>();
+    let (async_tx, async_rx) = tokio_mpsc::unbounded_channel::<WorkerCmd>();
+
+    // Non-blocking bridge so Tokio worker threads never block on std::sync::mpsc::recv().
+    std::thread::spawn(move || {
+        while let Ok(cmd) = cmd_rx.recv() {
+            if async_tx.send(cmd).is_err() {
+                break;
+            }
+        }
+    });
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("tokio runtime");
-        rt.block_on(worker_loop(ctx, cmd_rx, evt_tx));
+        rt.block_on(worker_loop(ctx, async_rx, evt_tx));
     });
 
     (cmd_tx, evt_rx)
@@ -38,40 +50,20 @@ pub(crate) struct BackendState {
     pub(crate) paths: AppPaths,
     pub(crate) config: GuiAppConfig,
     pub(crate) store: Arc<SqliteStore>,
-    pub(crate) client: Option<InnerTubeClient<ReqwestTransport>>,
+    pub(crate) client: Option<Arc<InnerTubeClient<ReqwestTransport>>>,
+    pub(crate) mutation_lock: Arc<AsyncMutex<()>>,
+    pub(crate) active_jobs: HashMap<JobId, Arc<AtomicBool>>,
+    pub(crate) next_job_id: u64,
 }
 
-fn load_config(paths: &AppPaths) -> GuiAppConfig {
-    let path = paths.config_file();
-    let mut cfg = if path.exists() {
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| toml::from_str::<GuiAppConfig>(&s).ok())
-            .unwrap_or_default()
-    } else {
-        GuiAppConfig::default()
-    };
-    if cfg.enrichment.lastfm_api_key.is_none()
-        && let Ok(val) = std::env::var("YTM_LASTFM_API_KEY")
-        && !val.trim().is_empty()
-    {
-        cfg.enrichment.lastfm_api_key = Some(val.trim().to_string());
+impl BackendState {
+    pub(crate) fn allocate_job(&mut self) -> (JobId, Arc<AtomicBool>) {
+        self.next_job_id = self.next_job_id.saturating_add(1);
+        let id = JobId(self.next_job_id);
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.active_jobs.insert(id, Arc::clone(&cancel));
+        (id, cancel)
     }
-    cfg
-}
-
-fn load_saved_client(
-    paths: &AppPaths,
-    cfg: &GuiAppConfig,
-) -> Result<InnerTubeClient<ReqwestTransport>> {
-    let creds = load_credentials_secure(paths)?;
-    let _ = write_mpv_cookie_jar(paths, &creds);
-    let transport = ReqwestTransport::new(cfg.innertube.max_retries)?;
-    Ok(InnerTubeClient::new(
-        transport,
-        creds,
-        cfg.innertube.clone(),
-    ))
 }
 
 fn emit_audio_config(state: &BackendState, tx: &Sender<WorkerEvent>) {
@@ -84,7 +76,7 @@ fn emit_audio_config(state: &BackendState, tx: &Sender<WorkerEvent>) {
 
 async fn worker_loop(
     egui_ctx: egui::Context,
-    cmd_rx: Receiver<WorkerCmd>,
+    mut cmd_rx: tokio_mpsc::UnboundedReceiver<WorkerCmd>,
     evt_tx: Sender<WorkerEvent>,
 ) {
     let paths = match AppPaths::from_project_dirs() {
@@ -109,15 +101,18 @@ async fn worker_loop(
             return;
         }
     };
-    let client = load_saved_client(&paths, &config).ok();
+    let client = load_saved_client(&paths, &config).ok().map(Arc::new);
     let mut state = BackendState {
         paths,
         config,
         store,
         client,
+        mutation_lock: Arc::new(AsyncMutex::new(())),
+        active_jobs: HashMap::new(),
+        next_job_id: 0,
     };
 
-    while let Ok(cmd) = cmd_rx.recv() {
+    while let Some(cmd) = cmd_rx.recv().await {
         handle_cmd(&mut state, cmd, &evt_tx, &egui_ctx).await;
         egui_ctx.request_repaint();
     }
@@ -132,37 +127,66 @@ async fn handle_cmd(
     match cmd {
         WorkerCmd::Bootstrap => {
             emit_audio_config(state, tx);
+            let _ = tx.send(WorkerEvent::GuiConfigLoaded(state.config.clone()));
+            if let Ok(Some(sess)) = state.store.load_playback_session() {
+                let _ = tx.send(WorkerEvent::PlaybackSessionLoaded(sess.session_json));
+            }
+            hydrate_gui_startup_state(&state.store, state.config.mutation_policy, tx);
             handle_bootstrap(state, tx).await;
+        }
+        WorkerCmd::CancelJob(job_id) => {
+            if let Some(flag) = state.active_jobs.remove(&job_id) {
+                flag.store(true, Ordering::Relaxed);
+                let _ = tx.send(WorkerEvent::StatusToast {
+                    ok: true,
+                    message: format!("Cancelling job #{}...", job_id.0),
+                });
+            }
         }
         WorkerCmd::SetAudioQuality(quality) => {
             state.config.audio_quality = quality;
             let _ = save_gui_config(&state.paths, &state.config);
             emit_audio_config(state, tx);
         }
-        WorkerCmd::RefreshLibrary => {
-            let Some(client) = &state.client else {
-                return;
+        WorkerCmd::UpdateGuiConfig(new_cfg) => {
+            state.config = new_cfg.clone();
+            let _ = save_gui_config(&state.paths, &state.config);
+            emit_audio_config(state, tx);
+            let _ = tx.send(WorkerEvent::MutationPolicyLoaded(
+                state.config.mutation_policy,
+            ));
+            let _ = tx.send(WorkerEvent::GuiConfigLoaded(new_cfg));
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: true,
+                message: "Settings saved to config.toml.".to_string(),
+            });
+        }
+        WorkerCmd::SaveStagedOps(entries) => {
+            let _ = persist_staged_entries(&state.store, &entries);
+        }
+        WorkerCmd::SavePlaybackSession(json) => {
+            let sess = ytm_store::PersistedPlaybackSession {
+                session_json: json,
+                updated_at: chrono::Utc::now().timestamp(),
             };
-            let libs = client
-                .get_library_playlists()
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
+            let _ = state.store.save_playback_session(&sess);
         }
         WorkerCmd::ImportAuth(raw) => {
             match import_auth_inner(&state.paths, &state.config, &raw).await {
                 Ok((client, status)) => {
-                    state.client = Some(client);
+                    let client = Arc::new(client);
+                    state.client = Some(Arc::clone(&client));
                     emit_audio_config(state, tx);
                     let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
                     let _ = tx.send(WorkerEvent::StatusToast {
                         ok: true,
                         message: "Credentials verified and saved.".to_string(),
                     });
-                    if let Some(c) = &state.client {
-                        let libs = c.get_library_playlists().await.map_err(|e| e.to_string());
-                        let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
-                    }
+                    let libs = client
+                        .get_library_playlists()
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
                 }
                 Err(e) => {
                     let _ = tx.send(WorkerEvent::StatusToast {
@@ -175,7 +199,8 @@ async fn handle_cmd(
         WorkerCmd::ImportBrowserAuth(browser) => {
             match import_browser_auth_inner(&state.paths, &state.config, browser).await {
                 Ok((client, status)) => {
-                    state.client = Some(client);
+                    let client = Arc::new(client);
+                    state.client = Some(Arc::clone(&client));
                     state.config.preferred_browser = Some(browser);
                     let _ = save_gui_config(&state.paths, &state.config);
                     emit_audio_config(state, tx);
@@ -184,10 +209,11 @@ async fn handle_cmd(
                         ok: true,
                         message: format!("Imported session from {} and saved.", browser.label()),
                     });
-                    if let Some(c) = &state.client {
-                        let libs = c.get_library_playlists().await.map_err(|e| e.to_string());
-                        let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
-                    }
+                    let libs = client
+                        .get_library_playlists()
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
                 }
                 Err(e) => {
                     let _ = tx.send(WorkerEvent::StatusToast {
@@ -197,105 +223,173 @@ async fn handle_cmd(
                 }
             }
         }
-        WorkerCmd::LoadPlaylist(id) => {
-            let Some(client) = &state.client else {
+        // --- Lane 1: Interactive parallel spawns ---
+        WorkerCmd::RefreshLibrary => {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let result = load_playlist(client, &id).await.map_err(|e| e.to_string());
-            if let Ok(pl) = &result {
-                let _ = state.store.upsert_cached_playlist(pl);
-            }
-            let _ = tx.send(WorkerEvent::PlaylistLoaded {
-                playlist_id: id,
-                result,
+            let store = Arc::clone(&state.store);
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let libs = client
+                    .get_library_playlists()
+                    .await
+                    .map_err(|e| e.to_string());
+                if let Ok(list) = &libs {
+                    let keep: Vec<String> = list.iter().map(|s| s.id.clone()).collect();
+                    let _ = store.prune_missing_cached_playlists(&keep);
+                }
+                let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
+                ctx.request_repaint();
             });
         }
-        WorkerCmd::SearchTracks(query) => {
-            let Some(client) = &state.client else {
+        WorkerCmd::LoadPlaylist(id) => {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let res = client
-                .search_tracks(query.trim(), 8)
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::SearchResults(res));
+            let store = Arc::clone(&state.store);
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let result = match load_playlist_with_manifest(client.as_ref(), &id).await {
+                    Ok(fetched) => {
+                        cache_fetched_playlist(&store, &fetched, &tx);
+                        Ok(fetched.playlist)
+                    }
+                    Err(e) => Err(e.to_string()),
+                };
+                let _ = tx.send(WorkerEvent::PlaylistLoaded {
+                    playlist_id: id,
+                    result,
+                });
+                ctx.request_repaint();
+            });
+        }
+        WorkerCmd::PlanDedupeDraft { playlist, config } => {
+            let res = plan_dedupe(&playlist, &config).map_err(|e| e.to_string());
+            let _ = tx.send(WorkerEvent::DedupePlanned(res));
+        }
+        WorkerCmd::PlanSortDraft { playlist, spec } => {
+            let res = plan_sort(&playlist, &spec, None).map_err(|e| e.to_string());
+            let _ = tx.send(WorkerEvent::SortPlanned(res));
+        }
+        // --- Lane 2: Cancellable Background Jobs ---
+        WorkerCmd::IndexAllPlaylists { missing_only } => {
+            spawn_index_all_job(state, missing_only, tx, ctx);
         }
         WorkerCmd::BackupPlaylist {
             target,
             format,
             out_dir,
         } => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let msg = backup_inner(client, &state.store, &target, format, &out_dir, tx, ctx).await;
-            let _ = tx.send(match msg {
-                Ok(m) => WorkerEvent::StatusToast {
-                    ok: true,
-                    message: m,
-                },
-                Err(e) => WorkerEvent::StatusToast {
-                    ok: false,
-                    message: e.to_string(),
-                },
+            let (job_id, _cancel) = state.allocate_job();
+            let store = Arc::clone(&state.store);
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            let _ = tx.send(WorkerEvent::JobStarted {
+                job_id,
+                label: format!("Backup {target}"),
             });
-            if let Ok(snaps) = state.store.list_snapshots(None).await {
-                let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
-            }
+            tokio::spawn(async move {
+                let msg =
+                    backup_inner(client.as_ref(), &store, &target, format, &out_dir, &tx, &ctx)
+                        .await;
+                let _ = tx.send(match msg {
+                    Ok(m) => WorkerEvent::StatusToast {
+                        ok: true,
+                        message: m,
+                    },
+                    Err(e) => WorkerEvent::StatusToast {
+                        ok: false,
+                        message: e.to_string(),
+                    },
+                });
+                if let Ok(snaps) = store.list_snapshots(None).await {
+                    let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
+                }
+                let _ = tx.send(WorkerEvent::JobEnded(job_id));
+                ctx.request_repaint();
+            });
         }
         WorkerCmd::PlanDedupe {
             playlist_id,
             config,
         } => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let res = async {
-                let pl = load_playlist(client, &playlist_id).await?;
-                Ok::<_, anyhow::Error>(plan_dedupe(&pl, &config)?)
-            }
-            .await
-            .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::DedupePlanned(res));
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let res = async {
+                    let pl = load_playlist(client.as_ref(), &playlist_id).await?;
+                    Ok::<_, anyhow::Error>(plan_dedupe(&pl, &config)?)
+                }
+                .await
+                .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::DedupePlanned(res));
+                ctx.request_repaint();
+            });
         }
         WorkerCmd::PlanSort { playlist_id, spec } => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let res = async {
-                let pl = load_playlist(client, &playlist_id).await?;
-                let genre_map = if spec.keys.iter().any(|k| k.field == SortField::Genre) {
-                    let matcher = build_matcher(None, &state.paths)?;
-                    let svc = EnrichmentService::new(
-                        Arc::clone(&state.store),
-                        ReqwestEnrichmentHttp::new()?,
-                        state.config.enrichment.clone(),
-                        matcher,
-                    );
-                    let mut map = HashMap::new();
-                    let total = pl.tracks.len().max(1);
-                    for (idx, t) in pl.tracks.iter().enumerate() {
-                        if idx % 5 == 0 {
-                            emit_progress(
-                                tx,
-                                ctx,
-                                idx,
-                                total,
-                                format!("Enriching {}/{total}...", idx + 1),
-                            );
+            let (job_id, cancel) = state.allocate_job();
+            let store = Arc::clone(&state.store);
+            let paths = state.paths.clone();
+            let enrich_cfg = state.config.enrichment.clone();
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            let _ = tx.send(WorkerEvent::JobStarted {
+                job_id,
+                label: "Sort LIS".to_string(),
+            });
+            tokio::spawn(async move {
+                let res = async {
+                    let pl = load_playlist(client.as_ref(), &playlist_id).await?;
+                    let genre_map = if spec.keys.iter().any(|k| k.field == SortField::Genre) {
+                        let matcher = build_matcher(None, &paths)?;
+                        let svc = EnrichmentService::new(
+                            store,
+                            ReqwestEnrichmentHttp::new()?,
+                            enrich_cfg,
+                            matcher,
+                        );
+                        let mut map = HashMap::new();
+                        let total = pl.tracks.len().max(1);
+                        for (idx, t) in pl.tracks.iter().enumerate() {
+                            if cancel.load(Ordering::Relaxed) {
+                                anyhow::bail!("Sort enrichment cancelled by user.");
+                            }
+                            if idx % 5 == 0 {
+                                emit_progress(
+                                    &tx,
+                                    &ctx,
+                                    idx,
+                                    total,
+                                    format!("Enriching {}/{total}...", idx + 1),
+                                );
+                            }
+                            let meta = svc.enrich_track(t).await?;
+                            map.insert(t.video_id.clone(), meta.primary_genre);
                         }
-                        let meta = svc.enrich_track(t).await?;
-                        map.insert(t.video_id.clone(), meta.primary_genre);
-                    }
-                    Some(map)
-                } else {
-                    None
-                };
-                Ok::<_, anyhow::Error>(plan_sort(&pl, &spec, genre_map.as_ref())?)
-            }
-            .await
-            .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::SortPlanned(res));
+                        Some(map)
+                    } else {
+                        None
+                    };
+                    Ok::<_, anyhow::Error>(plan_sort(&pl, &spec, genre_map.as_ref())?)
+                }
+                .await
+                .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::SortPlanned(res));
+                let _ = tx.send(WorkerEvent::JobEnded(job_id));
+                ctx.request_repaint();
+            });
         }
         WorkerCmd::PlanSetOp {
             op,
@@ -304,29 +398,45 @@ async fn handle_cmd(
             playlist_b,
             target,
         } => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let res = async {
-                let a = load_playlist(client, &playlist_a).await?;
-                let b = load_playlist(client, &playlist_b).await?;
-                Ok::<_, anyhow::Error>(plan_set_op(op, mode, &a, &b, target, 0.90)?)
-            }
-            .await
-            .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::SetOpPlanned(res));
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let res = async {
+                    let a = load_playlist(client.as_ref(), &playlist_a).await?;
+                    let b = load_playlist(client.as_ref(), &playlist_b).await?;
+                    Ok::<_, anyhow::Error>(plan_set_op(op, mode, &a, &b, target, 0.90)?)
+                }
+                .await
+                .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::SetOpPlanned(res));
+                ctx.request_repaint();
+            });
         }
         WorkerCmd::ScanHealth {
             playlist_id,
             find_official,
         } => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let res = scan_health_inner(client, &playlist_id, find_official, tx, ctx)
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::HealthScanned(res));
+            let (job_id, _cancel) = state.allocate_job();
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            let _ = tx.send(WorkerEvent::JobStarted {
+                job_id,
+                label: "Health Scan".to_string(),
+            });
+            tokio::spawn(async move {
+                let res = scan_health_inner(client.as_ref(), &playlist_id, find_official, &tx, &ctx)
+                    .await
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::HealthScanned(res));
+                let _ = tx.send(WorkerEvent::JobEnded(job_id));
+                ctx.request_repaint();
+            });
         }
         WorkerCmd::PlanGenreSplit {
             playlist_id,
@@ -345,44 +455,38 @@ async fn handle_cmd(
             .map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::GenreSplitPlanned(res));
         }
-        WorkerCmd::RefreshSnapshots => {
-            let res = state
-                .store
-                .list_snapshots(None)
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::SnapshotsLoaded(res));
-        }
-        WorkerCmd::LoadSnapshot(id) => {
-            let res = state
-                .store
-                .load_snapshot(&id)
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::SnapshotDetailLoaded(res));
-        }
+        // --- Lane 3: Serialized Remote Mutations ---
         WorkerCmd::ExecuteMutation(mutation) => {
-            let Some(client) = &state.client else {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
                 return;
             };
-            let event = match run_confirmed_mutation(client, &state.store, mutation, tx, ctx).await
-            {
-                Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
-                    ok: true,
-                    message,
-                    reload_ids,
-                },
-                Err(e) => WorkerEvent::MutationFinished {
-                    ok: false,
-                    message: format!("Sync error: {e}"),
-                    reload_ids: Vec::new(),
-                },
-            };
-            let _ = tx.send(event);
-            if let Ok(snaps) = state.store.list_snapshots(None).await {
-                let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
-            }
+            let store = Arc::clone(&state.store);
+            let mlock = Arc::clone(&state.mutation_lock);
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let _guard = mlock.lock().await;
+                let event =
+                    match run_confirmed_mutation(client.as_ref(), &store, mutation, &tx, &ctx).await
+                    {
+                        Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
+                            ok: true,
+                            message,
+                            reload_ids,
+                        },
+                        Err(e) => WorkerEvent::MutationFinished {
+                            ok: false,
+                            message: format!("Sync error: {e}"),
+                            reload_ids: Vec::new(),
+                        },
+                    };
+                let _ = tx.send(event);
+                if let Ok(snaps) = store.list_snapshots(None).await {
+                    let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
+                }
+                ctx.request_repaint();
+            });
         }
-        other => handle_extended_cmd(state, other, tx, ctx).await,
+        other => handle_interactive_cmd(state, other, tx, ctx),
     }
 }

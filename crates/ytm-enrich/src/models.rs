@@ -82,6 +82,8 @@ pub struct EnrichmentConfig {
     pub enable_deezer_fallback: bool,
     pub enable_listenbrainz_fallback: bool,
     pub lastfm_api_key: Option<String>,
+    #[serde(default)]
+    pub artist_cache_first: bool,
 }
 
 impl Default for EnrichmentConfig {
@@ -94,6 +96,7 @@ impl Default for EnrichmentConfig {
             enable_deezer_fallback: true,
             enable_listenbrainz_fallback: false,
             lastfm_api_key: None,
+            artist_cache_first: false,
         }
     }
 }
@@ -110,5 +113,23 @@ mod tests {
         assert_eq!(cfg.min_bucket_tracks, 5);
         assert!(cfg.rules.iter().any(|r| r.parent == "Rock"));
         assert!(cfg.rules.iter().any(|r| r.parent == "Electronic"));
+    }
+
+    #[test]
+    fn enrichment_config_defaults_artist_cache_first_to_false() {
+        let cfg = EnrichmentConfig::default();
+        assert!(!cfg.artist_cache_first);
+
+        let legacy_json = serde_json::json!({
+            "cache_ttl_days": 30,
+            "musicbrainz_user_agent": "ua",
+            "musicbrainz_interval_ms": 1100,
+            "enable_deezer_fallback": true,
+            "enable_listenbrainz_fallback": false,
+            "lastfm_api_key": null
+        });
+        let decoded: EnrichmentConfig =
+            serde_json::from_value(legacy_json).expect("deserialize without artist_cache_first");
+        assert!(!decoded.artist_cache_first);
     }
 }

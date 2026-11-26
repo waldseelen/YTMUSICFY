@@ -122,26 +122,34 @@ impl NavHistory {
     }
 }
 
-/// Bottom status bar displaying progress, expiring notifications, Undo, and Sync shortcut.
+/// Bottom status bar displaying progress, Cancel job button, expiring notifications, Undo, and Sync shortcut.
 pub fn show_status_bar(
     ui: &mut egui::Ui,
     batch_progress: Option<&(usize, usize, String)>,
+    active_job_id: Option<crate::state::JobId>,
     toast: &mut Option<ToastState>,
     sync_queue: &mut SyncQueue,
     active_tab: &mut GuiTab,
+    cmd_tx: &std::sync::mpsc::Sender<crate::state::WorkerCmd>,
 ) {
     let now = Instant::now();
     if toast.as_ref().is_some_and(|t| t.is_expired(now)) {
         *toast = None;
     }
     ui.horizontal(|ui| {
-        ui.label(
-            "Ctrl+1..9 Tabs | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync | Alt+◀/▶ History",
-        );
+        ui.label("Ctrl+1..5 Workspaces | Ctrl+K Palette | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync");
         if let Some((done, total, msg)) = batch_progress {
             ui.separator();
             let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
-            ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(220.0));
+            ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(200.0));
+            if let Some(jid) = active_job_id
+                && ui
+                    .small_button("Cancel")
+                    .on_hover_text("Cancel running background job")
+                    .clicked()
+            {
+                let _ = cmd_tx.send(crate::state::WorkerCmd::CancelJob(jid));
+            }
         }
         let mut clear_toast = false;
         let mut undo_id = None;
@@ -184,7 +192,17 @@ pub fn show_status_bar(
     });
 }
 
-/// Applies global keyboard shortcuts, zoom, Sync shortcut, and Back/Forward navigation.
+/// Outcome flags returned by `apply_global_input` for `YtmGuiApp` orchestration.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GlobalInputOutcome {
+    pub navigated_via_history: bool,
+    pub toggle_palette: bool,
+    pub toggle_sync_drawer: bool,
+    pub toggle_play_pause: bool,
+    pub toggle_mute: bool,
+}
+
+/// Applies global keyboard shortcuts, zoom, Sync shortcut, Undo/Redo, and Back/Forward navigation.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_global_input(
     ctx: &egui::Context,
@@ -197,13 +215,26 @@ pub fn apply_global_input(
     toast: &mut Option<ToastState>,
     pending_modal: &mut Option<PendingMutation>,
     nav_history: &mut NavHistory,
-) -> bool {
+) -> GlobalInputOutcome {
     let g = poll_global_input(ctx);
+    let mut out = GlobalInputOutcome {
+        navigated_via_history: false,
+        toggle_palette: g.toggle_palette,
+        toggle_sync_drawer: g.toggle_sync_drawer,
+        toggle_play_pause: g.toggle_play_pause,
+        toggle_mute: g.toggle_mute,
+    };
     if g.undo_last
-        && let Some(eid) = sync_queue.last_entry_id()
+        && sync_queue.undo_last().is_some()
     {
-        sync_queue.remove_entry(eid);
         *toast = Some(ToastState::info(true, "Undid last staged action (Ctrl+Z)."));
+    } else if g.redo_last
+        && sync_queue.redo_last().is_some()
+    {
+        *toast = Some(ToastState::info(
+            true,
+            "Redid staged action (Ctrl+Shift+Z).",
+        ));
     }
     if let Some(delta) = g.zoom_delta {
         *ui_scale = (*ui_scale + delta).clamp(0.8, 1.6);
@@ -221,33 +252,34 @@ pub fn apply_global_input(
         *active_tab = tab;
     }
     if g.trigger_sync && !sync_queue.is_empty() && pending_modal.is_none() {
-        let entries = sync_queue.entries().to_vec();
-        let affected = sync_queue.affected_playlist_ids();
-        *pending_modal = Some(PendingMutation {
-            title: "Confirm Sync to YouTube Music".to_string(),
-            summary: format!(
-                "Save pre-sync SQLite snapshots for {} playlist(s) and execute {} queued action(s)?",
-                affected.len(),
-                entries.len()
-            ),
-            action: ConfirmedMutation::ExecuteSync { entries },
-        });
+        let entries = sync_queue.selected_entries();
+        if !entries.is_empty() {
+            let affected = sync_queue.affected_playlist_ids();
+            *pending_modal = Some(PendingMutation {
+                title: "Confirm Sync to YouTube Music".to_string(),
+                summary: format!(
+                    "Save pre-sync SQLite snapshots for {} playlist(s) and execute {} queued action(s)?",
+                    affected.len(),
+                    entries.len()
+                ),
+                action: ConfirmedMutation::ExecuteSync { entries },
+            });
+        }
     }
     if g.nav_delta < 0
         && let Some(entry) = nav_history.go_back()
     {
         *active_tab = entry.tab;
         *selected_playlist_id = entry.playlist_id;
-        return true;
-    }
-    if g.nav_delta > 0
+        out.navigated_via_history = true;
+    } else if g.nav_delta > 0
         && let Some(entry) = nav_history.go_forward()
     {
         *active_tab = entry.tab;
         *selected_playlist_id = entry.playlist_id;
-        return true;
+        out.navigated_via_history = true;
     }
-    false
+    out
 }
 
 #[cfg(test)]

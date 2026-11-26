@@ -4,9 +4,13 @@ use ytm_core::{
     InnerTubeClient, InnerTubeClientTrait, ReqwestTransport, SessionStatus,
     netscape_cookies_to_header, parse_auth_input,
 };
-use ytm_store::AppPaths;
+use ytm_store::{AppPaths, write_secret_file};
 
-use crate::auth_store::{save_credentials_secure, write_mpv_cookie_jar};
+use crate::auth_store::{
+    browser_cookie_temp_path, ensure_runtime_cookie_dir, mpv_cookie_jar_path,
+    remove_mpv_cookie_jar_at, save_credentials_secure, sweep_stale_cookie_files,
+    write_mpv_cookie_jar,
+};
 use crate::state::GuiAppConfig;
 
 /// Supported local browsers for one-click cookie extraction via `yt-dlp`.
@@ -77,13 +81,12 @@ pub async fn import_browser_auth_inner(
     browser: BrowserKind,
 ) -> Result<(InnerTubeClient<ReqwestTransport>, SessionStatus)> {
     paths.ensure_dirs()?;
-    let tmp_path = paths
-        .data_dir()
-        .join(format!("ytm-browser-cookies-{}.txt", std::process::id()));
+    let _ = ensure_runtime_cookie_dir()?;
+    let tmp_path = browser_cookie_temp_path();
 
     let mut last_err = String::new();
     for spec in browser.ytdlp_candidates() {
-        let _ = std::fs::remove_file(&tmp_path);
+        write_secret_file(&tmp_path, b"")?;
         let output = tokio::process::Command::new("yt-dlp")
             .args([
                 "--ignore-config",
@@ -98,7 +101,15 @@ pub async fn import_browser_auth_inner(
             ])
             .output()
             .await
-            .context("running yt-dlp (install yt-dlp or paste headers manually)")?;
+            .context("running yt-dlp (install yt-dlp or paste headers manually)");
+
+        let output = match output {
+            Ok(out) => out,
+            Err(err) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Err(err);
+            }
+        };
 
         let cookie_txt = std::fs::read_to_string(&tmp_path);
         let _ = std::fs::remove_file(&tmp_path);
@@ -139,50 +150,183 @@ pub(crate) async fn handle_bootstrap(
     use ytm_core::InnerTubeClientTrait;
     use ytm_store::SnapshotStore;
 
-    if let Ok(cached) = state.store.load_all_cached_playlists()
-        && !cached.is_empty()
+    sweep_stale_cookie_files(&state.paths);
+    if state.client.is_none() {
+        remove_mpv_cookie_jar_at(&mpv_cookie_jar_path(&state.paths));
+    }
+
+    if let Ok(records) = state.store.load_all_cached_playlist_records()
+        && !records.is_empty()
     {
+        let mut cached = Vec::with_capacity(records.len());
+        for rec in records {
+            if let Some(manifest) = rec.manifest {
+                let _ = tx.send(crate::state::WorkerEvent::PlaylistManifestLoaded {
+                    playlist_id: rec.playlist.id.clone(),
+                    manifest,
+                });
+            }
+            cached.push(rec.playlist);
+        }
         let _ = tx.send(crate::state::WorkerEvent::PlaylistCacheHydrated(cached));
     }
     if let Ok(snaps) = state.store.list_snapshots(None).await {
         let _ = tx.send(crate::state::WorkerEvent::SnapshotsLoaded(Ok(snaps)));
     }
-    let mut verified = false;
+
+    let mut verify_err: Option<String> = None;
     if let Some(client) = &state.client {
-        let sess = client.verify_session().await.map_err(|e| e.to_string());
-        verified = sess.as_ref().is_ok_and(|s| s.authenticated);
-        if verified {
-            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(sess));
-            let libs = client
-                .get_library_playlists()
-                .await
-                .map_err(|e| e.to_string());
-            let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
-        } else if state.config.preferred_browser.is_none() {
-            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(sess));
+        match client.verify_session().await {
+            Ok(status) if status.authenticated => {
+                let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Ok(status)));
+                let libs = client
+                    .get_library_playlists()
+                    .await
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
+                return;
+            }
+            Ok(_) => {
+                verify_err = Some("Saved session is unauthenticated or expired.".to_string());
+            }
+            Err(err) => {
+                verify_err = Some(err.to_string());
+            }
         }
     }
-    if !verified {
-        if let Some(browser) = state.config.preferred_browser
-            && let Ok((client, status)) =
-                import_browser_auth_inner(&state.paths, &state.config, browser).await
-        {
-            let libs = client
-                .get_library_playlists()
-                .await
-                .map_err(|e| e.to_string());
-            state.client = Some(client);
-            let _ = tx.send(crate::state::WorkerEvent::AudioConfigUpdated {
-                cookie_jar: crate::auth_store::active_cookie_jar_path(&state.paths),
-                quality: state.config.audio_quality,
-                preferred_browser: state.config.preferred_browser,
-            });
-            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Ok(status)));
-            let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
-        } else if state.client.is_none() {
-            let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Err(
-                "No saved auth.json. Paste browser headers in Auth tab.".to_string(),
-            )));
+
+    if state.config.auto_refresh_browser_cookies
+        && let Some(browser) = state.config.preferred_browser
+    {
+        match import_browser_auth_inner(&state.paths, &state.config, browser).await {
+            Ok((client, status)) => {
+                let libs = client
+                    .get_library_playlists()
+                    .await
+                    .map_err(|e| e.to_string());
+                state.client = Some(std::sync::Arc::new(client));
+                let _ = tx.send(crate::state::WorkerEvent::AudioConfigUpdated {
+                    cookie_jar: crate::auth_store::active_cookie_jar_path(&state.paths),
+                    quality: state.config.audio_quality,
+                    preferred_browser: state.config.preferred_browser,
+                });
+                let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Ok(status)));
+                let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
+                return;
+            }
+            Err(err) => {
+                let msg = verify_err.map_or_else(
+                    || err.to_string(),
+                    |prev| format!("{prev}; browser refresh failed: {err}"),
+                );
+                let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Err(msg)));
+                return;
+            }
         }
+    }
+
+    let msg = verify_err
+        .unwrap_or_else(|| "No saved auth.json. Paste browser headers in Auth tab.".to_string());
+    let _ = tx.send(crate::state::WorkerEvent::SessionLoaded(Err(msg)));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, mpsc};
+
+    use ytm_core::{MusicVideoType, Playlist, PlaylistPrivacy, Track, TrackAvailability};
+    use ytm_store::{CachedPlaylistRecord, SqliteStore};
+
+    use super::*;
+    use crate::state::WorkerEvent;
+    use crate::worker::BackendState;
+
+    struct TestDir(std::path::PathBuf);
+
+    impl TestDir {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "ytm_gui_{label}_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_nanos())
+            ));
+            std::fs::create_dir_all(&dir).expect("create test dir");
+            Self(dir)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_bootstrap_emits_session_err_and_hydrates_records_without_auto_refresh() {
+        let temp = TestDir::new("worker_auth");
+        let paths = AppPaths::from_root(&temp.0);
+        paths.ensure_dirs().expect("ensure dirs");
+        let store = Arc::new(SqliteStore::open_in_memory(None).expect("open memory store"));
+        let pl = Playlist {
+            id: "PL_BOOT".to_string(),
+            title: "Boot Mix".to_string(),
+            description: None,
+            privacy: PlaylistPrivacy::Private,
+            owned: true,
+            track_count: 1,
+            tracks: vec![Track {
+                video_id: "vid1".to_string(),
+                set_video_id: Some("set1".to_string()),
+                position: 0,
+                title: "Song".to_string(),
+                artists: Vec::new(),
+                album: None,
+                duration_sec: Some(180),
+                release_year: None,
+                music_video_type: MusicVideoType::AudioTrack,
+                availability: TrackAvailability::Available,
+                thumbnail_url: None,
+            }],
+        };
+        store
+            .upsert_cached_playlist_record(&CachedPlaylistRecord {
+                playlist: pl,
+                manifest: None,
+                fetched_at: 1_700_000_000,
+            })
+            .expect("upsert cached record");
+
+        let cfg = GuiAppConfig {
+            preferred_browser: Some(BrowserKind::Brave),
+            ..Default::default()
+        };
+        assert!(!cfg.auto_refresh_browser_cookies);
+
+        let mut state = BackendState {
+            paths,
+            config: cfg,
+            store,
+            client: None,
+            mutation_lock: Arc::new(tokio::sync::Mutex::new(())),
+            active_jobs: std::collections::HashMap::new(),
+            next_job_id: 0,
+        };
+        let (tx, rx) = mpsc::channel();
+        handle_bootstrap(&mut state, &tx).await;
+        drop(tx);
+
+        let events: Vec<WorkerEvent> = rx.into_iter().collect();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            WorkerEvent::PlaylistCacheHydrated(pls) if pls.len() == 1 && pls[0].id == "PL_BOOT"
+        )));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, WorkerEvent::SessionLoaded(Err(_)))),
+            "handle_bootstrap must always emit SessionLoaded(Err) when unverified"
+        );
     }
 }

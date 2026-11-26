@@ -4,7 +4,64 @@ Sole authority for dates, verification gate statuses, and operational session hi
 
 ---
 
-## Current Gate Status (2026-11-16)
+## Current Gate Status (2026-11-26 — Checkpoint Pause at ~92% Completion)
+
+- `Phase 0 (Contract, Spec & Domain Model Lock)`: **DONE (5/5 tasks)**
+- `Phase 1 (Mutation Governance, Strict Staging & Configure -> Preview -> POST)`: **DONE (8/8 tasks)**
+- `Phase 2 (Fetch Completeness, Pagination Proof & POST Verification)`: **DONE (7/7 tasks)**
+- `Phase 3 (Concurrency, 60 FPS Frame-Rate & Structural Architecture)`: **DONE (8/8 tasks)**
+- `Phase 4 (Daily-Driver YouTube Music Replacement)`: **DONE (7/7 tasks)**
+- `Phase 5 (Information Architecture, UX Flow & Visual Polish)`: **IN PROGRESS (5/8 tasks wired, 3 polish tasks remaining)**
+- `cargo check --workspace --all-targets`: **PASS** exit 0 (9 minor warnings in `theme.rs`/`app.rs` pending final cleanup)
+- `cargo test --workspace`: **PASS** exit 0 (`125/125` tests passing across all 6 crates)
+- **Remaining work (~8% — ~10–15 min in next session):**
+  1. `P5-W3-T3` (`views/player_bar.rs`): upgrade bottom player bar to 3-zone responsive layout with live `mpv` codec/bitrate badge, Mute button, `+ Stage Add to Playlist`, and seek hover timestamp; trigger `player.prefetch_next(...)` at 15s before EOF + `SavePlaybackSession` on queue change.
+  2. `P5-W3-T1` / warning cleanup: fix `f32` stroke literals in `theme.rs`, wire `FocusPane` in `app.rs`/`sidebar.rs`/`inspect.rs`, remove unused legacy `lyrics_state` field.
+  3. Quick audit of `worker_exec.rs::execute_restore_snapshot` to ensure `ytm_ops::plan_restore_diff` reuse (`P3-W3-T2`) + optional local-draft checkbox in `views/dedupe.rs` / `views/sort.rs` (`P3-W2-T1`).
+  4. Final release gates (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `wc -l <= 400`, `cargo build --release --bin ytm-gui --bin ytm`) + mark `[x]` in `TASKS.md`.
+
+---
+
+## 2026-11-26 — Phases 1–4 Complete + Phase 5 Core Wired (Checkpoint Save)
+
+- **Touched areas (`path›symbol`)**:
+  - **Phase 1 (Governance & Strict Staging):** `playlist_meta_modal.rs`, `sidebar.rs`, `overlays.rs`, `views/repertoire_batch.rs`, `playback_ops.rs`, `worker_sync.rs`, `worker_sync_ops.rs`, `worker_exec.rs`, `worker_auth.rs`, `views/components.rs`, `views/sync.rs`, `views/{dedupe,sort,set_ops,health,genres_snapshots}.rs` (StrictLock default + QuickLike toggle, `PlanFingerprint` staleness, `PlaylistAccess::EditableOwned` & `FetchCompleteness` Tiered Guard, selective sync pruning, atomic `MoveTracks`, position-preserving verified `UpgradeTracks`, SQLite `staged_ops` persistence, opt-in browser cookie refresh)
+  - **Phase 3 (Concurrency & 60 FPS):** `worker.rs` (3-lane `tokio::sync::mpsc`: parallel Interactive, cancellable BackgroundJob with `JobId`/`AtomicBool`, serial MutationSerial), `draft_cache.rs` (revision-keyed working-copy cache), `views/repertoire_tree.rs` (`show_rows` virtualization), `views/split_diff.rs` (memoized diff), `artwork.rs` (6-way semaphore + 50 MiB disk LRU + 60s failed TTL), `player_ipc.rs` (Unix + Windows Named Pipe, 200ms throttle, codec/bitrate, `prefetch_next`, `PlaybackErrorKind`), `views/inspect.rs` split into `inspect.rs` + `inspect_toolbar.rs` + `inspect_helpers.rs` + `inspect_rows.rs`
+  - **Phase 4 (Daily Driver):** `media_controls.rs` (`souvlaki` MPRIS2/SMTC bridge), `views/search.rs` (6-tab catalog search + continuation + `+ Stage Add`), `views/browse.rs` (Home/Explore/History/Library Albums + Load More + `+ Stage Add`), `views/queue_lyrics.rs` (`+ Stage as Playlist` + lazy `video_id`-correlated `LyricsPayload`), `views/settings.rs` (`config.toml` editor), `auth_store.rs` (`$XDG_RUNTIME_DIR` `0600` tmpfs cookie jar + orphan sweep), startup `LM` like hydration
+  - **Phase 5 (IA & Polish — core wired):** `tab_bar.rs` (5 Primary Workspaces + Sync Staging Drawer toggle), `tab_router.rs`, `app.rs` (collapsible right-hand Sync Drawer + `Ctrl+K` Command Palette + `OsMediaBridge` polling), `command_palette.rs`, `theme.rs`, `icons.rs`, `interaction.rs` & `navigation.rs` (`Ctrl+1..5`, `Ctrl+K`, `Ctrl+Shift+S`, `Ctrl+Z`/`Ctrl+Shift+Z` redo, `Space`, `M`)
+- **Evidence**:
+  - `cargo check --workspace --all-targets`: exit 0
+  - `cargo test --workspace`: exit 0 (`125/125` tests passing across `ytm-core`, `ytm-store`, `ytm-ops`, `ytm-enrich`, `ytm-cli`, `ytm-gui`)
+
+---
+
+## Previous Gate Status (2026-11-26 — Phase 0)
+
+- `Phase 0 (Contract, Spec & Domain Model Lock)`: **PASS** `GLOSSARY.md` (12 canonical terms + forbidden synonyms), `ARCHITECTURE.md` (6-crate workspace + 3-lane worker + `mpv` IPC + `ArtworkCache`), `SPEC.md` (reconciled live weights, tables, `FetchManifest`, `MutationBatchReport`, `Configure -> Preview -> Verified POST`), and locked core/store/gui contracts (`P0-W1-T1..T2`, `P0-W2-T1..T3`)
+- `Core / Store / Ops / Enrich / CLI / GUI Foundation`: **PASS** `ytm-core` (`P2-W1-T1..T3`, `P2-W2-T1`, `P4-W1-T1`), `ytm-store` (`P1-W1-T1`, `P2-W3-T1`, `P3-W1-T2`), `ytm-ops` (`P3-W1-T1`), `ytm-enrich` (`P3-W1-T3`), `ytm-cli` (`P2-W3-T3` + split E2E tests), `ytm-gui` (`P0-W2-T3`, `P1-W1-T2`)
+- `cargo fmt --all -- --check`: **PASS** exit 0
+- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
+- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings, 0 new `#[allow(...)]`
+- `cargo test --workspace`: **PASS** exit 0, `97/97` tests passed (`ytm-cli` 6, `ytm-core` 31, `ytm-enrich` 14, `ytm-gui` 20, `ytm-ops` 14, `ytm-store` 12)
+- `wc -l`: **PASS** 0 files > 400 LOC across all 125 `.rs` files (`max = 400` in `crates/ytm-gui/src/views/inspect.rs`)
+
+---
+
+## 2026-11-26 — Phase 0 Contract Lock & Core/Store/Ops/Enrich/CLI/GUI-Foundation Re-Architecture
+
+- **Touched areas (`path›symbol`)**:
+  - `GLOSSARY.md`, `ARCHITECTURE.md`, `SPEC.md`: canonical 12-term glossary + forbidden synonyms, 6-crate workspace architecture, reconciled `dedupe.rs` weights, SQLite tables, and `Configure -> Preview -> Verified POST` / `FetchManifest` / `MutationBatchReport` contracts
+  - `crates/ytm-core/src/{models,fetch_models,browse_models,http,auth,client,client_playlist,client_mutations,client_browse,traits,lib}.rs` & `parser/{mod,playlist,playlist_edit,track,browse,search}.rs`: `PlaylistAccess`, `FetchCompleteness`, `FetchManifest`, `MutationBatchReport`, `RetryPolicy`, `RwLock` API key recovery, `SAPISIDHASH` retry refresh, full pagination + `seen_tokens`, chunked `create_playlist`, locale-independent availability + dropped-renderer diagnostics, `SearchFilter`/`SearchPage`, `BrowsePage.continuation`, `LyricsPayload`
+  - `crates/ytm-store/src/{models,traits,db,playlist_cache,snapshot,staged_ops,playback_session,lib}.rs`: idempotent schema migrations (`manifest_json`, `staged_ops`, `playback_session`), `PRAGMA busy_timeout = 5000`, `spawn_blocking` offloading, `CachedPlaylistRecord`, orphan pruning, transactional `staged_ops`, persistent `playback_session`
+  - `crates/ytm-ops/src/{restore_plan,lib}.rs` & `crates/ytm-enrich/src/{models,normalize,splitter,lib}.rs`: shared `plan_restore_diff` / `compute_restore_moves`, NFKC/noise-stripped cache keys, `artist_cache_first` mode
+  - `crates/ytm-cli/src/{cli,render,runner,mutations,restore}.rs` & `tests/`: `--force-incomplete` guard, `FetchManifest` & `MutationBatchReport` output, verified `added_items` ATV upgrades, shared `plan_restore_diff`, split E2E test modules
+  - `crates/ytm-gui/src/{lib,main,state,state_forms,worker_msgs,sync_ops,sync_draft,sync_queue,sync_queue_tests}.rs`: `MutationPolicy`, `SessionState`, `DraftRevision`, `PlanFingerprint`, `JobId`, `DispatchEntryOutcome`, closed `StagedOp` set, dependency-safe `SyncQueue` + draft projections
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (`97/97` PASS) exited 0 with 0 warnings, 0 new `#[allow(...)]`, and 0 `.rs` files > 400 LOC.
+
+---
+
+## Previous Gate Status (2026-11-16)
 
 - `Gate 0A (Reference Audit)`: **PASS** `.refs/RESEARCH_NOTES.md` and 7 sanitized fixtures in `tests/fixtures/` verified; `.refs/` gitignored
 - `Gate 0B (Workspace & Contract Lock)`: **PASS** exit 0, 0 warnings

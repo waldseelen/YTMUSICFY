@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use ytm_core::{MusicVideoType, Playlist};
+use ytm_core::{FetchManifest, MusicVideoType, Playlist};
 
 use crate::error::StoreError;
 
@@ -82,6 +82,31 @@ pub struct CachedTrackEnrichment {
     pub updated_at: i64,
 }
 
+/// Cached playlist payload paired with optional fetch telemetry and cache timestamp.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedPlaylistRecord {
+    pub playlist: Playlist,
+    pub manifest: Option<FetchManifest>,
+    pub fetched_at: i64,
+}
+
+/// Persisted `SyncQueue` entry stored in the `staged_ops` SQLite table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedStagedOp {
+    pub entry_id: u64,
+    pub seq: usize,
+    pub selected: bool,
+    pub op_json: String,
+    pub created_at: i64,
+}
+
+/// Persisted playback queue/session state stored in the `playback_session` SQLite table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedPlaybackSession {
+    pub session_json: String,
+    pub updated_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +144,27 @@ mod tests {
         let encoded = serde_json::to_string(&snap).expect("encode");
         let decoded: Snapshot = serde_json::from_str(&encoded).expect("decode");
         assert_eq!(decoded, snap);
+    }
+
+    #[test]
+    fn persisted_v2_models_roundtrip_json() {
+        let op = PersistedStagedOp {
+            entry_id: 42,
+            seq: 1,
+            selected: true,
+            op_json: r#"{"DeletePlaylist":{"playlist_id":"PL1"}}"#.to_string(),
+            created_at: 1_700_000_000,
+        };
+        let op_back: PersistedStagedOp =
+            serde_json::from_str(&serde_json::to_string(&op).unwrap()).unwrap();
+        assert_eq!(op_back, op);
+
+        let session = PersistedPlaybackSession {
+            session_json: r#"{"current_index":2}"#.to_string(),
+            updated_at: 1_700_000_123,
+        };
+        let session_back: PersistedPlaybackSession =
+            serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
+        assert_eq!(session_back, session);
     }
 }

@@ -1,7 +1,10 @@
+use serde::{Deserialize, Serialize};
 use ytm_core::Track;
 
+const MAX_RECENTLY_PLAYED: usize = 50;
+
 /// Playback repeat mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -29,6 +32,18 @@ impl RepeatMode {
     }
 }
 
+/// Serializable snapshot of `PlayQueue` and playback volume for persistence across restarts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlayQueueSnapshot {
+    pub tracks: Vec<Track>,
+    pub current_index: Option<usize>,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    #[serde(default)]
+    pub recently_played: Vec<Track>,
+    pub volume: f64,
+}
+
 /// Ordered audio playback queue with shuffle and repeat state.
 #[derive(Debug, Clone, Default)]
 pub struct PlayQueue {
@@ -38,6 +53,7 @@ pub struct PlayQueue {
     shuffle: bool,
     repeat: RepeatMode,
     liked_video_ids: std::collections::HashSet<String>,
+    recently_played: Vec<Track>,
 }
 
 impl PlayQueue {
@@ -66,6 +82,44 @@ impl PlayQueue {
         self.repeat
     }
 
+    #[must_use]
+    pub fn recently_played(&self) -> &[Track] {
+        &self.recently_played
+    }
+
+    #[must_use]
+    pub fn to_snapshot(&self, volume: f64) -> PlayQueueSnapshot {
+        PlayQueueSnapshot {
+            tracks: self.tracks.clone(),
+            current_index: self.current_index,
+            shuffle: self.shuffle,
+            repeat: self.repeat,
+            recently_played: self.recently_played.clone(),
+            volume,
+        }
+    }
+
+    pub fn restore_from_snapshot(&mut self, snap: &PlayQueueSnapshot) {
+        self.tracks = snap.tracks.clone();
+        self.original = snap.tracks.clone();
+        self.shuffle = snap.shuffle;
+        self.repeat = snap.repeat;
+        self.recently_played = snap.recently_played.clone();
+        self.current_index = snap
+            .current_index
+            .filter(|_| !self.tracks.is_empty())
+            .map(|idx| idx.min(self.tracks.len() - 1));
+    }
+
+    fn record_current_recent(&mut self) {
+        if let Some(track) = self.current_track().cloned() {
+            self.recently_played
+                .retain(|t| t.video_id != track.video_id);
+            self.recently_played.insert(0, track);
+            self.recently_played.truncate(MAX_RECENTLY_PLAYED);
+        }
+    }
+
     pub fn cycle_repeat(&mut self) -> RepeatMode {
         self.repeat = self.repeat.cycle();
         self.repeat
@@ -85,9 +139,8 @@ impl PlayQueue {
     }
 
     pub fn seed_liked_from_tracks(&mut self, tracks: &[Track]) {
-        for t in tracks {
-            self.liked_video_ids.insert(t.video_id.clone());
-        }
+        self.liked_video_ids
+            .extend(tracks.iter().map(|t| t.video_id.clone()));
     }
 
     /// Replace queue with `tracks`, starting playback at `start_idx`.
@@ -110,32 +163,36 @@ impl PlayQueue {
             self.tracks = self.original.clone();
             self.current_index = Some(clamped);
         }
+        self.record_current_recent();
         self.current_track()
+    }
+
+    /// Insert `track` immediately after active item (`after_current = true`) or append to end.
+    fn insert_track(&mut self, track: Track, after_current: bool) -> bool {
+        if self.tracks.is_empty() {
+            self.start_with(vec![track], 0, 1);
+            return true;
+        }
+        if after_current {
+            let idx = self
+                .current_index
+                .map_or(0, |i| (i + 1).min(self.tracks.len()));
+            self.tracks.insert(idx, track.clone());
+        } else {
+            self.tracks.push(track.clone());
+        }
+        self.original.push(track);
+        false
     }
 
     /// Insert `track` immediately after the currently playing item (or start if empty).
     pub fn play_next(&mut self, track: Track) -> bool {
-        if self.tracks.is_empty() {
-            self.start_with(vec![track], 0, 1);
-            return true;
-        }
-        let insert_at = self
-            .current_index
-            .map_or(0, |i| (i + 1).min(self.tracks.len()));
-        self.tracks.insert(insert_at, track.clone());
-        self.original.push(track);
-        false
+        self.insert_track(track, true)
     }
 
     /// Append `track` to the end of the queue. Returns `true` if queue was previously empty.
     pub fn append(&mut self, track: Track) -> bool {
-        if self.tracks.is_empty() {
-            self.start_with(vec![track], 0, 1);
-            return true;
-        }
-        self.tracks.push(track.clone());
-        self.original.push(track);
-        false
+        self.insert_track(track, false)
     }
 
     /// Replace upcoming tracks (after `current_index`) with `radio_tracks`, preserving active item.
@@ -150,11 +207,8 @@ impl PlayQueue {
             .map(|t| t.video_id.clone())
             .unwrap_or_default();
         self.tracks.truncate(cur_idx + 1);
-        for t in radio_tracks {
-            if t.video_id != cur_vid {
-                self.tracks.push(t);
-            }
-        }
+        self.tracks
+            .extend(radio_tracks.into_iter().filter(|t| t.video_id != cur_vid));
         self.original = self.tracks.clone();
     }
 
@@ -165,22 +219,15 @@ impl PlayQueue {
             self.current_index = None;
             return None;
         }
-        match self.repeat {
-            RepeatMode::One => self.tracks.get(cur),
-            RepeatMode::All => {
-                let next = (cur + 1) % self.tracks.len();
-                self.current_index = Some(next);
-                self.tracks.get(next)
-            }
-            RepeatMode::Off => {
-                if cur + 1 < self.tracks.len() {
-                    self.current_index = Some(cur + 1);
-                    self.tracks.get(cur + 1)
-                } else {
-                    None
-                }
-            }
-        }
+        let next = match self.repeat {
+            RepeatMode::One => cur,
+            RepeatMode::All => (cur + 1) % self.tracks.len(),
+            RepeatMode::Off if cur + 1 < self.tracks.len() => cur + 1,
+            RepeatMode::Off => return None,
+        };
+        self.current_index = Some(next);
+        self.record_current_recent();
+        self.tracks.get(next)
     }
 
     /// Move to previous track (wrapping when `RepeatMode::All` is active).
@@ -197,6 +244,7 @@ impl PlayQueue {
             0
         };
         self.current_index = Some(prev);
+        self.record_current_recent();
         self.tracks.get(prev)
     }
 
@@ -204,6 +252,7 @@ impl PlayQueue {
     pub fn jump_to(&mut self, idx: usize) -> Option<&Track> {
         if idx < self.tracks.len() {
             self.current_index = Some(idx);
+            self.record_current_recent();
             self.tracks.get(idx)
         } else {
             None
@@ -217,16 +266,11 @@ impl PlayQueue {
         }
         let item = self.tracks.remove(from);
         self.tracks.insert(to, item);
-        self.current_index = self.current_index.map(|cur| {
-            if cur == from {
-                to
-            } else if from < cur && cur <= to {
-                cur - 1
-            } else if to <= cur && cur < from {
-                cur + 1
-            } else {
-                cur
-            }
+        self.current_index = self.current_index.map(|cur| match cur {
+            c if c == from => to,
+            c if from < c && c <= to => c - 1,
+            c if to <= c && c < from => c + 1,
+            c => c,
         });
     }
 
@@ -236,17 +280,17 @@ impl PlayQueue {
             return;
         }
         self.tracks.remove(idx);
-        if self.tracks.is_empty() {
-            self.current_index = None;
-            return;
-        }
-        if let Some(cur) = self.current_index {
-            if idx < cur {
-                self.current_index = Some(cur - 1);
-            } else if cur >= self.tracks.len() {
-                self.current_index = Some(self.tracks.len() - 1);
-            }
-        }
+        self.current_index = if self.tracks.is_empty() {
+            None
+        } else {
+            self.current_index.map(|cur| {
+                if idx < cur {
+                    cur - 1
+                } else {
+                    cur.min(self.tracks.len() - 1)
+                }
+            })
+        };
     }
 
     /// Clear all queued tracks and stop selection.
@@ -256,7 +300,6 @@ impl PlayQueue {
         self.current_index = None;
     }
 
-    /// Toggle shuffle mode while preserving whichever track is currently active.
     pub fn toggle_shuffle(&mut self, seed: u64) {
         let cur_video = self.current_track().map(|t| t.video_id.clone());
         self.shuffle = !self.shuffle;
@@ -270,7 +313,7 @@ impl PlayQueue {
         } else if !self.original.is_empty() {
             self.tracks = self.original.clone();
             self.current_index = cur_video
-                .and_then(|vid| self.tracks.iter().position(|t| t.video_id == vid))
+                .and_then(|v| self.tracks.iter().position(|t| t.video_id == v))
                 .or(Some(0));
         }
     }
@@ -293,8 +336,7 @@ impl PlayQueue {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
-            let j = (state as usize) % (i + 1);
-            rest.swap(i, j);
+            rest.swap(i, (state as usize) % (i + 1));
         }
         self.tracks = std::iter::once(anchor).chain(rest).collect();
         self.current_index = Some(0);
@@ -302,54 +344,5 @@ impl PlayQueue {
 }
 
 #[cfg(test)]
-mod tests {
-    use ytm_core::{MusicVideoType, TrackAvailability};
-
-    use super::*;
-
-    fn track(id: &str) -> Track {
-        Track {
-            video_id: id.to_string(),
-            set_video_id: None,
-            position: 0,
-            title: format!("Title {id}"),
-            artists: Vec::new(),
-            album: None,
-            duration_sec: Some(180),
-            release_year: None,
-            music_video_type: MusicVideoType::AudioTrack,
-            availability: TrackAvailability::Available,
-            thumbnail_url: None,
-        }
-    }
-
-    #[test]
-    fn queue_supports_play_next_repeat_shuffle_and_move() {
-        let mut q = PlayQueue::default();
-        q.start_with(vec![track("a"), track("b"), track("c")], 0, 42);
-        assert_eq!(q.current_track().map(|t| t.video_id.as_str()), Some("a"));
-
-        assert!(!q.play_next(track("next1")));
-        assert_eq!(
-            q.tracks()
-                .iter()
-                .map(|t| t.video_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["a", "next1", "b", "c"]
-        );
-
-        q.move_item(2, 0);
-        assert_eq!(q.current_track().map(|t| t.video_id.as_str()), Some("a"));
-        assert_eq!(q.current_index(), Some(1));
-
-        q.cycle_repeat(); // All
-        assert_eq!(q.repeat_mode(), RepeatMode::All);
-        assert_eq!(q.jump_to(3).map(|t| t.video_id.as_str()), Some("c"));
-        assert_eq!(q.advance().map(|t| t.video_id.as_str()), Some("b"));
-
-        q.toggle_shuffle(99);
-        assert_eq!(q.current_track().map(|t| t.video_id.as_str()), Some("b"));
-        q.toggle_shuffle(99);
-        assert_eq!(q.current_track().map(|t| t.video_id.as_str()), Some("b"));
-    }
-}
+#[path = "play_queue_tests.rs"]
+mod tests;

@@ -1,34 +1,37 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
-use ytm_core::{Playlist, PlaylistSummary, Track};
+use ytm_core::{FetchManifest, Playlist, PlaylistAccess, PlaylistSummary, Track};
 use ytm_store::ExportFormat;
 
 use crate::artwork::ArtworkCache;
-use crate::interaction::search_box_with_clear;
+use crate::draft_cache::DraftCache;
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::state::{
-    AsyncState, ConfirmedMutation, DragTrackPayload, DropPrompt, InspectColumn, InspectSortState,
-    PendingMutation, SplitPaneState, WorkerCmd,
+    AsyncState, DropPrompt, InspectColumn, InspectSortState, SplitPaneState, WorkerCmd,
 };
 use crate::sync_queue::SyncQueue;
 use crate::views::inspect_actions::{apply_row_outcome, handle_table_keyboard};
 use crate::views::inspect_helpers::{
-    format_duration, show_quick_search_results, show_selection_bar, show_sort_stage_bar,
-    sort_header, sort_tracks_slice,
+    show_quick_search_results, show_selection_bar, show_sort_stage_bar, sort_header,
+    sort_tracks_slice,
 };
 use crate::views::inspect_rows::render_inspect_rows;
-use crate::views::{async_banner, split_diff};
+use crate::views::inspect_toolbar::{
+    InspectToolbarParams, handle_end_drop_zone, show_filter_and_export_bar, show_load_banner,
+    show_playlist_header,
+};
+use crate::views::split_diff;
 
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     playlist: Option<&Playlist>,
+    manifest: Option<&FetchManifest>,
     selected_playlist_id: &mut Option<String>,
     is_loading: bool,
     load_error: Option<&str>,
@@ -36,6 +39,7 @@ pub fn show(
     library: &AsyncState<Vec<PlaylistSummary>>,
     loading_playlists: &mut HashSet<String>,
     playlist_cache: &mut HashMap<String, Playlist>,
+    draft_cache: &mut DraftCache,
     sync_queue: &mut SyncQueue,
     sort_state: &mut InspectSortState,
     selected_positions: &mut HashSet<usize>,
@@ -50,115 +54,54 @@ pub fn show(
     split: &mut SplitPaneState,
     drop_prompt: &mut Option<DropPrompt>,
     meta_modal: &mut Option<PlaylistMetaModal>,
-    pending_modal: &mut Option<PendingMutation>,
     artwork: &mut ArtworkCache,
     toast: &mut Option<ToastState>,
     focus_search: bool,
     cmd_tx: &Sender<WorkerCmd>,
 ) -> Vec<PlayAction> {
     let mut play_actions = Vec::new();
-    let loading_msg = is_loading.then_some("Loading playlist...");
-    async_banner(ui, loading_msg, load_error);
-    if load_error.is_some()
-        && let Some(pid) = selected_playlist_id.as_ref()
-        && ui.button("Retry Load").clicked()
-        && loading_playlists.insert(pid.clone())
-    {
-        let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pid.clone()));
-    }
+    show_load_banner(
+        ui,
+        is_loading,
+        load_error,
+        selected_playlist_id,
+        loading_playlists,
+        cmd_tx,
+    );
 
     let Some(pl) = playlist.cloned() else {
         ui.label("Select a playlist from the left sidebar to inspect tracks.");
         return play_actions;
     };
+    let manifest_locked = manifest.is_some_and(|m| m.completeness.is_mutation_locked());
+    let editable = pl.access() == PlaylistAccess::EditableOwned && !manifest_locked;
 
-    let total_secs: u64 = pl
-        .tracks
-        .iter()
-        .filter_map(|t| t.duration_sec.map(u64::from))
-        .sum();
-    let editable = pl.owned && !pl.id.eq_ignore_ascii_case("LM");
+    let mut toolbar_params = InspectToolbarParams {
+        pl: &pl,
+        manifest,
+        editable,
+        loading_playlists,
+        playlist_cache,
+        draft_cache,
+        split,
+        meta_modal,
+        search,
+        ytm_query,
+        jump_input,
+        focused_row,
+        export_dir,
+        export_fmt,
+        focus_search,
+        cmd_tx,
+    };
+    play_actions.extend(show_playlist_header(
+        ui,
+        &mut toolbar_params,
+        sync_queue,
+        toast,
+    ));
 
-    ui.horizontal_wrapped(|ui| {
-        ui.heading(&pl.title);
-        ui.label(format!(
-            "ID: {} | Tracks: {} | Runtime: {} | {}",
-            pl.id,
-            pl.tracks.len(),
-            format_duration(total_secs),
-            if editable {
-                "Editable"
-            } else {
-                "Read-only / Copy source"
-            }
-        ));
-        if ui
-            .button("Refresh")
-            .on_hover_text("Reload this playlist fresh from YouTube Music")
-            .clicked()
-        {
-            playlist_cache.remove(&pl.id);
-            if loading_playlists.insert(pl.id.clone()) {
-                let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
-            }
-        }
-        let split_btn = if split.enabled {
-            "Close Split Diff"
-        } else {
-            "Split Diff View"
-        };
-        if ui
-            .selectable_label(split.enabled, split_btn)
-            .on_hover_text("Compare this playlist side-by-side against another list and drag tracks across")
-            .clicked()
-        {
-            split.enabled = !split.enabled;
-        }
-        if !pl.tracks.is_empty()
-            && ui
-                .button("▶ Play Playlist")
-                .on_hover_text("Play all tracks in order")
-                .clicked()
-        {
-            play_actions.push(PlayAction::PlayFromList {
-                tracks: pl.tracks.clone(),
-                start_idx: 0,
-            });
-        }
-        if editable {
-            if ui
-                .button("✎ Edit Details")
-                .on_hover_text("Rename playlist, update description, or change privacy")
-                .clicked()
-            {
-                *meta_modal = Some(PlaylistMetaModal::new(
-                    pl.id.clone(),
-                    pl.title.clone(),
-                    pl.description.clone().unwrap_or_default(),
-                    pl.privacy,
-                ));
-            }
-            if ui
-                .button("🗑 Delete")
-                .on_hover_text("Permanently delete playlist after saving a local snapshot")
-                .clicked()
-            {
-                *pending_modal = Some(PendingMutation {
-                    title: format!("Delete Playlist '{}'", pl.title),
-                    summary: format!(
-                        "Permanently delete '{}' ({}) on YouTube Music? A pre-delete snapshot will be saved.",
-                        pl.title, pl.id
-                    ),
-                    action: ConfirmedMutation::DeletePlaylist {
-                        playlist_id: pl.id.clone(),
-                        playlist_title: pl.title.clone(),
-                    },
-                });
-            }
-        }
-    });
-
-    if split.enabled {
+    if toolbar_params.split.enabled {
         ui.separator();
         split_diff::show(
             ui,
@@ -166,9 +109,9 @@ pub fn show(
             selected_playlist_id,
             playlists,
             library,
-            loading_playlists,
-            playlist_cache,
-            split,
+            toolbar_params.loading_playlists,
+            toolbar_params.playlist_cache,
+            toolbar_params.split,
             sync_queue,
             drop_prompt,
             toast,
@@ -178,62 +121,7 @@ pub fn show(
         return play_actions;
     }
 
-    let mut scroll_target_row: Option<usize> = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Filter:");
-        search_box_with_clear(
-            ui,
-            "inspect_filter_box",
-            search,
-            "Title, artist, album...",
-            160.0,
-            focus_search,
-        );
-        ui.separator();
-        ui.label("Quick Add:");
-        let qa = search_box_with_clear(
-            ui,
-            "quick_add_box",
-            ytm_query,
-            "Search YouTube Music...",
-            155.0,
-            false,
-        );
-        let q_trim = ytm_query.trim().to_string();
-        if !q_trim.is_empty() && (qa.submitted || ui.button("Search").clicked()) {
-            let _ = cmd_tx.send(WorkerCmd::SearchTracks(q_trim));
-        } else if q_trim.is_empty() {
-            ui.add_enabled(false, egui::Button::new("Search"));
-        }
-        ui.separator();
-        ui.label("# Go:");
-        let jump_resp = ui.add(egui::TextEdit::singleline(jump_input).desired_width(42.0));
-        if jump_resp.lost_focus()
-            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-            && let Ok(n) = jump_input.trim().parse::<usize>()
-            && n >= 1
-        {
-            scroll_target_row = Some((n - 1).min(pl.tracks.len().saturating_sub(1)));
-            *focused_row = scroll_target_row;
-        }
-        ui.separator();
-        egui::ComboBox::from_id_salt("export_fmt_combo")
-            .selected_text(format!("{export_fmt:?}"))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(export_fmt, ExportFormat::Json, "JSON");
-                ui.selectable_value(export_fmt, ExportFormat::Csv, "CSV");
-                ui.selectable_value(export_fmt, ExportFormat::M3u8, "M3U8");
-            });
-        ui.add(egui::TextEdit::singleline(export_dir).desired_width(120.0));
-        if ui.button("Backup & Export").clicked() {
-            let _ = cmd_tx.send(WorkerCmd::BackupPlaylist {
-                target: pl.id.clone(),
-                format: *export_fmt,
-                out_dir: PathBuf::from(export_dir.trim()),
-            });
-        }
-    });
-
+    let mut scroll_target_row = show_filter_and_export_bar(ui, &mut toolbar_params);
     play_actions.extend(show_quick_search_results(
         ui,
         &pl,
@@ -334,7 +222,7 @@ pub fn show(
                 sort_header(&mut header, "Title", InspectColumn::Title, sort_state);
                 sort_header(&mut header, "Artist", InspectColumn::Artist, sort_state);
                 sort_header(&mut header, "Album", InspectColumn::Album, sort_state);
-                sort_header(&mut header, "Dur(s)", InspectColumn::Duration, sort_state);
+                sort_header(&mut header, "Duration", InspectColumn::Duration, sort_state);
                 sort_header(&mut header, "Type", InspectColumn::Type, sort_state);
                 sort_header(&mut header, "Status", InspectColumn::Status, sort_state);
             })
@@ -358,33 +246,8 @@ pub fn show(
     });
 
     if let Some(mut outcome) = row_out {
-        if can_drag_reorder && egui::DragAndDrop::has_any_payload(ui.ctx()) {
-            let end_resp =
-                ui.allocate_response(egui::vec2(ui.available_width(), 20.0), egui::Sense::hover());
-            let hovered = end_resp.dnd_hover_payload::<DragTrackPayload>().is_some();
-            ui.painter().text(
-                end_resp.rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Drop here to move to end of playlist",
-                egui::FontId::proportional(11.0),
-                if hovered {
-                    egui::Color32::from_rgb(90, 175, 240)
-                } else {
-                    egui::Color32::GRAY
-                },
-            );
-            if let Some(p) = end_resp.dnd_release_payload::<DragTrackPayload>()
-                && p.source_playlist_id == pl.id
-            {
-                let sids: Vec<String> = p
-                    .tracks
-                    .iter()
-                    .filter_map(|tr| tr.set_video_id.clone())
-                    .collect();
-                if !sids.is_empty() {
-                    outcome.intra_reorder = Some((sids, pl.tracks.len()));
-                }
-            }
+        if can_drag_reorder {
+            handle_end_drop_zone(ui, &pl, &mut outcome);
         }
         play_actions.extend(apply_row_outcome(
             &pl,

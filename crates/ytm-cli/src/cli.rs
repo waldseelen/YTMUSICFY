@@ -169,6 +169,9 @@ pub struct DedupeArgs {
     /// Execute remote deletions (default is safe dry-run preview).
     #[arg(long, default_value_t = false)]
     pub execute: bool,
+    /// Override Truncated/Degraded fetch completeness guard when --execute is set.
+    #[arg(long, default_value_t = false)]
+    pub force_incomplete: bool,
 }
 
 #[derive(Debug, Args)]
@@ -184,6 +187,9 @@ pub struct SortArgs {
     /// Execute remote moves (default is safe dry-run preview).
     #[arg(long, default_value_t = false)]
     pub execute: bool,
+    /// Override Truncated/Degraded fetch completeness guard when --execute is set.
+    #[arg(long, default_value_t = false)]
+    pub force_incomplete: bool,
 }
 
 #[derive(Debug, Args)]
@@ -204,6 +210,9 @@ pub struct SetArgs {
     /// Execute remote additions into --into playlist (default is dry-run preview).
     #[arg(long, default_value_t = false)]
     pub execute: bool,
+    /// Override Truncated/Degraded fetch completeness guard when --execute is set.
+    #[arg(long, default_value_t = false)]
+    pub force_incomplete: bool,
 }
 
 #[derive(Debug, Args)]
@@ -222,6 +231,9 @@ pub struct HealthArgs {
     /// Execute remote pruning/upgrades (default is dry-run preview).
     #[arg(long, default_value_t = false)]
     pub execute: bool,
+    /// Override Truncated/Degraded fetch completeness guard when --execute is set.
+    #[arg(long, default_value_t = false)]
+    pub force_incomplete: bool,
 }
 
 #[derive(Debug, Args)]
@@ -237,6 +249,9 @@ pub struct SplitGenreArgs {
     /// Execute playlist creation/population (default is dry-run preview).
     #[arg(long, default_value_t = false)]
     pub execute: bool,
+    /// Override Truncated/Degraded fetch completeness guard when --execute is set.
+    #[arg(long, default_value_t = false)]
+    pub force_incomplete: bool,
 }
 
 #[cfg(test)]
@@ -249,6 +264,7 @@ mod tests {
         match dedupe.command {
             Commands::Dedupe(args) => {
                 assert!(!args.execute);
+                assert!(!args.force_incomplete);
                 assert!((args.threshold - 0.90).abs() < f64::EPSILON);
                 assert_eq!(args.duration_tol, 15);
             }
@@ -258,21 +274,30 @@ mod tests {
         let sort = Cli::try_parse_from(["ytm", "sort", "PL123", "--by", "artist:asc"])
             .expect("parse sort");
         match sort.command {
-            Commands::Sort(args) => assert!(!args.execute),
+            Commands::Sort(args) => {
+                assert!(!args.execute);
+                assert!(!args.force_incomplete);
+            }
             other => panic!("unexpected command: {other:?}"),
         }
 
         let set = Cli::try_parse_from(["ytm", "set", "diff", "LM", "PL123", "--into", "PL_OUT"])
             .expect("parse set");
         match set.command {
-            Commands::Set(args) => assert!(!args.execute),
+            Commands::Set(args) => {
+                assert!(!args.execute);
+                assert!(!args.force_incomplete);
+            }
             other => panic!("unexpected command: {other:?}"),
         }
 
         let health =
             Cli::try_parse_from(["ytm", "health", "PL123", "--prune-unavailable"]).expect("health");
         match health.command {
-            Commands::Health(args) => assert!(!args.execute),
+            Commands::Health(args) => {
+                assert!(!args.execute);
+                assert!(!args.force_incomplete);
+            }
             other => panic!("unexpected command: {other:?}"),
         }
 
@@ -280,6 +305,7 @@ mod tests {
         match split.command {
             Commands::SplitGenre(args) => {
                 assert!(!args.execute);
+                assert!(!args.force_incomplete);
                 assert_eq!(args.min_tracks, 5);
             }
             other => panic!("unexpected command: {other:?}"),

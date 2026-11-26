@@ -79,28 +79,24 @@ pub(crate) fn show_tree_selection_bar(
                 .add_enabled(can_move, egui::Button::new(format!("Move -> {ttitle}")))
                 .clicked()
             {
-                let mut add_all = Vec::new();
+                let mut cnt = 0usize;
+                let mut eid = None;
                 for (pl, trs) in &picked {
                     if pl.id != tid && pl.owned && !pl.id.eq_ignore_ascii_case("LM") {
-                        add_all.extend(trs.clone());
-                        sync_queue.push(StagedOp::RemoveTracks {
-                            playlist_id: pl.id.clone(),
-                            playlist_title: pl.title.clone(),
+                        cnt += trs.len();
+                        eid = Some(sync_queue.push(StagedOp::MoveTracks {
+                            source_playlist_id: pl.id.clone(),
+                            source_playlist_title: pl.title.clone(),
+                            target_playlist_id: tid.clone(),
+                            target_playlist_title: ttitle.clone(),
                             tracks: trs.clone(),
-                        });
+                        }));
                     }
                 }
-                let cnt = add_all.len();
-                let eid = sync_queue.push(StagedOp::AddTracks {
-                    playlist_id: tid,
-                    playlist_title: ttitle.clone(),
-                    tracks: add_all,
-                    allow_duplicates: false,
-                });
                 tree_state.selected_keys.clear();
                 *toast = Some(ToastState::staged(
                     format!("Staged Move ({cnt} track(s)) -> '{ttitle}'."),
-                    Some(eid),
+                    eid,
                 ));
             }
         }

@@ -79,13 +79,13 @@ pub(crate) async fn plan_genre_split_inner(
     let Some(client) = &state.client else {
         anyhow::bail!("not authenticated");
     };
-    let pl = load_playlist(client, playlist_id).await?;
+    let pl = load_playlist(client.as_ref(), playlist_id).await?;
     let existing = client.get_library_playlists().await?;
     let prefix = format!("{} - ", pl.title).to_ascii_lowercase();
     let mut existing_tracks = HashMap::new();
     for s in &existing {
         if s.owned && s.title.to_ascii_lowercase().starts_with(&prefix) {
-            let hydrated = load_playlist(client, &s.id).await?;
+            let hydrated = load_playlist(client.as_ref(), &s.id).await?;
             existing_tracks.insert(s.id.clone(), hydrated.tracks);
         }
     }
