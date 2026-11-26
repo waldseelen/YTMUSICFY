@@ -14,7 +14,9 @@ mod worker_jobs;
 
 use crate::auth_store::{active_cookie_jar_path, save_gui_config};
 use crate::state::{GuiAppConfig, JobId, WorkerCmd, WorkerEvent};
-use crate::worker_auth::{handle_bootstrap, import_auth_inner, import_browser_auth_inner};
+use crate::worker_auth::{
+    handle_bootstrap, import_auth_inner, import_browser_auth_inner, import_clipboard_auth_inner,
+};
 use crate::worker_exec::{
     backup_inner, cache_fetched_playlist, hydrate_gui_startup_state, load_config,
     load_playlist_with_manifest, load_saved_client, persist_staged_entries, run_confirmed_mutation,
@@ -72,6 +74,43 @@ fn emit_audio_config(state: &BackendState, tx: &Sender<WorkerEvent>) {
         quality: state.config.audio_quality,
         preferred_browser: state.config.preferred_browser,
     });
+}
+
+async fn finish_auth_import(
+    state: &mut BackendState,
+    res: anyhow::Result<(InnerTubeClient<ReqwestTransport>, ytm_core::SessionStatus)>,
+    preferred_browser: Option<crate::worker_auth::BrowserKind>,
+    ok_msg: String,
+    err_prefix: &str,
+    tx: &Sender<WorkerEvent>,
+) {
+    match res {
+        Ok((client, status)) => {
+            let client = Arc::new(client);
+            state.client = Some(Arc::clone(&client));
+            if let Some(browser) = preferred_browser {
+                state.config.preferred_browser = Some(browser);
+                let _ = save_gui_config(&state.paths, &state.config);
+            }
+            emit_audio_config(state, tx);
+            let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: true,
+                message: ok_msg,
+            });
+            let libs = client
+                .get_library_playlists()
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
+        }
+        Err(e) => {
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: false,
+                message: format!("{err_prefix}: {e}"),
+            });
+        }
+    }
 }
 
 async fn worker_loop(
@@ -172,56 +211,48 @@ async fn handle_cmd(
             let _ = state.store.save_playback_session(&sess);
         }
         WorkerCmd::ImportAuth(raw) => {
-            match import_auth_inner(&state.paths, &state.config, &raw).await {
-                Ok((client, status)) => {
-                    let client = Arc::new(client);
-                    state.client = Some(Arc::clone(&client));
-                    emit_audio_config(state, tx);
-                    let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
-                    let _ = tx.send(WorkerEvent::StatusToast {
-                        ok: true,
-                        message: "Credentials verified and saved.".to_string(),
-                    });
-                    let libs = client
-                        .get_library_playlists()
-                        .await
-                        .map_err(|e| e.to_string());
-                    let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
-                }
-                Err(e) => {
-                    let _ = tx.send(WorkerEvent::StatusToast {
-                        ok: false,
-                        message: format!("Auth import failed: {e}"),
-                    });
-                }
-            }
+            let res = import_auth_inner(&state.paths, &state.config, &raw).await;
+            finish_auth_import(
+                state,
+                res,
+                None,
+                "Credentials verified and saved.".to_string(),
+                "Auth import failed",
+                tx,
+            )
+            .await;
+        }
+        WorkerCmd::ImportClipboardAuth => {
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: true,
+                message: "Reading system clipboard & verifying session...".to_string(),
+            });
+            let res = import_clipboard_auth_inner(&state.paths, &state.config).await;
+            finish_auth_import(
+                state,
+                res,
+                None,
+                "Clipboard session verified and saved.".to_string(),
+                "Clipboard auth failed",
+                tx,
+            )
+            .await;
         }
         WorkerCmd::ImportBrowserAuth(browser) => {
-            match import_browser_auth_inner(&state.paths, &state.config, browser).await {
-                Ok((client, status)) => {
-                    let client = Arc::new(client);
-                    state.client = Some(Arc::clone(&client));
-                    state.config.preferred_browser = Some(browser);
-                    let _ = save_gui_config(&state.paths, &state.config);
-                    emit_audio_config(state, tx);
-                    let _ = tx.send(WorkerEvent::SessionLoaded(Ok(status)));
-                    let _ = tx.send(WorkerEvent::StatusToast {
-                        ok: true,
-                        message: format!("Imported session from {} and saved.", browser.label()),
-                    });
-                    let libs = client
-                        .get_library_playlists()
-                        .await
-                        .map_err(|e| e.to_string());
-                    let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
-                }
-                Err(e) => {
-                    let _ = tx.send(WorkerEvent::StatusToast {
-                        ok: false,
-                        message: format!("Browser import failed: {e}"),
-                    });
-                }
-            }
+            let _ = tx.send(WorkerEvent::StatusToast {
+                ok: true,
+                message: format!("Importing cookies from {}...", browser.label()),
+            });
+            let res = import_browser_auth_inner(&state.paths, &state.config, browser).await;
+            finish_auth_import(
+                state,
+                res,
+                Some(browser),
+                format!("Imported session from {} and saved.", browser.label()),
+                "Browser import failed",
+                tx,
+            )
+            .await;
         }
         // --- Lane 1: Interactive parallel spawns ---
         WorkerCmd::RefreshLibrary => {

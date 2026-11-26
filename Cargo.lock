@@ -5546,7 +5546,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5571,7 +5571,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5587,7 +5587,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-enrich"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5604,7 +5604,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5632,7 +5632,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-ops"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rand 0.8.8",
  "regex",
@@ -5645,7 +5645,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",

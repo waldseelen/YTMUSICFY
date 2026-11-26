@@ -135,12 +135,6 @@ pub fn mpv_cookie_jar_path(_paths: &AppPaths) -> PathBuf {
     runtime_cookie_dir().join("ytm-cookies.txt")
 }
 
-/// Path for temporary `yt-dlp --cookies` extraction files in runtime storage.
-#[must_use]
-pub fn browser_cookie_temp_path() -> PathBuf {
-    runtime_cookie_dir().join(format!("ytm-browser-cookies-{}.txt", std::process::id()))
-}
-
 pub fn remove_mpv_cookie_jar_at(path: &Path) {
     let _ = std::fs::remove_file(path);
 }

@@ -4,12 +4,11 @@ use ytm_core::{
     InnerTubeClient, InnerTubeClientTrait, ReqwestTransport, SessionStatus,
     netscape_cookies_to_header, parse_auth_input,
 };
-use ytm_store::{AppPaths, write_secret_file};
+use ytm_store::AppPaths;
 
 use crate::auth_store::{
-    browser_cookie_temp_path, ensure_runtime_cookie_dir, mpv_cookie_jar_path,
-    remove_mpv_cookie_jar_at, save_credentials_secure, sweep_stale_cookie_files,
-    write_mpv_cookie_jar,
+    ensure_runtime_cookie_dir, mpv_cookie_jar_path, remove_mpv_cookie_jar_at,
+    save_credentials_secure, sweep_stale_cookie_files, write_mpv_cookie_jar,
 };
 use crate::state::GuiAppConfig;
 
@@ -50,7 +49,13 @@ impl BrowserKind {
     pub fn ytdlp_candidates(self) -> Vec<String> {
         let base = self.ytdlp_arg();
         if cfg!(target_os = "linux") && !matches!(self, Self::Firefox) {
-            vec![format!("{base}+gnomekeyring"), base.to_string()]
+            vec![
+                format!("{base}+gnomekeyring"),
+                format!("{base}+kwallet6"),
+                format!("{base}+kwallet5"),
+                format!("{base}+basictext"),
+                base.to_string(),
+            ]
         } else {
             vec![base.to_string()]
         }
@@ -81,38 +86,36 @@ pub async fn import_browser_auth_inner(
     browser: BrowserKind,
 ) -> Result<(InnerTubeClient<ReqwestTransport>, SessionStatus)> {
     paths.ensure_dirs()?;
-    let _ = ensure_runtime_cookie_dir()?;
-    let tmp_path = browser_cookie_temp_path();
+    let runtime_dir = ensure_runtime_cookie_dir()?;
 
     let mut last_err = String::new();
     for spec in browser.ytdlp_candidates() {
-        write_secret_file(&tmp_path, b"")?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("ytm-cookie-")
+            .tempdir_in(&runtime_dir)
+            .context("creating private runtime directory for browser cookie extraction")?;
+        // Pass a non-existent path inside the 0700 temp dir so yt-dlp does not attempt
+        // to parse a 0-byte file as a Netscape jar before writing extracted cookies.
+        let tmp_path = temp_dir.path().join("cookies.txt");
+
         let output = tokio::process::Command::new("yt-dlp")
             .args([
                 "--ignore-config",
+                "--no-warnings",
                 "--cookies-from-browser",
                 &spec,
                 "--cookies",
                 &tmp_path.to_string_lossy(),
                 "--skip-download",
-                "--no-playlist",
                 "--quiet",
-                "https://www.youtube.com/watch?v=BaW_jenozKc",
+                "about:blank",
             ])
             .output()
             .await
-            .context("running yt-dlp (install yt-dlp or paste headers manually)");
-
-        let output = match output {
-            Ok(out) => out,
-            Err(err) => {
-                let _ = std::fs::remove_file(&tmp_path);
-                return Err(err);
-            }
-        };
+            .context("running yt-dlp (install yt-dlp or paste headers manually)")?;
 
         let cookie_txt = std::fs::read_to_string(&tmp_path);
-        let _ = std::fs::remove_file(&tmp_path);
+        drop(temp_dir);
 
         if let Ok(raw_netscape) = cookie_txt
             && let Ok(cookie_header) = netscape_cookies_to_header(&raw_netscape)
@@ -141,6 +144,43 @@ pub async fn import_browser_auth_inner(
             last_err
         }
     );
+}
+
+/// Reads clipboard text asynchronously off the UI thread (`wl-paste`/`xclip`/`powershell`)
+/// to prevent Wayland `egui` clipboard freezes when pasting large DevTools headers.
+pub async fn import_clipboard_auth_inner(
+    paths: &AppPaths,
+    cfg: &GuiAppConfig,
+) -> Result<(InnerTubeClient<ReqwestTransport>, SessionStatus)> {
+    let raw = read_system_clipboard_async().await?;
+    if raw.trim().is_empty() {
+        anyhow::bail!("Clipboard is empty.");
+    }
+    import_auth_inner(paths, cfg, &raw).await
+}
+
+async fn read_system_clipboard_async() -> Result<String> {
+    #[cfg(windows)]
+    let candidates: &[(&str, &[&str])] =
+        &[("powershell", &["-NoProfile", "-Command", "Get-Clipboard"])];
+    #[cfg(not(windows))]
+    let candidates: &[(&str, &[&str])] = &[
+        ("wl-paste", &["--no-newline"]),
+        ("xclip", &["-o", "-selection", "clipboard"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+
+    for (bin, args) in candidates {
+        let fut = tokio::process::Command::new(bin).args(*args).output();
+        if let Ok(Ok(out)) = tokio::time::timeout(std::time::Duration::from_secs(4), fut).await
+            && out.status.success()
+        {
+            return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+        }
+    }
+    anyhow::bail!(
+        "Failed reading system clipboard (ensure wl-paste/xclip is installed or use Import from File...)."
+    )
 }
 
 pub(crate) async fn handle_bootstrap(
@@ -328,5 +368,15 @@ mod tests {
                 .any(|e| matches!(e, WorkerEvent::SessionLoaded(Err(_)))),
             "handle_bootstrap must always emit SessionLoaded(Err) when unverified"
         );
+    }
+
+    #[test]
+    fn browser_candidates_include_linux_keyring_and_basictext_fallbacks() {
+        let candidates = BrowserKind::Brave.ytdlp_candidates();
+        if cfg!(target_os = "linux") {
+            assert!(candidates.contains(&"brave+gnomekeyring".to_string()));
+            assert!(candidates.contains(&"brave+basictext".to_string()));
+        }
+        assert!(candidates.contains(&"brave".to_string()));
     }
 }

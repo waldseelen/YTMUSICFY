@@ -96,7 +96,7 @@ pub fn show(
 
     ui.add_space(8.0);
     ui.label(
-        "Paste Chrome DevTools Request Headers, HTTP headers, Cookie string, or browser.json:",
+        "DevTools Fallback: On music.youtube.com press F12 -> Network -> click Home or F5 -> filter 'youtubei/v1' -> Copy Request Headers:",
     );
     egui::ScrollArea::vertical()
         .max_height(220.0)
@@ -109,7 +109,15 @@ pub fn show(
         });
 
     let err_id = egui::Id::new("auth_file_err");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .button("Import from Clipboard (Wayland-safe)")
+            .on_hover_text("Reads system clipboard off the UI thread via wl-paste/xclip/PowerShell without freezing Wayland.")
+            .clicked()
+        {
+            ui.ctx().memory_mut(|m| m.data.remove::<String>(err_id));
+            let _ = cmd_tx.send(WorkerCmd::ImportClipboardAuth);
+        }
         if ui
             .add_enabled(
                 !raw_input.trim().is_empty(),

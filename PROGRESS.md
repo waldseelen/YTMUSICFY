@@ -15,10 +15,21 @@ Sole authority for dates, verification gate statuses, and operational session hi
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace`: **PASS** exit 0 (`125/125` tests passed: `ytm-cli` 6, `ytm-core` 31, `ytm-enrich` 14, `ytm-gui` 48, `ytm-ops` 14, `ytm-store` 12)
-- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`Finished release profile [optimized] target(s) in 12.14s`)
+- `cargo test --workspace`: **PASS** exit 0 (`126/126` tests passed: `ytm-cli` 6, `ytm-core` 31, `ytm-enrich` 14, `ytm-gui` 49, `ytm-ops` 14, `ytm-store` 12)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`Finished release profile [optimized] target(s) in 6.58s`)
 - `GitHub Release v0.1.0 (Linux & Windows)`: **PUBLISHED** (`ubuntu-latest` + `windows-latest` CI run `45839060451`, `SHA256SUMS.txt` verified in `README.md`)
-- `wc -l`: **PASS** 0 files > 400 LOC across all `.rs` files (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
+- `wc -l`: **PASS** 0 files > 400 LOC across all `.rs` files (`max = 400` in `crates/ytm-gui/src/worker.rs`)
+
+---
+
+## 2026-11-26 — Auth Browser Import (`yt-dlp`) & Wayland Clipboard Freeze Fix
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-gui/src/worker_auth.rs`: `import_browser_auth_inner` now uses a `0700` `TempDir` with a non-existent `cookies.txt` path (`about:blank` + `--no-warnings`), eliminating `yt-dlp`'s `does not look like a Netscape format cookies file` crash on pre-created empty files and adding `+kwallet6`/`+kwallet5`/`+basictext` fallbacks; added `import_clipboard_auth_inner` using async `wl-paste`/`xclip`/`xsel`/`powershell` off the UI thread.
+  - `crates/ytm-gui/src/worker.rs` & `worker_msgs.rs`: wired `WorkerCmd::ImportClipboardAuth` and extracted `finish_auth_import` (`400` LOC).
+  - `crates/ytm-gui/src/views/auth.rs` & `auth_store.rs`: added **"Import from Clipboard (Wayland-safe)"** button, updated DevTools filter hint (`youtubei/v1` + Home/F5), and dropped obsolete `browser_cookie_temp_path`.
+- **Evidence**:
+  - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (`126/126` PASS), `cargo build --release --bin ytm-gui --bin ytm` (`6.58s`), `wc -l <= 400` (max `400`).
 
 ---
 

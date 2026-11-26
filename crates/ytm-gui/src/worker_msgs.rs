@@ -23,6 +23,7 @@ pub enum WorkerCmd {
     RefreshLibrary,
     ImportAuth(String),
     ImportBrowserAuth(BrowserKind),
+    ImportClipboardAuth,
     LoadPlaylist(String),
     SearchTracks(String),
     SearchCatalog {
