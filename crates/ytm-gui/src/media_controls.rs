@@ -26,32 +26,66 @@ pub struct OsMediaBridge {
 }
 
 impl OsMediaBridge {
-    /// Initialize OS media controls; silently degrades to no-op in headless/CI sessions.
+    /// Initialize OS media controls without a window handle (safe no-op on headless/Windows tests).
     #[must_use]
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel::<MediaKeyEvent>();
-        let config = PlatformConfig {
-            dbus_name: "ytm_architect",
-            display_name: "ytm-architect",
-            hwnd: None,
-        };
-        let controls = MediaControls::new(config).ok().and_then(|mut c| {
-            let attach_res = c.attach(move |ev: MediaControlEvent| {
-                let mapped = match ev {
-                    MediaControlEvent::Toggle => Some(MediaKeyEvent::TogglePause),
-                    MediaControlEvent::Play => Some(MediaKeyEvent::Play),
-                    MediaControlEvent::Pause => Some(MediaKeyEvent::Pause),
-                    MediaControlEvent::Next => Some(MediaKeyEvent::Next),
-                    MediaControlEvent::Previous => Some(MediaKeyEvent::Previous),
-                    MediaControlEvent::Stop => Some(MediaKeyEvent::Stop),
-                    _ => None,
-                };
-                if let Some(m) = mapped {
-                    let _ = tx.send(m);
-                }
+        Self::with_hwnd(None)
+    }
+
+    /// Initialize OS media controls from `eframe::CreationContext` (extracts Win32 `HWND` on Windows).
+    #[must_use]
+    pub fn from_creation_context(cc: &eframe::CreationContext<'_>) -> Self {
+        #[cfg(windows)]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let hwnd = cc.window_handle().ok().and_then(|h| match h.as_raw() {
+                RawWindowHandle::Win32(win32) => Some(win32.hwnd.get() as *mut std::ffi::c_void),
+                _ => None,
             });
-            attach_res.ok().map(|()| c)
-        });
+            Self::with_hwnd(hwnd)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = cc;
+            Self::with_hwnd(None)
+        }
+    }
+
+    /// Initialize OS media controls with an optional Win32 `HWND` (`SMTC` on Windows, `MPRIS2` on Linux).
+    #[must_use]
+    pub fn with_hwnd(hwnd: Option<*mut std::ffi::c_void>) -> Self {
+        let (tx, rx) = mpsc::channel::<MediaKeyEvent>();
+        #[cfg(windows)]
+        let can_init = hwnd.is_some();
+        #[cfg(not(windows))]
+        let can_init = true;
+
+        let controls = if can_init {
+            let config = PlatformConfig {
+                dbus_name: "ytm_architect",
+                display_name: "ytm-architect",
+                hwnd,
+            };
+            MediaControls::new(config).ok().and_then(|mut c| {
+                let attach_res = c.attach(move |ev: MediaControlEvent| {
+                    let mapped = match ev {
+                        MediaControlEvent::Toggle => Some(MediaKeyEvent::TogglePause),
+                        MediaControlEvent::Play => Some(MediaKeyEvent::Play),
+                        MediaControlEvent::Pause => Some(MediaKeyEvent::Pause),
+                        MediaControlEvent::Next => Some(MediaKeyEvent::Next),
+                        MediaControlEvent::Previous => Some(MediaKeyEvent::Previous),
+                        MediaControlEvent::Stop => Some(MediaKeyEvent::Stop),
+                        _ => None,
+                    };
+                    if let Some(m) = mapped {
+                        let _ = tx.send(m);
+                    }
+                });
+                attach_res.ok().map(|()| c)
+            })
+        } else {
+            None
+        };
 
         Self {
             controls,

@@ -5613,6 +5613,7 @@ dependencies = [
  "egui_extras",
  "hex",
  "image",
+ "raw-window-handle",
  "reqwest",
  "serde",
  "serde_json",

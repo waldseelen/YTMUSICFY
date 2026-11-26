@@ -123,7 +123,10 @@ impl YtmGuiApp {
             .map(|p| p.data_dir().join("exports").display().to_string())
             .unwrap_or_else(|_| "./backups".to_string());
         let _ = cmd_tx.send(WorkerCmd::Bootstrap);
-        Self::init_with_channels(cmd_tx, evt_rx, default_export, Some(cc.egui_ctx.clone()))
+        let mut app =
+            Self::init_with_channels(cmd_tx, evt_rx, default_export, Some(cc.egui_ctx.clone()));
+        app.media_bridge = OsMediaBridge::from_creation_context(cc);
+        app
     }
 
     pub(crate) fn init_with_channels(
