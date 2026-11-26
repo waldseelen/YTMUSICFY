@@ -5,11 +5,7 @@ use eframe::egui;
 use crate::state::{GuiAppConfig, MutationPolicy, WorkerCmd};
 
 /// Dedicated Settings panel editing `config.toml` governance, InnerTube pacing, and enrichment options.
-pub fn show(
-    ui: &mut egui::Ui,
-    cfg: &mut GuiAppConfig,
-    cmd_tx: &Sender<WorkerCmd>,
-) {
+pub fn show(ui: &mut egui::Ui, cfg: &mut GuiAppConfig, cmd_tx: &Sender<WorkerCmd>) {
     ui.heading("Application Settings (config.toml)");
     ui.separator();
 

@@ -101,17 +101,31 @@ pub const fn workspace_of(tab: GuiTab) -> Workspace {
 pub const fn tab_tooltip(tab: GuiTab) -> &'static str {
     match tab {
         GuiTab::Browse => "Browse YouTube Music Home, Explore, History, and Library Albums.",
-        GuiTab::Search => "Full YouTube Music catalog search across Songs, Videos, Albums, Artists, Playlists.",
-        GuiTab::QueueLyrics => "Manage playback queue, Start Radio, and inspect synced/plain lyrics.",
-        GuiTab::Inspector => "Inspect playlist tracks, sort columns, save permanent order, and open Split Diff.",
-        GuiTab::SetOps => "Compute Union, Intersection, or Difference (A - B) across two playlists.",
+        GuiTab::Search => {
+            "Full YouTube Music catalog search across Songs, Videos, Albums, Artists, Playlists."
+        }
+        GuiTab::QueueLyrics => {
+            "Manage playback queue, Start Radio, and inspect synced/plain lyrics."
+        }
+        GuiTab::Inspector => {
+            "Inspect playlist tracks, sort columns, save permanent order, and open Split Diff."
+        }
+        GuiTab::SetOps => {
+            "Compute Union, Intersection, or Difference (A - B) across two playlists."
+        }
         GuiTab::Sort => "Multi-key sorting (Artist, Album, Year, Genre) using minimal LIS moves.",
         GuiTab::Dedupe => "Detect and remove duplicate tracks or redundant UGC/ATV versions.",
         GuiTab::Health => "Scan for unavailable/greyed-out tracks and upgrade UGC to Official ATV.",
-        GuiTab::GenreSplit => "Classify tracks via MusicBrainz/Deezer tags and split into genre playlists.",
-        GuiTab::Snapshots => "Inspect local pre-mutation SQLite backups, visual diffs, and restore any snapshot.",
+        GuiTab::GenreSplit => {
+            "Classify tracks via MusicBrainz/Deezer tags and split into genre playlists."
+        }
+        GuiTab::Snapshots => {
+            "Inspect local pre-mutation SQLite backups, visual diffs, and restore any snapshot."
+        }
         GuiTab::Sync => "Full-page staged mutation preview & verified POST dispatch.",
-        GuiTab::Auth => "Manage browser cookie import, Secret Service auth, and audio stream quality.",
+        GuiTab::Auth => {
+            "Manage browser cookie import, Secret Service auth, and audio stream quality."
+        }
         GuiTab::Settings => "Configure MutationPolicy, InnerTube pacing, and enrichment options.",
     }
 }
@@ -139,9 +153,9 @@ pub fn show_tab_bar(
                 Color32::from_rgb(225, 230, 238)
             };
             let stroke = if selected {
-                Stroke::new(1.5, Color32::WHITE)
+                Stroke::new(1.5_f32, Color32::WHITE)
             } else {
-                Stroke::new(1.0, ws.accent().gamma_multiply(0.45))
+                Stroke::new(1.0_f32, ws.accent().gamma_multiply(0.45))
             };
             let btn = egui::Button::new(egui::RichText::new(ws.label()).color(text_color).strong())
                 .fill(fill)

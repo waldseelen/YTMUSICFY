@@ -137,7 +137,9 @@ pub fn show_status_bar(
         *toast = None;
     }
     ui.horizontal(|ui| {
-        ui.label("Ctrl+1..5 Workspaces | Ctrl+K Palette | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync");
+        ui.label(
+            "Ctrl+1..5 Workspaces | Ctrl+K Palette | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync",
+        );
         if let Some((done, total, msg)) = batch_progress {
             ui.separator();
             let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
@@ -224,13 +226,9 @@ pub fn apply_global_input(
         toggle_play_pause: g.toggle_play_pause,
         toggle_mute: g.toggle_mute,
     };
-    if g.undo_last
-        && sync_queue.undo_last().is_some()
-    {
+    if g.undo_last && sync_queue.undo_last().is_some() {
         *toast = Some(ToastState::info(true, "Undid last staged action (Ctrl+Z)."));
-    } else if g.redo_last
-        && sync_queue.redo_last().is_some()
-    {
+    } else if g.redo_last && sync_queue.redo_last().is_some() {
         *toast = Some(ToastState::info(
             true,
             "Redid staged action (Ctrl+Shift+Z).",

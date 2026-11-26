@@ -4,25 +4,37 @@ Sole authority for dates, verification gate statuses, and operational session hi
 
 ---
 
-## Current Gate Status (2026-11-26 — Checkpoint Pause at ~92% Completion)
+## Current Gate Status (2026-11-26 — 100% Re-Architecture Complete)
 
-- `Phase 0 (Contract, Spec & Domain Model Lock)`: **DONE (5/5 tasks)**
-- `Phase 1 (Mutation Governance, Strict Staging & Configure -> Preview -> POST)`: **DONE (8/8 tasks)**
-- `Phase 2 (Fetch Completeness, Pagination Proof & POST Verification)`: **DONE (7/7 tasks)**
-- `Phase 3 (Concurrency, 60 FPS Frame-Rate & Structural Architecture)`: **DONE (8/8 tasks)**
-- `Phase 4 (Daily-Driver YouTube Music Replacement)`: **DONE (7/7 tasks)**
-- `Phase 5 (Information Architecture, UX Flow & Visual Polish)`: **IN PROGRESS (5/8 tasks wired, 3 polish tasks remaining)**
-- `cargo check --workspace --all-targets`: **PASS** exit 0 (9 minor warnings in `theme.rs`/`app.rs` pending final cleanup)
-- `cargo test --workspace`: **PASS** exit 0 (`125/125` tests passing across all 6 crates)
-- **Remaining work (~8% — ~10–15 min in next session):**
-  1. `P5-W3-T3` (`views/player_bar.rs`): upgrade bottom player bar to 3-zone responsive layout with live `mpv` codec/bitrate badge, Mute button, `+ Stage Add to Playlist`, and seek hover timestamp; trigger `player.prefetch_next(...)` at 15s before EOF + `SavePlaybackSession` on queue change.
-  2. `P5-W3-T1` / warning cleanup: fix `f32` stroke literals in `theme.rs`, wire `FocusPane` in `app.rs`/`sidebar.rs`/`inspect.rs`, remove unused legacy `lyrics_state` field.
-  3. Quick audit of `worker_exec.rs::execute_restore_snapshot` to ensure `ytm_ops::plan_restore_diff` reuse (`P3-W3-T2`) + optional local-draft checkbox in `views/dedupe.rs` / `views/sort.rs` (`P3-W2-T1`).
-  4. Final release gates (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `wc -l <= 400`, `cargo build --release --bin ytm-gui --bin ytm`) + mark `[x]` in `TASKS.md`.
+- `Phase 0 (Contract, Spec & Domain Model Lock)`: **PASS** (5/5 tasks)
+- `Phase 1 (Mutation Governance, Strict Staging & Configure -> Preview -> POST)`: **PASS** (8/8 tasks)
+- `Phase 2 (Fetch Completeness, Pagination Proof & POST Verification)`: **PASS** (7/7 tasks)
+- `Phase 3 (Concurrency, 60 FPS Frame-Rate & Structural Architecture)`: **PASS** (8/8 tasks)
+- `Phase 4 (Daily-Driver YouTube Music Replacement)`: **PASS** (7/7 tasks)
+- `Phase 5 (Information Architecture, UX Flow & Visual Polish)`: **PASS** (8/8 tasks)
+- `cargo fmt --all -- --check`: **PASS** exit 0
+- `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
+- `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
+- `cargo test --workspace`: **PASS** exit 0 (`125/125` tests passed: `ytm-cli` 6, `ytm-core` 31, `ytm-enrich` 14, `ytm-gui` 48, `ytm-ops` 14, `ytm-store` 12)
+- `cargo build --release --bin ytm-gui --bin ytm`: **PASS** exit 0 (`Finished release profile [optimized] target(s) in 12.14s`)
+- `wc -l`: **PASS** 0 files > 400 LOC across all `.rs` files (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
 
 ---
 
-## 2026-11-26 — Phases 1–4 Complete + Phase 5 Core Wired (Checkpoint Save)
+## 2026-11-26 — Phase 5 Final Polish, Release Build & TASKS.md Closure
+
+- **Touched areas (`path›symbol`)**:
+  - `crates/ytm-gui/src/views/player_bar.rs`: 3-zone responsive bottom player bar (`icons.rs` monochrome glyphs, live `mpv` codec/bitrate badge, Mute toggle, `+ Stage Add to Playlist` menu, seek bar hover timestamp tooltip)
+  - `crates/ytm-gui/src/playback_ops.rs` & `play_queue.rs`: `PlayQueue::peek_next`, 15-second pre-EOF `player.prefetch_next(&next.video_id)`, `WorkerCmd::SavePlaybackSession` persistence, `poll_os_media_bridge`, `toggle_mute_state`
+  - `crates/ytm-gui/src/worker.rs` & `worker_jobs.rs`: split Lane 2 cancellable background planning jobs (`PlanDedupe`, `PlanSort`, `PlanSetOp`, `ScanHealth`, `PlanGenreSplit`) to keep all files `<= 400` LOC
+  - `crates/ytm-gui/src/app.rs` & `app_events.rs`: extracted `finish_frame` (`<= 391` LOC), wired `FocusPane` ownership and zero-warning `theme.rs` / `tab_bar.rs` / `command_palette.rs`
+  - `TASKS.md`: marked all 43 tasks across Phases 0–5 `[x]`
+- **Evidence**:
+  - All 5 release gates (`fmt`, `check`, `clippy -D warnings`, `test` 125/125, `build --release`) + `wc -l <= 400` (max 399) passed with exit 0 and 0 warnings.
+
+---
+
+## Previous Checkpoint (2026-11-26 — Phases 1–4 Complete + Phase 5 Core Wired)
 
 - **Touched areas (`path›symbol`)**:
   - **Phase 1 (Governance & Strict Staging):** `playlist_meta_modal.rs`, `sidebar.rs`, `overlays.rs`, `views/repertoire_batch.rs`, `playback_ops.rs`, `worker_sync.rs`, `worker_sync_ops.rs`, `worker_exec.rs`, `worker_auth.rs`, `views/components.rs`, `views/sync.rs`, `views/{dedupe,sort,set_ops,health,genres_snapshots}.rs` (StrictLock default + QuickLike toggle, `PlanFingerprint` staleness, `PlaylistAccess::EditableOwned` & `FetchCompleteness` Tiered Guard, selective sync pruning, atomic `MoveTracks`, position-preserving verified `UpgradeTracks`, SQLite `staged_ops` persistence, opt-in browser cookie refresh)

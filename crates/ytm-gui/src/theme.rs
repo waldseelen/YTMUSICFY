@@ -18,25 +18,25 @@ pub fn apply_theme(ctx: &egui::Context) {
     visuals.extreme_bg_color = Color32::from_rgb(13, 15, 19);
     visuals.override_text_color = Some(TEXT_PRIMARY);
     visuals.selection.bg_fill = ACCENT_SELECTION;
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT_PRIMARY);
+    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT_PRIMARY);
 
     visuals.widgets.noninteractive.bg_fill = BG_PANEL;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER_SUBTLE);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
     visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.inactive.bg_fill = BG_ELEVATED;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER_SUBTLE);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
     visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(40, 48, 59);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT_PRIMARY);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT_PRIMARY);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.active.bg_fill = ACCENT_SELECTION;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.5, ACCENT_PRIMARY);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, ACCENT_PRIMARY);
     visuals.widgets.active.corner_radius = CornerRadius::same(4);
 
-    visuals.window_stroke = Stroke::new(1.0, BORDER_SUBTLE);
+    visuals.window_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
     visuals.window_corner_radius = CornerRadius::same(6);
 
     ctx.set_visuals(visuals);

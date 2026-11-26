@@ -149,9 +149,10 @@ pub fn post_preview_meta(op: &StagedOp, chunk_size: usize) -> (&'static str, usi
         StagedOp::RemoveTracks { tracks, .. } => {
             ("POST browse/edit_playlist", chunks(tracks.len()))
         }
-        StagedOp::MoveTracks { tracks, .. } => {
-            ("POST browse/edit_playlist (Add+Remove)", chunks(tracks.len()) * 2)
-        }
+        StagedOp::MoveTracks { tracks, .. } => (
+            "POST browse/edit_playlist (Add+Remove)",
+            chunks(tracks.len()) * 2,
+        ),
         StagedOp::Reorder { moves, .. } => ("POST browse/edit_playlist", chunks(moves.len())),
         StagedOp::CreatePlaylist { tracks, .. } => (
             "POST playlist/create (+chunks)",
@@ -165,7 +166,10 @@ pub fn post_preview_meta(op: &StagedOp, chunk_size: usize) -> (&'static str, usi
             ..
         } => {
             let mult = if *preserve_position { 3 } else { 2 };
-            ("POST browse/edit_playlist (Upgrade)", chunks(upgrades.len()) * mult)
+            (
+                "POST browse/edit_playlist (Upgrade)",
+                chunks(upgrades.len()) * mult,
+            )
         }
         StagedOp::RestoreSnapshot { .. } => ("POST browse/edit_playlist (Restore)", 2),
         StagedOp::SetLikeStatus { liked, .. } => (

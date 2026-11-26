@@ -11,15 +11,17 @@ use ytm_ops::{DedupePlan, DiffPlan, HealthReport, SortPlan};
 use ytm_store::{AppPaths, ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::artwork::ArtworkCache;
-use crate::command_palette::{FocusPane, show_command_palette};
+use crate::command_palette::FocusPane;
 use crate::draft_cache::DraftCache;
-use crate::media_controls::{MediaKeyEvent, OsMediaBridge};
+use crate::media_controls::OsMediaBridge;
 use crate::navigation::{NavHistory, ToastState, apply_global_input, show_status_bar};
-use crate::overlays::{show_confirmation_modal, show_drop_prompt, show_top_bar};
+use crate::overlays::show_top_bar;
 use crate::play_queue::PlayQueue;
-use crate::playback_ops::{apply_player_bar_outcome, poll_track_end_advance};
+use crate::playback_ops::{
+    apply_player_bar_outcome, poll_os_media_bridge, poll_track_end_advance, toggle_mute_state,
+};
 use crate::player::PlayerController;
-use crate::playlist_meta_modal::{PlaylistMetaModal, show_playlist_meta_modal};
+use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::sidebar;
 use crate::state::{
     AsyncState, BrowserKind, DedupeForm, DraftRevision, DragDropMode, DropPrompt, GenreSplitForm,
@@ -52,7 +54,7 @@ pub struct YtmGuiApp {
     pub(crate) batch_progress: Option<(usize, usize, String)>,
     pub(crate) active_job_id: Option<JobId>,
     pub(crate) sync_queue: SyncQueue,
-    last_persisted_rev: DraftRevision,
+    pub(crate) last_persisted_rev: DraftRevision,
     pub(crate) mutation_policy: MutationPolicy,
     pub(crate) gui_config: GuiAppConfig,
     pub(crate) sync_drawer_open: bool,
@@ -104,6 +106,7 @@ pub struct YtmGuiApp {
     pub(crate) focus_pane: FocusPane,
     pub(crate) muted: bool,
     pub(crate) prev_volume: f64,
+    pub(crate) last_prefetched_video_id: Option<String>,
     pub(crate) last_ended_counter: u64,
     pub(crate) browse_target: String,
     pub(crate) browse_state: AsyncState<BrowsePage>,
@@ -201,6 +204,7 @@ impl YtmGuiApp {
             focus_pane: FocusPane::default(),
             muted: false,
             prev_volume: 100.0,
+            last_prefetched_video_id: None,
             last_ended_counter: 0,
             browse_target: "FEmusic_home".to_string(),
             browse_state: AsyncState::Idle,
@@ -257,35 +261,9 @@ impl eframe::App for YtmGuiApp {
             self.player.toggle_pause();
         }
         if input_out.toggle_mute {
-            if self.muted {
-                self.player.set_volume(self.prev_volume.max(10.0));
-                self.muted = false;
-            } else {
-                self.prev_volume = self.player.snapshot().volume;
-                self.player.set_volume(0.0);
-                self.muted = true;
-            }
+            toggle_mute_state(self);
         }
-        for ev in self.media_bridge.poll_events() {
-            match ev {
-                MediaKeyEvent::TogglePause | MediaKeyEvent::Play | MediaKeyEvent::Pause => {
-                    self.player.toggle_pause();
-                }
-                MediaKeyEvent::Next => {
-                    if let Some(nxt) = self.play_queue.advance().cloned() {
-                        crate::playback_ops::start_playing_track(&nxt, self);
-                    }
-                }
-                MediaKeyEvent::Previous => {
-                    if let Some(prev) = self.play_queue.previous().cloned() {
-                        crate::playback_ops::start_playing_track(&prev, self);
-                    }
-                }
-                MediaKeyEvent::Stop => self.player.stop(),
-            }
-        }
-        self.media_bridge
-            .sync_state(self.play_queue.current_track(), &self.player.snapshot());
+        poll_os_media_bridge(self);
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             show_top_bar(
@@ -319,12 +297,23 @@ impl eframe::App for YtmGuiApp {
             .current_track()
             .and_then(|t| t.effective_thumbnail_url())
             .and_then(|url| self.artwork.texture_for(ctx, &url).cloned());
+        self.focus_pane =
+            if self.pending_modal.is_some() || self.meta_modal.is_some() || self.palette_open {
+                FocusPane::Modal
+            } else if self.sync_drawer_open {
+                FocusPane::Drawer
+            } else {
+                FocusPane::MainTable
+            };
+        let playlists_for_bar = self.library.data().map(Vec::as_slice).unwrap_or(&[]);
         let mut bar_out = None;
         egui::TopBottomPanel::bottom("player_bar").show(ctx, |ui| {
             bar_out = Some(views::player_bar::show(
                 ui,
                 &self.play_queue,
                 &self.player,
+                playlists_for_bar,
+                self.muted,
                 current_art.as_ref(),
             ));
         });
@@ -393,57 +382,7 @@ impl eframe::App for YtmGuiApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             show_central_panel(ui, self);
         });
-        let playlists_slice = self.library.data().map(Vec::as_slice).unwrap_or(&[]);
-        show_command_palette(
-            ctx,
-            &mut self.palette_open,
-            &mut self.palette_query,
-            playlists_slice,
-            &mut self.active_tab,
-            &mut self.selected_playlist_id,
-            &mut self.sync_drawer_open,
-            &mut self.loading_playlists,
-            &self.playlist_cache,
-            &self.cmd_tx,
-        );
-        self.focus_search_once = false;
-        if !navigated_via_history {
-            self.nav_history
-                .record(self.active_tab, self.selected_playlist_id.clone());
-        }
-
-        show_drop_prompt(
-            ctx,
-            &mut self.drop_prompt,
-            &self.playlist_cache,
-            &self.library,
-            &mut self.sync_queue,
-            &mut self.toast,
-        );
-        show_confirmation_modal(ctx, &mut self.pending_modal, &self.cmd_tx);
-        show_playlist_meta_modal(
-            ctx,
-            &mut self.meta_modal,
-            &mut self.sync_queue,
-            &mut self.toast,
-        );
-
-        if self.sync_queue.revision() != self.last_persisted_rev {
-            self.mark_staged_persisted();
-            let _ = self
-                .cmd_tx
-                .send(WorkerCmd::SaveStagedOps(self.sync_queue.entries().to_vec()));
-        }
-
-        let actively_working = self.toast.is_some()
-            || self.batch_progress.is_some()
-            || self.session.is_loading()
-            || self.library.is_loading()
-            || !self.loading_playlists.is_empty()
-            || self.player.snapshot().state.is_active();
-        if actively_working {
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
-        }
+        crate::app_events::finish_frame(self, ctx, navigated_via_history);
     }
 }
 

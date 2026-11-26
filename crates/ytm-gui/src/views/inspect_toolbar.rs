@@ -170,7 +170,9 @@ pub(crate) fn show_playlist_header(
             }
             if ui
                 .button("🗑 Stage Delete")
-                .on_hover_text("Stage playlist deletion into Sync (requires snapshot & typed confirmation)")
+                .on_hover_text(
+                    "Stage playlist deletion into Sync (requires snapshot & typed confirmation)",
+                )
                 .clicked()
             {
                 let eid = sync_queue.push(StagedOp::DeletePlaylist {

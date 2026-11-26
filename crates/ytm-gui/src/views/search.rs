@@ -119,7 +119,11 @@ pub fn show(
                         if let Some(dur) = t.duration_sec {
                             ui.monospace(format_duration(u64::from(dur)));
                         }
-                        if ui.small_button("+Q").on_hover_text("Add to queue").clicked() {
+                        if ui
+                            .small_button("+Q")
+                            .on_hover_text("Add to queue")
+                            .clicked()
+                        {
                             actions.push(PlayAction::AppendQueue(t.clone()));
                         }
                         if !editable_lists.is_empty() {
@@ -147,7 +151,10 @@ pub fn show(
 
             if !page.cards.is_empty() {
                 ui.add_space(6.0);
-                ui.strong(format!("Albums / Artists / Playlists ({})", page.cards.len()));
+                ui.strong(format!(
+                    "Albums / Artists / Playlists ({})",
+                    page.cards.len()
+                ));
                 for card in &page.cards {
                     ui.horizontal(|ui| {
                         if let Some(url) = &card.thumbnail_url

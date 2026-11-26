@@ -52,14 +52,13 @@ pub fn show(
         form.exact_only,
         format!("{:?}", form.keep),
     ));
-    let current_fp = selected_playlist_id
-        .map(|pid| make_fingerprint(pid, sync_queue.revision(), form_sig));
+    let current_fp =
+        selected_playlist_id.map(|pid| make_fingerprint(pid, sync_queue.revision(), form_sig));
     let stored_fp = load_plan_fingerprint(ui.ctx(), FP_SALT);
     let plan_is_fresh = current_fp.is_some() && current_fp == stored_fp;
 
     let manifest_locked = manifest.is_some_and(|m| m.completeness.is_mutation_locked());
-    let editable = active_playlist
-        .is_some_and(|p| p.access() == PlaylistAccess::EditableOwned)
+    let editable = active_playlist.is_some_and(|p| p.access() == PlaylistAccess::EditableOwned)
         && !manifest_locked;
 
     let excluded_id = egui::Id::new(PICK_SALT);
@@ -211,7 +210,11 @@ pub fn show(
                     }
                 });
                 row.col(|ui| {
-                    if ui.small_button("▶").on_hover_text("Audition track").clicked() {
+                    if ui
+                        .small_button("▶")
+                        .on_hover_text("Audition track")
+                        .clicked()
+                    {
                         actions.push(PlayAction::PlayFromList {
                             tracks: vec![(*track).clone()],
                             start_idx: 0,

@@ -81,12 +81,19 @@ pub fn dispatch_play_actions(actions: Vec<PlayAction>, app: &mut YtmGuiApp) {
     }
 }
 
-/// Start playback of `track` and request watch-next metadata for lyrics handle.
+/// Start playback of `track`, reset lyrics state, persist playback session, and request watch-next metadata.
 pub fn start_playing_track(track: &Track, app: &mut YtmGuiApp) {
     app.last_ended_counter = app.player.snapshot().ended_counter;
+    app.last_prefetched_video_id = None;
     app.lyrics_browse_id = None;
     app.lyrics_state = AsyncState::Idle;
+    app.lyrics_payload = AsyncState::Idle;
+    app.lyrics_video_id = Some(track.video_id.clone());
     app.player.play_track(track);
+    let snap = app.play_queue.to_snapshot(app.player.snapshot().volume);
+    if let Ok(json) = serde_json::to_string(&snap) {
+        let _ = app.cmd_tx.send(WorkerCmd::SavePlaybackSession(json));
+    }
     let _ = app.cmd_tx.send(WorkerCmd::LoadWatchNext {
         video_id: track.video_id.clone(),
         playlist_id: None,
@@ -94,7 +101,7 @@ pub fn start_playing_track(track: &Track, app: &mut YtmGuiApp) {
     });
 }
 
-/// Auto-advance queue when `mpv` reports natural end-of-file (`eof`).
+/// Auto-advance queue on `mpv` EOF and prefetch next track ~15 seconds before end.
 pub fn poll_track_end_advance(app: &mut YtmGuiApp) {
     let snap = app.player.snapshot();
     if snap.ended_counter > app.last_ended_counter {
@@ -104,10 +111,19 @@ pub fn poll_track_end_advance(app: &mut YtmGuiApp) {
         } else {
             app.player.stop();
         }
+        return;
+    }
+    if snap.duration_sec > 20.0
+        && (snap.duration_sec - snap.position_sec) <= 15.0
+        && let Some(next) = app.play_queue.peek_next().cloned()
+        && app.last_prefetched_video_id.as_deref() != Some(next.video_id.as_str())
+    {
+        app.last_prefetched_video_id = Some(next.video_id.clone());
+        app.player.prefetch_next(&next.video_id);
     }
 }
 
-/// Apply transport, seek, volume, shuffle/repeat, and tab-jump actions from `player_bar`.
+/// Apply transport, seek, volume, mute, stage-add, shuffle/repeat, and tab-jump actions from `player_bar`.
 pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
     if out.toggle_pause {
         app.player.toggle_pause();
@@ -119,7 +135,34 @@ pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
         app.player.seek_absolute(sec);
     }
     if let Some(vol) = out.volume_to {
+        app.muted = vol <= 0.1;
+        if vol > 0.1 {
+            app.prev_volume = vol;
+        }
         app.player.set_volume(vol);
+    }
+    if out.toggle_mute {
+        if app.muted {
+            app.player.set_volume(app.prev_volume.max(10.0));
+            app.muted = false;
+        } else {
+            app.prev_volume = app.player.snapshot().volume;
+            app.player.set_volume(0.0);
+            app.muted = true;
+        }
+    }
+    if let Some((pid, ptitle, track)) = out.stage_add {
+        let title = track.title.clone();
+        let eid = app.sync_queue.push(StagedOp::AddTracks {
+            playlist_id: pid,
+            playlist_title: ptitle.clone(),
+            tracks: vec![track],
+            allow_duplicates: false,
+        });
+        app.toast = Some(ToastState::staged(
+            format!("Staged '{title}' → '{ptitle}'."),
+            Some(eid),
+        ));
     }
     if out.toggle_shuffle {
         app.play_queue.toggle_shuffle(current_unix_secs());
@@ -144,6 +187,44 @@ pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
         app.player.apply_pending_configure();
     }
     dispatch_play_actions(out.actions, app);
+}
+
+/// Poll OS media keys (`MPRIS2` / `SMTC`) and synchronize track metadata/playback state.
+pub fn poll_os_media_bridge(app: &mut YtmGuiApp) {
+    for ev in app.media_bridge.poll_events() {
+        match ev {
+            crate::media_controls::MediaKeyEvent::TogglePause
+            | crate::media_controls::MediaKeyEvent::Play
+            | crate::media_controls::MediaKeyEvent::Pause => {
+                app.player.toggle_pause();
+            }
+            crate::media_controls::MediaKeyEvent::Next => {
+                if let Some(nxt) = app.play_queue.advance().cloned() {
+                    start_playing_track(&nxt, app);
+                }
+            }
+            crate::media_controls::MediaKeyEvent::Previous => {
+                if let Some(prev) = app.play_queue.previous().cloned() {
+                    start_playing_track(&prev, app);
+                }
+            }
+            crate::media_controls::MediaKeyEvent::Stop => app.player.stop(),
+        }
+    }
+    app.media_bridge
+        .sync_state(app.play_queue.current_track(), &app.player.snapshot());
+}
+
+/// Toggle mute/unmute preserving the previous non-zero volume.
+pub fn toggle_mute_state(app: &mut YtmGuiApp) {
+    if app.muted {
+        app.player.set_volume(app.prev_volume.max(10.0));
+        app.muted = false;
+    } else {
+        app.prev_volume = app.player.snapshot().volume;
+        app.player.set_volume(0.0);
+        app.muted = true;
+    }
 }
 
 /// Enforces `MutationPolicy` when toggling like/unlike status for a track.

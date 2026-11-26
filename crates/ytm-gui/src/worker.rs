@@ -6,20 +6,20 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use eframe::egui;
 use tokio::sync::{Mutex as AsyncMutex, mpsc as tokio_mpsc};
 use ytm_core::{InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
-use ytm_enrich::{EnrichmentService, MetadataProvider, ReqwestEnrichmentHttp};
-use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
+use ytm_ops::{plan_dedupe, plan_sort};
 use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
+
+#[path = "worker_jobs.rs"]
+mod worker_jobs;
 
 use crate::auth_store::{active_cookie_jar_path, save_gui_config};
 use crate::state::{GuiAppConfig, JobId, WorkerCmd, WorkerEvent};
 use crate::worker_auth::{handle_bootstrap, import_auth_inner, import_browser_auth_inner};
 use crate::worker_exec::{
-    backup_inner, cache_fetched_playlist, emit_progress, hydrate_gui_startup_state, load_config,
-    load_playlist, load_playlist_with_manifest, load_saved_client, persist_staged_entries,
-    run_confirmed_mutation,
+    backup_inner, cache_fetched_playlist, hydrate_gui_startup_state, load_config,
+    load_playlist_with_manifest, load_saved_client, persist_staged_entries, run_confirmed_mutation,
 };
 use crate::worker_media::{handle_interactive_cmd, spawn_index_all_job};
-use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
@@ -295,9 +295,16 @@ async fn handle_cmd(
                 label: format!("Backup {target}"),
             });
             tokio::spawn(async move {
-                let msg =
-                    backup_inner(client.as_ref(), &store, &target, format, &out_dir, &tx, &ctx)
-                        .await;
+                let msg = backup_inner(
+                    client.as_ref(),
+                    &store,
+                    &target,
+                    format,
+                    &out_dir,
+                    &tx,
+                    &ctx,
+                )
+                .await;
                 let _ = tx.send(match msg {
                     Ok(m) => WorkerEvent::StatusToast {
                         ok: true,
@@ -315,146 +322,6 @@ async fn handle_cmd(
                 ctx.request_repaint();
             });
         }
-        WorkerCmd::PlanDedupe {
-            playlist_id,
-            config,
-        } => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            tokio::spawn(async move {
-                let res = async {
-                    let pl = load_playlist(client.as_ref(), &playlist_id).await?;
-                    Ok::<_, anyhow::Error>(plan_dedupe(&pl, &config)?)
-                }
-                .await
-                .map_err(|e| e.to_string());
-                let _ = tx.send(WorkerEvent::DedupePlanned(res));
-                ctx.request_repaint();
-            });
-        }
-        WorkerCmd::PlanSort { playlist_id, spec } => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let (job_id, cancel) = state.allocate_job();
-            let store = Arc::clone(&state.store);
-            let paths = state.paths.clone();
-            let enrich_cfg = state.config.enrichment.clone();
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            let _ = tx.send(WorkerEvent::JobStarted {
-                job_id,
-                label: "Sort LIS".to_string(),
-            });
-            tokio::spawn(async move {
-                let res = async {
-                    let pl = load_playlist(client.as_ref(), &playlist_id).await?;
-                    let genre_map = if spec.keys.iter().any(|k| k.field == SortField::Genre) {
-                        let matcher = build_matcher(None, &paths)?;
-                        let svc = EnrichmentService::new(
-                            store,
-                            ReqwestEnrichmentHttp::new()?,
-                            enrich_cfg,
-                            matcher,
-                        );
-                        let mut map = HashMap::new();
-                        let total = pl.tracks.len().max(1);
-                        for (idx, t) in pl.tracks.iter().enumerate() {
-                            if cancel.load(Ordering::Relaxed) {
-                                anyhow::bail!("Sort enrichment cancelled by user.");
-                            }
-                            if idx % 5 == 0 {
-                                emit_progress(
-                                    &tx,
-                                    &ctx,
-                                    idx,
-                                    total,
-                                    format!("Enriching {}/{total}...", idx + 1),
-                                );
-                            }
-                            let meta = svc.enrich_track(t).await?;
-                            map.insert(t.video_id.clone(), meta.primary_genre);
-                        }
-                        Some(map)
-                    } else {
-                        None
-                    };
-                    Ok::<_, anyhow::Error>(plan_sort(&pl, &spec, genre_map.as_ref())?)
-                }
-                .await
-                .map_err(|e| e.to_string());
-                let _ = tx.send(WorkerEvent::SortPlanned(res));
-                let _ = tx.send(WorkerEvent::JobEnded(job_id));
-                ctx.request_repaint();
-            });
-        }
-        WorkerCmd::PlanSetOp {
-            op,
-            mode,
-            playlist_a,
-            playlist_b,
-            target,
-        } => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            tokio::spawn(async move {
-                let res = async {
-                    let a = load_playlist(client.as_ref(), &playlist_a).await?;
-                    let b = load_playlist(client.as_ref(), &playlist_b).await?;
-                    Ok::<_, anyhow::Error>(plan_set_op(op, mode, &a, &b, target, 0.90)?)
-                }
-                .await
-                .map_err(|e| e.to_string());
-                let _ = tx.send(WorkerEvent::SetOpPlanned(res));
-                ctx.request_repaint();
-            });
-        }
-        WorkerCmd::ScanHealth {
-            playlist_id,
-            find_official,
-        } => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let (job_id, _cancel) = state.allocate_job();
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            let _ = tx.send(WorkerEvent::JobStarted {
-                job_id,
-                label: "Health Scan".to_string(),
-            });
-            tokio::spawn(async move {
-                let res = scan_health_inner(client.as_ref(), &playlist_id, find_official, &tx, &ctx)
-                    .await
-                    .map_err(|e| e.to_string());
-                let _ = tx.send(WorkerEvent::HealthScanned(res));
-                let _ = tx.send(WorkerEvent::JobEnded(job_id));
-                ctx.request_repaint();
-            });
-        }
-        WorkerCmd::PlanGenreSplit {
-            playlist_id,
-            min_tracks,
-            custom_genres_path,
-        } => {
-            let res = plan_genre_split_inner(
-                state,
-                &playlist_id,
-                min_tracks,
-                custom_genres_path.as_deref(),
-                tx,
-                ctx,
-            )
-            .await
-            .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::GenreSplitPlanned(res));
-        }
         // --- Lane 3: Serialized Remote Mutations ---
         WorkerCmd::ExecuteMutation(mutation) => {
             let Some(client) = state.client.as_ref().map(Arc::clone) else {
@@ -466,20 +333,26 @@ async fn handle_cmd(
             let ctx = ctx.clone();
             tokio::spawn(async move {
                 let _guard = mlock.lock().await;
-                let event =
-                    match run_confirmed_mutation(client.as_ref(), &store, mutation, &tx, &ctx).await
-                    {
-                        Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
-                            ok: true,
-                            message,
-                            reload_ids,
-                        },
-                        Err(e) => WorkerEvent::MutationFinished {
-                            ok: false,
-                            message: format!("Sync error: {e}"),
-                            reload_ids: Vec::new(),
-                        },
-                    };
+                let event = match run_confirmed_mutation(
+                    client.as_ref(),
+                    &store,
+                    mutation,
+                    &tx,
+                    &ctx,
+                )
+                .await
+                {
+                    Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
+                        ok: true,
+                        message,
+                        reload_ids,
+                    },
+                    Err(e) => WorkerEvent::MutationFinished {
+                        ok: false,
+                        message: format!("Sync error: {e}"),
+                        reload_ids: Vec::new(),
+                    },
+                };
                 let _ = tx.send(event);
                 if let Ok(snaps) = store.list_snapshots(None).await {
                     let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
@@ -487,6 +360,10 @@ async fn handle_cmd(
                 ctx.request_repaint();
             });
         }
-        other => handle_interactive_cmd(state, other, tx, ctx),
+        other => {
+            if let Some(rem) = worker_jobs::handle_background_job(state, other, tx, ctx).await {
+                handle_interactive_cmd(state, rem, tx, ctx);
+            }
+        }
     }
 }

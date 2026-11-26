@@ -12,9 +12,7 @@ use ytm_ops::{
 use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::auth_store::AudioQuality;
-use crate::state::{
-    ConfirmedMutation, DispatchEntryOutcome, GuiAppConfig, JobId, MutationPolicy,
-};
+use crate::state::{ConfirmedMutation, DispatchEntryOutcome, GuiAppConfig, JobId, MutationPolicy};
 use crate::sync_queue::StagedEntry;
 use crate::worker_auth::BrowserKind;
 

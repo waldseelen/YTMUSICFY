@@ -113,9 +113,9 @@ pub fn show(
     let plan_is_fresh = load_plan_fingerprint(ui.ctx(), FP_SALT).as_ref() == Some(&current_fp);
 
     let target_editable = !form.target_playlist.is_empty()
-        && playlists.iter().any(|p| {
-            p.id == form.target_playlist && p.access() == PlaylistAccess::EditableOwned
-        })
+        && playlists
+            .iter()
+            .any(|p| p.id == form.target_playlist && p.access() == PlaylistAccess::EditableOwned)
         && !manifests
             .get(&form.target_playlist)
             .is_some_and(|m| m.completeness.is_mutation_locked());

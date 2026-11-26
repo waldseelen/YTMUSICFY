@@ -111,8 +111,7 @@ pub fn show(
     let plan_is_fresh = current_fp.is_some() && current_fp == stored_fp;
 
     let manifest_locked = manifest.is_some_and(|m| m.completeness.is_mutation_locked());
-    let editable = active_playlist
-        .is_some_and(|p| p.access() == PlaylistAccess::EditableOwned)
+    let editable = active_playlist.is_some_and(|p| p.access() == PlaylistAccess::EditableOwned)
         && !manifest_locked;
 
     ui.horizontal_wrapped(|ui| {

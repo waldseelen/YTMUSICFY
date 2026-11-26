@@ -237,15 +237,9 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 app.batch_progress = None;
             }
         }
-        WorkerEvent::CatalogSearchResults {
-            append,
-            result,
-            ..
-        } => match result {
+        WorkerEvent::CatalogSearchResults { append, result, .. } => match result {
             Ok(page) => {
-                if append
-                    && let AsyncState::Ready(existing) = &mut app.catalog_results
-                {
+                if append && let AsyncState::Ready(existing) = &mut app.catalog_results {
                     existing.tracks.extend(page.tracks);
                     existing.cards.extend(page.cards);
                     existing.continuation = page.continuation;
@@ -275,10 +269,7 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             }
         },
         WorkerEvent::LyricsPayloadLoaded { video_id, result } => {
-            let cur_vid = app
-                .play_queue
-                .current_track()
-                .map(|t| t.video_id.as_str());
+            let cur_vid = app.play_queue.current_track().map(|t| t.video_id.as_str());
             if cur_vid == Some(video_id.as_str()) {
                 app.lyrics_video_id = Some(video_id);
                 app.lyrics_payload = result.map_or_else(AsyncState::Failed, AsyncState::Ready);
@@ -297,5 +288,64 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             app.audio_quality = cfg.audio_quality;
             app.gui_config = cfg;
         }
+    }
+}
+
+/// Renders floating modals, command palette, persists staged ops, and schedules event-driven repaints.
+pub(crate) fn finish_frame(
+    app: &mut YtmGuiApp,
+    ctx: &eframe::egui::Context,
+    navigated_via_history: bool,
+) {
+    let playlists_slice = app.library.data().map(Vec::as_slice).unwrap_or(&[]);
+    crate::command_palette::show_command_palette(
+        ctx,
+        &mut app.palette_open,
+        &mut app.palette_query,
+        playlists_slice,
+        &mut app.active_tab,
+        &mut app.selected_playlist_id,
+        &mut app.sync_drawer_open,
+        &mut app.loading_playlists,
+        &app.playlist_cache,
+        &app.cmd_tx,
+    );
+    app.focus_search_once = false;
+    if !navigated_via_history {
+        app.nav_history
+            .record(app.active_tab, app.selected_playlist_id.clone());
+    }
+
+    crate::overlays::show_drop_prompt(
+        ctx,
+        &mut app.drop_prompt,
+        &app.playlist_cache,
+        &app.library,
+        &mut app.sync_queue,
+        &mut app.toast,
+    );
+    crate::overlays::show_confirmation_modal(ctx, &mut app.pending_modal, &app.cmd_tx);
+    crate::playlist_meta_modal::show_playlist_meta_modal(
+        ctx,
+        &mut app.meta_modal,
+        &mut app.sync_queue,
+        &mut app.toast,
+    );
+
+    if app.sync_queue.revision() != app.last_persisted_rev {
+        app.mark_staged_persisted();
+        let _ = app
+            .cmd_tx
+            .send(WorkerCmd::SaveStagedOps(app.sync_queue.entries().to_vec()));
+    }
+
+    let actively_working = app.toast.is_some()
+        || app.batch_progress.is_some()
+        || app.session.is_loading()
+        || app.library.is_loading()
+        || !app.loading_playlists.is_empty()
+        || app.player.snapshot().state.is_active();
+    if actively_working {
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
     }
 }

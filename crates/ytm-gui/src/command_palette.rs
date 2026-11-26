@@ -90,17 +90,20 @@ pub fn show_command_palette(
                     ];
 
                     for (label, tab) in commands {
-                        if needle.is_empty() || label.to_ascii_lowercase().contains(&needle) {
-                            if ui.selectable_label(false, label).clicked() {
-                                *active_tab = tab;
-                                close_now = true;
-                            }
+                        if (needle.is_empty() || label.to_ascii_lowercase().contains(&needle))
+                            && ui.selectable_label(false, label).clicked()
+                        {
+                            *active_tab = tab;
+                            close_now = true;
                         }
                     }
 
                     if (needle.is_empty() || "sync drawer review dispatch".contains(&needle))
                         && ui
-                            .selectable_label(false, "Action: Toggle Sync Staging Drawer (Ctrl+Shift+S)")
+                            .selectable_label(
+                                false,
+                                "Action: Toggle Sync Staging Drawer (Ctrl+Shift+S)",
+                            )
                             .clicked()
                     {
                         *sync_drawer_open = !*sync_drawer_open;

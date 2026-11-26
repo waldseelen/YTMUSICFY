@@ -38,8 +38,8 @@ pub fn show_genre_split(
     let form_sig = hash_form(&(form.min_tracks, &form.custom_genres_toml));
     let current_fp =
         selected_playlist_id.map(|pid| make_fingerprint(pid, sync_queue.revision(), form_sig));
-    let plan_is_fresh = current_fp.is_some()
-        && load_plan_fingerprint(ui.ctx(), GENRE_FP_SALT) == current_fp;
+    let plan_is_fresh =
+        current_fp.is_some() && load_plan_fingerprint(ui.ctx(), GENRE_FP_SALT) == current_fp;
 
     ui.horizontal_wrapped(|ui| {
         let can_plan = selected_playlist_id.is_some() && !plan_state.is_loading();

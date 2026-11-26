@@ -72,6 +72,19 @@ impl PlayQueue {
         self.current_index.and_then(|idx| self.tracks.get(idx))
     }
 
+    /// Peeks the next track that would play on EOF without mutating queue position.
+    #[must_use]
+    pub fn peek_next(&self) -> Option<&Track> {
+        let cur = self.current_index?;
+        match self.repeat {
+            RepeatMode::One => self.tracks.get(cur),
+            RepeatMode::All if !self.tracks.is_empty() => {
+                self.tracks.get((cur + 1) % self.tracks.len())
+            }
+            _ => self.tracks.get(cur + 1),
+        }
+    }
+
     #[must_use]
     pub const fn is_shuffle(&self) -> bool {
         self.shuffle
