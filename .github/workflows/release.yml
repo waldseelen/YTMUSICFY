@@ -1,0 +1,156 @@
+name: Release (Linux & Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: windows-x86_64
+            archive_ext: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libdbus-1-dev libgtk-3-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify workspace tests
+        run: cargo test --workspace --locked
+
+      - name: Build release binaries
+        run: cargo build --release --locked --bin ytm --bin ytm-gui
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Package release archive (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          PKG="ytm-architect-${{ steps.meta.outputs.tag }}-${{ matrix.target }}"
+          mkdir -p "dist/${PKG}/config"
+          cp target/release/ytm target/release/ytm-gui "dist/${PKG}/"
+          cp config/*.toml "dist/${PKG}/config/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/${PKG}/"
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+          (cd target/release && sha256sum ytm ytm-gui) > "dist/${PKG}.binaries.sha256"
+
+      - name: Package release archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $pkg = "ytm-architect-$tag-${{ matrix.target }}"
+          $root = "dist/$pkg"
+          New-Item -ItemType Directory -Force -Path "$root/config" | Out-Null
+          Copy-Item target/release/ytm.exe, target/release/ytm-gui.exe $root/
+          Copy-Item config/*.toml $root/config/
+          Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE $root/
+          Compress-Archive -Path $root -DestinationPath "dist/$pkg.zip" -Force
+          $h1 = (Get-FileHash target/release/ytm.exe -Algorithm SHA256).Hash.ToLower()
+          $h2 = (Get-FileHash target/release/ytm-gui.exe -Algorithm SHA256).Hash.ToLower()
+          @("$h1  ytm.exe", "$h2  ytm-gui.exe") | Set-Content -Encoding utf8 "dist/$pkg.binaries.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.binaries.sha256
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute SHA256SUMS.txt & release notes
+        id: prep
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          mkdir -p release-files
+          cp artifacts/*.tar.gz artifacts/*.zip release-files/
+          (cd release-files && sha256sum ytm-architect-*) > release-files/SHA256SUMS.txt
+          cat artifacts/*.binaries.sha256 >> release-files/SHA256SUMS.txt
+          {
+            echo "## ytm-architect ${TAG} — Linux & Windows Release"
+            echo ""
+            echo "Native pure-Rust YouTube Music daily-driver studio (\`ytm-gui\`) + CLI/TUI (\`ytm\`) powered by direct InnerTube POST requests and local \`mpv\` audio playback (no Electron / WebView)."
+            echo ""
+            echo "### Downloads"
+            echo "- **Linux (x86_64):** \`ytm-architect-${TAG}-linux-x86_64.tar.gz\` (\`ytm-gui\`, \`ytm\`)"
+            echo "- **Windows (x86_64):** \`ytm-architect-${TAG}-windows-x86_64.zip\` (\`ytm-gui.exe\`, \`ytm.exe\`)"
+            echo ""
+            echo "### SHA-256 Checksums"
+            echo '```text'
+            cat release-files/SHA256SUMS.txt
+            echo '```'
+            echo ""
+            echo "### Runtime Prerequisites for Audio Playback"
+            echo "- \`mpv\` + \`yt-dlp\` on \`PATH\` for GUI audio playback (library inspection, sync staging, dedupe, LIS sort, set algebra, and snapshots require zero external binaries)."
+          } > release-notes.md
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.prep.outputs.tag }}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-files/* --clobber
+            gh release edit "${TAG}" --title "ytm-architect ${TAG}" --notes-file release-notes.md
+          else
+            gh release create "${TAG}" release-files/* \
+              --title "ytm-architect ${TAG}" \
+              --notes-file release-notes.md
+          fi
