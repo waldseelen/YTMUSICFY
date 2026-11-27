@@ -136,3 +136,36 @@ fn playback_restart_after_pause_preserves_paused_state() {
         }
     );
 }
+
+#[test]
+fn time_pos_throttles_slower_when_window_is_inactive() {
+    let snap = Arc::new(Mutex::new(PlayerSnapshot {
+        window_active: false,
+        ..PlayerSnapshot::default()
+    }));
+    let prop = |sec: f64| json!({ "event": "property-change", "name": "time-pos", "data": sec });
+    let t0 = Instant::now();
+    let mut last = None;
+
+    assert!(apply_ipc_event_throttled(
+        &prop(1.0),
+        &snap,
+        &mut last,
+        t0,
+        None
+    ));
+    assert!(!apply_ipc_event_throttled(
+        &prop(1.5),
+        &snap,
+        &mut last,
+        t0 + Duration::from_millis(500),
+        None
+    ));
+    assert!(apply_ipc_event_throttled(
+        &prop(2.6),
+        &snap,
+        &mut last,
+        t0 + Duration::from_millis(1600),
+        None
+    ));
+}

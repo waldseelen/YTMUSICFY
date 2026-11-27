@@ -9,6 +9,7 @@ use serde_json::Value;
 use crate::player::{PlayerSnapshot, PlayerState};
 
 const TIME_POS_REPAINT_MIN_INTERVAL: Duration = Duration::from_millis(200);
+const TIME_POS_BACKGROUND_REPAINT_INTERVAL: Duration = Duration::from_millis(1500);
 
 #[cfg(unix)]
 pub(crate) type IpcStream = std::os::unix::net::UnixStream;
@@ -247,9 +248,14 @@ fn apply_property_change(
         "time-pos" => {
             if let Some(pos) = data.as_f64() {
                 snap.position_sec = pos.max(0.0);
-                if last_time_pos_repaint.is_none_or(|prev| {
-                    now.saturating_duration_since(prev) >= TIME_POS_REPAINT_MIN_INTERVAL
-                }) {
+                let interval = if snap.window_active {
+                    TIME_POS_REPAINT_MIN_INTERVAL
+                } else {
+                    TIME_POS_BACKGROUND_REPAINT_INTERVAL
+                };
+                if last_time_pos_repaint
+                    .is_none_or(|prev| now.saturating_duration_since(prev) >= interval)
+                {
                     *last_time_pos_repaint = Some(now);
                     return true;
                 }

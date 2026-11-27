@@ -339,6 +339,10 @@ pub(crate) fn finish_frame(
             .send(WorkerCmd::SaveStagedOps(app.sync_queue.entries().to_vec()));
     }
 
+    let window_active =
+        ctx.input(|i| i.viewport().minimized != Some(true) && i.viewport().focused != Some(false));
+    app.player.set_window_active(window_active);
+
     let actively_working = app.toast.is_some()
         || app.batch_progress.is_some()
         || app.session.is_loading()
@@ -346,6 +350,7 @@ pub(crate) fn finish_frame(
         || !app.loading_playlists.is_empty()
         || app.player.snapshot().state.is_active();
     if actively_working {
-        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        let interval_ms = if window_active { 500 } else { 1500 };
+        ctx.request_repaint_after(std::time::Duration::from_millis(interval_ms));
     }
 }

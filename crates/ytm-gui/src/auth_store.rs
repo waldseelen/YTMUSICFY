@@ -43,26 +43,35 @@ impl AudioQuality {
     }
 }
 
-/// Persist credentials into OS Secret Service (`secret-tool`) on Unix when available, plus `0600` `auth.json`.
+#[cfg(unix)]
+fn use_os_secret_service(env_val: Option<&OsStr>) -> bool {
+    env_val.and_then(|v| v.to_str()).is_some_and(|v| {
+        let trimmed = v.trim();
+        trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
+    })
+}
+
+/// Persist credentials into `0600` `auth.json`, and optionally OS Secret Service when `YTM_USE_SECRET_SERVICE=1`.
 pub fn save_credentials_secure(paths: &AppPaths, creds: &AuthCredentials) -> Result<()> {
     paths.ensure_dirs()?;
     let json_bytes = serde_json::to_vec_pretty(creds)?;
     write_secret_file(&paths.auth_file(), &json_bytes)?;
 
     #[cfg(unix)]
-    if let Ok(mut child) = Command::new("secret-tool")
-        .args([
-            "store",
-            "--label=ytm-architect InnerTube Auth",
-            "service",
-            "ytm-architect",
-            "account",
-            "default",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    if use_os_secret_service(std::env::var_os("YTM_USE_SECRET_SERVICE").as_deref())
+        && let Ok(mut child) = Command::new("secret-tool")
+            .args([
+                "store",
+                "--label=ytm-architect InnerTube Auth",
+                "service",
+                "ytm-architect",
+                "account",
+                "default",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
     {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(&json_bytes);
@@ -72,14 +81,21 @@ pub fn save_credentials_secure(paths: &AppPaths, creds: &AuthCredentials) -> Res
     Ok(())
 }
 
-/// Load credentials from OS Secret Service on Unix first, falling back to `0600`/user-scoped `auth.json`.
+/// Load credentials from `0600`/user-scoped `auth.json` first (no unexpected keyring prompt), falling back to Secret Service only when opted in.
 pub fn load_credentials_secure(paths: &AppPaths) -> Result<AuthCredentials> {
+    if let Ok(bytes) = std::fs::read(paths.auth_file())
+        && let Ok(creds) = serde_json::from_slice::<AuthCredentials>(&bytes)
+    {
+        return Ok(creds);
+    }
+
     #[cfg(unix)]
-    if let Ok(out) = Command::new("secret-tool")
-        .args(["lookup", "service", "ytm-architect", "account", "default"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
+    if use_os_secret_service(std::env::var_os("YTM_USE_SECRET_SERVICE").as_deref())
+        && let Ok(out) = Command::new("secret-tool")
+            .args(["lookup", "service", "ytm-architect", "account", "default"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
         && out.status.success()
         && let Ok(creds) = serde_json::from_slice::<AuthCredentials>(&out.stdout)
     {
@@ -288,5 +304,32 @@ mod tests {
         assert!(!legacy_jar.exists());
 
         remove_mpv_cookie_jar_at(&jar);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secret_service_is_opt_in_and_load_reads_auth_json_without_keyring_prompt() {
+        assert!(!use_os_secret_service(None));
+        assert!(!use_os_secret_service(Some(OsStr::new("0"))));
+        assert!(use_os_secret_service(Some(OsStr::new("1"))));
+        assert!(use_os_secret_service(Some(OsStr::new("TRUE"))));
+
+        let temp = TestDir::new("auth_json_direct");
+        let paths = AppPaths::from_root(&temp.0);
+        let creds = AuthCredentials {
+            cookie: "SAPISID=abc; SID=xyz".to_string(),
+            user_agent: "Mozilla/5.0".to_string(),
+            x_goog_authuser: Some("0".to_string()),
+            x_goog_page_id: None,
+            x_goog_visitor_id: None,
+        };
+        write_secret_file(
+            &paths.auth_file(),
+            &serde_json::to_vec_pretty(&creds).expect("serialize creds"),
+        )
+        .expect("write auth.json");
+
+        let loaded = load_credentials_secure(&paths).expect("load auth.json");
+        assert_eq!(loaded.cookie, creds.cookie);
     }
 }

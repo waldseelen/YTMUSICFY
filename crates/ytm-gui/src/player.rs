@@ -67,6 +67,7 @@ pub struct PlayerSnapshot {
     pub bitrate_kbps: Option<u32>,
     pub last_error_kind: Option<PlaybackErrorKind>,
     pub pending_configure: Option<AudioQuality>,
+    pub window_active: bool,
 }
 
 impl Default for PlayerSnapshot {
@@ -81,6 +82,7 @@ impl Default for PlayerSnapshot {
             bitrate_kbps: None,
             last_error_kind: None,
             pending_configure: None,
+            window_active: true,
         }
     }
 }
@@ -188,6 +190,13 @@ impl PlayerController {
             snap.reset_media();
         }
         let _ = self.cmd_tx.send(ActorCmd::Stop);
+    }
+
+    /// Track whether the window is focused/visible so background `time-pos` repaints throttle down.
+    pub fn set_window_active(&self, active: bool) {
+        if let Ok(mut snap) = self.snapshot.lock() {
+            snap.window_active = active;
+        }
     }
 }
 
