@@ -1,19 +1,18 @@
 # CLAUDE.md
 
-Binding engineering rules and operational invariants for **`ytm-architect`**, a local-first cross-platform (Windows & Linux) YouTube Music library & playlist engineering suite in pure Rust.
+Binding engineering rules and operational invariants for **Dalga** (workspace `ytm-architect`), a local-first cross-platform (Windows & Linux) native music & media desktop player and library engineering suite in pure Rust.
 
 ---
 
 ## 0. Required Read Order
 
 1. `CLAUDE.md` — binding rules and verification gates
-2. `ARCHITECTURE.md` — 5-crate workspace topology and data flow
+2. `ARCHITECTURE.md` — 6-crate workspace topology, file locator, and data flow
 3. `SPEC.md` — domain schemas, algorithms, and CLI contracts
 4. `MEMORY.md` — durable InnerTube and Rust traps
-5. `PROGRESS.md` — sole owner of dates and gate verification outputs
-6. `README.md` — user setup and CLI quickstart
-
-Orchestration plan reference: `YTM-ARCHITECT-ORCHESTRATOR.md`.
+5. `PROGRESS.md` — sole owner of dates, release status, and gate verification outputs
+6. `README.md` — user setup, releases, and CLI quickstart
+7. `TASKS.md` — active product roadmap (`v0.2.0` → `v0.5.0`), locked product decisions, and verification gates per task
 
 ---
 
@@ -57,5 +56,6 @@ Orchestration plan reference: `YTM-ARCHITECT-ORCHESTRATOR.md`.
 | `ARCHITECTURE.md` | Workspace crate tree, data flow, external services | Dates, checkboxes, roadmaps |
 | `SPEC.md` | Schemas, algorithms, CLI & InnerTube contracts | Dates, checkboxes, speculative roadmaps |
 | `MEMORY.md` | Durable InnerTube & system traps | Dates, checkboxes, version pins |
-| `PROGRESS.md` | Sole owner of dates and gate outputs | Static rules or specs |
-| `README.md` | Setup, credential import, CLI usage | Agent rules, gate logs |
+| `PROGRESS.md` | Sole owner of dates, releases, and gate outputs | Static rules or specs |
+| `README.md` | Setup, credential import, releases, CLI usage | Agent rules, gate logs |
+| `TASKS.md` | Active `v0.2.0–v0.5.0` roadmap, product decisions, task checklists | Gate logs, implementation prose |
