@@ -301,3 +301,44 @@ fn collect_add_ids_skips_existing_duplicates_and_unavailable_tracks() {
         ]
     );
 }
+
+#[tokio::test]
+async fn sync_blocks_readonly_lm_and_resolve_remove_pairs_handles_stale_set_id() {
+    let live = mk_playlist("PL1", vec![mk_track("V1", Some("LIVE_S1"), 0)]);
+    let stale_track = mk_track("V1", Some("STALE_S1"), 0);
+    let gone_track = mk_track("V_GONE", Some("STALE_GONE"), 1);
+    assert_eq!(
+        worker_sync::ops::resolve_remove_pairs(&[stale_track, gone_track], &live),
+        vec![("V1".to_string(), "LIVE_S1".to_string())]
+    );
+
+    let store = SqliteStore::open_in_memory(None).expect("mem store");
+    let client = MockClient::default();
+    let mut lm = mk_playlist("LM", vec![mk_track("V1", None, 0)]);
+    lm.owned = false;
+    client.insert(lm, FetchCompleteness::Complete);
+
+    let (tx, _rx) = mpsc::channel();
+    let ctx = egui::Context::default();
+    let res = run_confirmed_mutation(
+        &client,
+        &store,
+        ConfirmedMutation::ExecuteSync {
+            entries: vec![StagedEntry {
+                id: 77,
+                op: StagedOp::AddTracks {
+                    playlist_id: "LM".to_string(),
+                    playlist_title: "Liked Songs".to_string(),
+                    tracks: vec![mk_track("V2", None, 0)],
+                    allow_duplicates: false,
+                },
+                selected: true,
+            }],
+        },
+        &tx,
+        &ctx,
+    )
+    .await;
+    assert!(res.is_err());
+    assert!(client.calls.lock().unwrap().is_empty());
+}

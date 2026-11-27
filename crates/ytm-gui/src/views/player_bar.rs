@@ -95,6 +95,7 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                     egui::vec2(layout.side_width, ui.available_height()),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
+                        ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                         left::render_left_track_info(
                             ui,
                             left::LeftTrackCtx {
@@ -111,6 +112,7 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                     },
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                     right::render_right_controls(
                         ui,
                         right::RightControlsCtx {
@@ -123,6 +125,9 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                             favourite_playlist_id,
                             playlists,
                             current_effects,
+                            show_secondary_inline: layout.show_secondary_inline,
+                            show_codec_badge: layout.show_codec_badge,
+                            volume_width: layout.volume_width,
                         },
                         &mut out,
                     );
@@ -137,6 +142,7 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                 |ui| {
                     ui.set_min_width(layout.side_width);
                     ui.set_max_width(layout.side_width);
+                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                     left::render_left_track_info(
                         ui,
                         left::LeftTrackCtx {
@@ -158,6 +164,7 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                 |ui| {
                     ui.set_min_width(layout.center_width);
                     ui.set_max_width(layout.center_width);
+                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                     render_center_transport(ui, lang, queue, &snap, &mut out);
                 },
             );
@@ -167,6 +174,7 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                 |ui| {
                     ui.set_min_width(layout.side_width);
                     ui.set_max_width(layout.side_width);
+                    ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                     right::render_right_controls(
                         ui,
                         right::RightControlsCtx {
@@ -179,6 +187,9 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                             favourite_playlist_id,
                             playlists,
                             current_effects,
+                            show_secondary_inline: layout.show_secondary_inline,
+                            show_codec_badge: layout.show_codec_badge,
+                            volume_width: layout.volume_width,
                         },
                         &mut out,
                     );
@@ -293,8 +304,17 @@ fn render_center_transport(
         ui.horizontal(|ui| {
             let max_dur = snap.duration_sec.max(1.0) as f32;
             let mut pos = (snap.position_sec as f32).clamp(0.0, max_dur);
-            ui.monospace(format_duration(snap.position_sec.max(0.0) as u64));
-            let slider_w = (ui.available_width() - 56.0).max(80.0);
+            let pos_str = format_duration(snap.position_sec.max(0.0) as u64);
+            let dur_str = format_duration(snap.duration_sec.max(0.0) as u64);
+            ui.monospace(pos_str);
+            let mono_font = egui::TextStyle::Monospace.resolve(ui.style());
+            let dur_w = ui.fonts(|f| {
+                f.layout_no_wrap(dur_str.clone(), mono_font, ui.visuals().text_color())
+                    .size()
+                    .x
+            });
+            let slider_w =
+                (ui.available_width() - dur_w - ui.spacing().item_spacing.x - 16.0).max(40.0);
             let resp = ui
                 .add_enabled_ui(has_current && snap.duration_sec > 0.0, |ui| {
                     ui.spacing_mut().slider_width = slider_w;
@@ -327,7 +347,8 @@ fn render_center_transport(
             if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
                 out.seek_to = Some(f64::from(pos));
             }
-            ui.monospace(format_duration(snap.duration_sec.max(0.0) as u64));
+            ui.monospace(dur_str);
         });
+        ui.add_space(2.0);
     });
 }

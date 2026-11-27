@@ -3,6 +3,17 @@
 All notable changes to **Dalga** (`ytm-architect`) are documented in this file.
 `.github/workflows/release.yml` extracts the matching `## [vX.Y.Z]` section directly into GitHub Release notes.
 
+## [v0.4.2] — 2026-11-27
+
+### Fixed
+- **Zero-Overlap Bottom Player Bar (`bar_layout.rs`, `player_bar.rs`, `player_bar_left.rs`, `player_bar_right.rs`):**
+  - Switched the player bar to compact `26x22` button metrics and `4px` spacing, pinned Heart & `+` via `right_to_left` before truncating track title & subtitle, dynamically measured monospace duration width (`01:01:52` etc.) for the seek bar, enforced hard `clip_rect` boundaries on all three bar zones, and collapsed secondary tools (`Radio`, `YT`, `FX`, `Quick-Add`, live codec info) into a crisp `•••` overflow menu on narrow/medium widths so buttons and timestamps never overlap or clip.
+- **Resilient Playlist Create & `browse/edit_playlist` Guardrails (`client_mutations.rs`, `worker_sync.rs`, `worker_sync_ops.rs`):**
+  - Added a post-`playlist/create` server propagation wait (`>= 1200ms`), `FAILED_PRECONDITION` backoff retries, and recursive chunk bisection in `append_post_create_chunks` so 50+ track playlist creations recover cleanly even if an individual video is restricted/unaddable.
+  - Verified `set_video_id`s against live tracks in `resolve_remove_pairs`, deduplicated/bisected `MoveTracks` target additions via `collect_add_ids` + `add_tracks_resilient`, and blocked mutations against Liked Songs (`LM`) or non-owned playlists before issuing `browse/edit_playlist`.
+- **Deleted Playlist Pruning Across Startup, Auth & RAM (`playlist_cache.rs`, `worker_exec.rs`, `worker.rs`, `worker_auth.rs`, `worker_index.rs`, `app_events.rs`):**
+  - Shared `sync_library_cache` across bootstrap, auth import, `RefreshLibrary`, and `IndexAllPlaylists` so playlists deleted remotely on YouTube Music are immediately pruned from both SQLite `playlist_cache` and in-memory `app.playlist_cache`/`playlist_manifests` (while preserving indexed `MPRE...` saved albums separately via `prune_missing_cached_albums`) and never linger in Library Search results.
+
 ## [v0.4.1] — 2026-11-27
 
 ### Added

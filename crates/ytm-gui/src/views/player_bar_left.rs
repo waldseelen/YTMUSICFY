@@ -34,6 +34,9 @@ pub(super) fn render_left_track_info(
         sync_queue,
         toast,
     } = ctx;
+    ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
+    ui.spacing_mut().item_spacing.x = 4.0;
+    ui.spacing_mut().interact_size = egui::vec2(26.0, 22.0);
     let art_size = egui::vec2(42.0, 42.0);
     let art_resp = if let Some(tex) = art_tex {
         let uv = crate::artwork_hires::cover_crop_uv(tex.size_vec2(), art_size);
@@ -78,74 +81,82 @@ pub(super) fn render_left_track_info(
         attach_player_track_menu(&resp, track, queue, lang, playlists, sync_queue, toast, out);
     }
 
-    let info_w = (ui.available_width() - 8.0).max(100.0);
+    let info_w = (ui.available_width() - 6.0).max(80.0);
     let info_resp = ui
         .vertical(|ui| {
             ui.set_max_width(info_w);
             ui.horizontal(|ui| {
-                let title_resp = ui.add(
-                    egui::Label::new(egui::RichText::new(&track.title).strong())
-                        .truncate()
-                        .sense(egui::Sense::click()),
-                );
-                attach_player_track_menu(
-                    &title_resp,
-                    track,
-                    queue,
-                    lang,
-                    playlists,
-                    sync_queue,
-                    toast,
-                    out,
-                );
-                let liked = queue.is_liked(&track.video_id);
-                let color = if liked {
-                    egui::Color32::from_rgb(235, 85, 115)
-                } else {
-                    ui.visuals().weak_text_color()
-                };
-                if ui
-                    .add(egui::Button::image(Icon::Heart.image(14.0, color)))
-                    .on_hover_text(if liked {
-                        tr(lang, Key::PlayerUnlike)
-                    } else {
-                        tr(lang, Key::PlayerLike)
-                    })
-                    .clicked()
-                {
-                    out.actions.push(PlayAction::ToggleLike(track.clone()));
-                }
-                ui.menu_button("+", |ui| {
-                    ui.label("Stage add to playlist:");
-                    for pl in playlists
-                        .iter()
-                        .filter(|p| p.access() == PlaylistAccess::EditableOwned)
-                    {
-                        if ui.button(&pl.title).clicked() {
-                            out.stage_add = Some((pl.id.clone(), pl.title.clone(), track.clone()));
-                            ui.close_menu();
+                ui.set_max_width(info_w);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.menu_button("+", |ui| {
+                        ui.label("Stage add to playlist:");
+                        for pl in playlists
+                            .iter()
+                            .filter(|p| p.access() == PlaylistAccess::EditableOwned)
+                        {
+                            if ui.button(&pl.title).clicked() {
+                                out.stage_add =
+                                    Some((pl.id.clone(), pl.title.clone(), track.clone()));
+                                ui.close_menu();
+                            }
                         }
+                    });
+                    let liked = queue.is_liked(&track.video_id);
+                    let color = if liked {
+                        egui::Color32::from_rgb(235, 85, 115)
+                    } else {
+                        ui.visuals().weak_text_color()
+                    };
+                    if ui
+                        .add(egui::Button::image(Icon::Heart.image(14.0, color)))
+                        .on_hover_text(if liked {
+                            tr(lang, Key::PlayerUnlike)
+                        } else {
+                            tr(lang, Key::PlayerLike)
+                        })
+                        .clicked()
+                    {
+                        out.actions.push(PlayAction::ToggleLike(track.clone()));
                     }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let title_resp = ui.add(
+                            egui::Label::new(egui::RichText::new(&track.title).strong())
+                                .truncate()
+                                .sense(egui::Sense::click()),
+                        );
+                        attach_player_track_menu(
+                            &title_resp,
+                            track,
+                            queue,
+                            lang,
+                            playlists,
+                            sync_queue,
+                            toast,
+                            out,
+                        );
+                    });
                 });
             });
             ui.horizontal(|ui| {
-                if let Some(artist) = track.artists.first() {
-                    if let Some(bid) = &artist.browse_id {
-                        if ui.link(&artist.name).clicked() {
-                            out.actions.push(PlayAction::OpenBrowse(bid.clone()));
-                        }
-                    } else {
-                        ui.small(&artist.name);
+                ui.set_max_width(info_w);
+                let artist_name = track.primary_artist_name().unwrap_or("");
+                let sub_line = match &track.album {
+                    Some(al) if !al.name.is_empty() && !artist_name.is_empty() => {
+                        format!("{artist_name} • {}", al.name)
                     }
-                }
-                if let Some(album) = &track.album {
-                    ui.small("•");
-                    if let Some(bid) = &album.browse_id {
-                        if ui.link(&album.name).clicked() {
-                            out.actions.push(PlayAction::OpenBrowse(bid.clone()));
-                        }
-                    } else {
-                        ui.small(&album.name);
+                    Some(al) if !al.name.is_empty() => al.name.clone(),
+                    _ => artist_name.to_string(),
+                };
+                if !sub_line.is_empty() {
+                    let sub_resp = ui.add(
+                        egui::Label::new(egui::RichText::new(sub_line).small())
+                            .truncate()
+                            .sense(egui::Sense::click()),
+                    );
+                    if sub_resp.clicked()
+                        && let Some(bid) = track.artists.first().and_then(|a| a.browse_id.as_ref())
+                    {
+                        out.actions.push(PlayAction::OpenBrowse(bid.clone()));
                     }
                 }
             });

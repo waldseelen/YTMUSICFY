@@ -19,7 +19,7 @@ use crate::worker_auth::{
 };
 use crate::worker_exec::{
     cache_fetched_playlist, hydrate_gui_startup_state, load_config, load_playlist_with_manifest,
-    load_saved_client, persist_staged_entries,
+    load_saved_client, persist_staged_entries, sync_library_cache,
 };
 use crate::worker_index::spawn_index_all_job;
 use crate::worker_media::{handle_interactive_cmd, spawn_backup_job};
@@ -104,7 +104,7 @@ async fn finish_auth_import(
                 .await
                 .map_err(|e| e.to_string());
             if let Ok(list) = &libs {
-                let _ = state.store.save_library_summaries(list);
+                sync_library_cache(&state.store, list);
             }
             let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
         }
@@ -277,9 +277,7 @@ async fn handle_cmd(
                     .await
                     .map_err(|e| e.to_string());
                 if let Ok(list) = &libs {
-                    let _ = store.save_library_summaries(list);
-                    let keep: Vec<String> = list.iter().map(|s| s.id.clone()).collect();
-                    let _ = store.prune_missing_cached_playlists(&keep);
+                    sync_library_cache(&store, list);
                 }
                 let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
                 ctx.request_repaint();

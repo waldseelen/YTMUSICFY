@@ -138,6 +138,15 @@ async fn execute_single_entry<C: InnerTubeClientTrait>(
                 ),
             };
         }
+        if pid.eq_ignore_ascii_case("LM") || !fetched.playlist.owned {
+            return DispatchEntryOutcome::AbortedDrift {
+                entry_id: entry.id,
+                reason: format!(
+                    "Playlist '{}' is read-only (Liked Songs or non-owned) and cannot be edited remotely.",
+                    fetched.playlist.title
+                ),
+            };
+        }
         if !snapshotted.contains(*pid) {
             if let Err(e) = store.save_snapshot(&fetched.playlist, "pre-sync").await {
                 return ops::failed_outcome(
@@ -283,11 +292,8 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
             tracks,
             ..
         } => {
-            let add_ids: Vec<String> = tracks
-                .iter()
-                .filter(|t| !t.video_id.is_empty())
-                .map(|t| t.video_id.clone())
-                .collect();
+            let add_ids =
+                ops::collect_add_ids(tracks, &live_by_id[target_playlist_id].playlist, false);
             let remove_pairs =
                 ops::resolve_remove_pairs(tracks, &live_by_id[source_playlist_id].playlist);
             ops::execute_move_tracks(
@@ -296,6 +302,7 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
                 target_playlist_id,
                 &add_ids,
                 &remove_pairs,
+                tx,
             )
             .await
             .map_err(|(c, t, e)| DispatchStop::Fail(c, t, e))

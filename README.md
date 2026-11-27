@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.4.1" src="https://img.shields.io/badge/version-0.4.1-4CAF80?style=flat-square"></a>
+  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.4.2" src="https://img.shields.io/badge/version-0.4.2-4CAF80?style=flat-square"></a>
   <a href="LICENSE-MIT"><img alt="License MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="Platforms Linux & Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-222834?style=flat-square">
   <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square">
@@ -36,7 +36,7 @@ Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalg
 
 ---
 
-## What's Inside Dalga (`v0.4.1`)
+## What's Inside Dalga (`v0.4.2`)
 
 | Area | Highlights |
 | :--- | :--- |
@@ -84,8 +84,8 @@ Pre-built archives and checksums are published on [**GitHub Releases**](https://
 
 | Platform | Target | Archive | Binaries Included |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.4.1-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
-| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.4.1-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.4.2-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
+| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.4.2-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
 ### Verify Checksums (`SHA256SUMS.txt`)
 
@@ -93,16 +93,16 @@ Download `SHA256SUMS.txt` alongside the archive from the [**GitHub Release**](ht
 
 #### Linux
 ```bash
-tar -xzf ytm-architect-v0.4.1-linux-x86_64.tar.gz
+tar -xzf ytm-architect-v0.4.2-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-./ytm-architect-v0.4.1-linux-x86_64/ytm-gui
+./ytm-architect-v0.4.2-linux-x86_64/ytm-gui
 ```
 
 #### Windows (PowerShell)
 ```powershell
-Expand-Archive .\ytm-architect-v0.4.1-windows-x86_64.zip -DestinationPath .\dalga
-Get-FileHash .\dalga\ytm-architect-v0.4.1-windows-x86_64\ytm-gui.exe -Algorithm SHA256
-.\dalga\ytm-architect-v0.4.1-windows-x86_64\ytm-gui.exe
+Expand-Archive .\ytm-architect-v0.4.2-windows-x86_64.zip -DestinationPath .\dalga
+Get-FileHash .\dalga\ytm-architect-v0.4.2-windows-x86_64\ytm-gui.exe -Algorithm SHA256
+.\dalga\ytm-architect-v0.4.2-windows-x86_64\ytm-gui.exe
 ```
 
 > **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. Library inspection, offline browsing, search, dedupe, sorting, set algebra, exports, and verified sync work standalone without external binaries.

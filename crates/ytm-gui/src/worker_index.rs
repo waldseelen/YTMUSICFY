@@ -13,7 +13,9 @@ use ytm_core::{
 use ytm_store::{CachedPlaylistRecord, SqliteStore};
 
 use crate::worker::BackendState;
-use crate::worker_exec::{cache_fetched_playlist, emit_progress, load_playlist_with_manifest};
+use crate::worker_exec::{
+    cache_fetched_playlist, emit_progress, load_playlist_with_manifest, sync_library_cache,
+};
 use crate::worker_msgs::WorkerEvent;
 
 /// Convert a fetched album `BrowsePage` into an indexed read-only `Playlist` entry.
@@ -165,7 +167,13 @@ async fn run_index_all<C: InnerTubeClientTrait>(
             return;
         }
     };
+    sync_library_cache(store, &libs);
+    let _ = tx.send(WorkerEvent::LibraryLoaded(Ok(libs.clone())));
     let album_cards = collect_liked_album_cards(client, cancel).await;
+    if !cancel.load(Ordering::Relaxed) {
+        let live_album_ids: Vec<String> = album_cards.iter().map(|(id, _)| id.clone()).collect();
+        let _ = store.prune_missing_cached_albums(&live_album_ids);
+    }
 
     let pl_targets: Vec<_> = libs
         .into_iter()

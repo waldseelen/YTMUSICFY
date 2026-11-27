@@ -251,7 +251,7 @@ pub(crate) async fn handle_bootstrap(
                     .await
                     .map_err(|e| e.to_string());
                 if let Ok(list) = &libs {
-                    let _ = state.store.save_library_summaries(list);
+                    crate::worker_exec::sync_library_cache(&state.store, list);
                 }
                 let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
                 return;
@@ -275,7 +275,7 @@ pub(crate) async fn handle_bootstrap(
                     .await
                     .map_err(|e| e.to_string());
                 if let Ok(list) = &libs {
-                    let _ = state.store.save_library_summaries(list);
+                    crate::worker_exec::sync_library_cache(&state.store, list);
                 }
                 state.client = Some(std::sync::Arc::new(client));
                 let _ = tx.send(crate::state::WorkerEvent::AudioConfigUpdated {

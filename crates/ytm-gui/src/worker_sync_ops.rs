@@ -14,35 +14,23 @@ pub(super) async fn execute_move_tracks<C: InnerTubeClientTrait>(
     target_id: &str,
     add_ids: &[String],
     remove_pairs: &[(String, String)],
+    tx: &Sender<WorkerEvent>,
 ) -> Result<(usize, usize), (usize, usize, String)> {
     let mut chunks = 0usize;
     let mut confirmed = 0usize;
     if !add_ids.is_empty() {
-        let add_report = client
-            .add_playlist_items_report(target_id, add_ids, false)
-            .await
-            .map_err(|e| (0, 2, e.to_string()))?;
-        if !add_report.is_complete_success() {
+        let (add_chunks, add_confirmed) =
+            add_tracks_resilient(client, target_id, add_ids, false, tx).await?;
+        if add_confirmed == 0 {
             return Err((
-                add_report.succeeded_chunks(),
-                add_report.total_chunks.max(1),
-                add_report
-                    .first_error()
-                    .unwrap_or("Add phase failed")
-                    .to_string(),
-            ));
-        }
-        let added = add_report.added_items();
-        if added.is_empty() {
-            return Err((
-                add_report.succeeded_chunks(),
-                add_report.total_chunks.max(1),
+                add_chunks,
+                add_chunks.max(1),
                 "Target playlist add returned zero confirmed items; aborting source removal."
                     .to_string(),
             ));
         }
-        chunks += add_report.succeeded_chunks();
-        confirmed += added.len();
+        chunks += add_chunks;
+        confirmed += add_confirmed;
     }
     if !remove_pairs.is_empty() {
         let rem_report = client
@@ -180,19 +168,39 @@ fn find_live_track_and_successor(
     Some((sid, successor))
 }
 
-pub(super) fn resolve_remove_pairs(tracks: &[Track], live: &Playlist) -> Vec<(String, String)> {
-    tracks
+pub(in crate::worker_exec) fn resolve_remove_pairs(
+    tracks: &[Track],
+    live: &Playlist,
+) -> Vec<(String, String)> {
+    let mut available_sids: HashSet<&str> = live
+        .tracks
         .iter()
-        .filter_map(|t| {
-            let sid = t.set_video_id.clone().or_else(|| {
-                live.tracks
-                    .iter()
-                    .find(|cur| cur.video_id == t.video_id)
-                    .and_then(|cur| cur.set_video_id.clone())
-            })?;
-            Some((t.video_id.clone(), sid))
-        })
-        .collect()
+        .filter_map(|cur| cur.set_video_id.as_deref())
+        .collect();
+    let mut out = Vec::new();
+    for t in tracks {
+        let sid = t
+            .set_video_id
+            .as_deref()
+            .filter(|s| available_sids.take(s).is_some())
+            .map(str::to_string)
+            .or_else(|| {
+                live.tracks.iter().find_map(|cur| {
+                    if cur.video_id == t.video_id {
+                        cur.set_video_id
+                            .as_deref()
+                            .and_then(|s| available_sids.take(s))
+                            .map(str::to_string)
+                    } else {
+                        None
+                    }
+                })
+            });
+        if let Some(s) = sid {
+            out.push((t.video_id.clone(), s));
+        }
+    }
+    out
 }
 
 pub(super) fn same_multiset(a: &[String], b: &[String]) -> bool {

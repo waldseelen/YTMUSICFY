@@ -22,6 +22,16 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         WorkerEvent::LibraryLoaded(res) => {
             if let Ok(mut list) = res {
                 app.offline_mode = false;
+                let live_ids: std::collections::HashSet<&str> =
+                    list.iter().map(|s| s.id.as_str()).collect();
+                app.playlist_cache.retain(|id, _| {
+                    id.starts_with("MPRE")
+                        || id.eq_ignore_ascii_case("LM")
+                        || live_ids.contains(id.as_str())
+                });
+                app.playlist_manifests
+                    .retain(|id, _| live_ids.contains(id.as_str()));
+                app.draft_cache.invalidate_all();
                 for s in &mut list {
                     if s.track_count.is_none()
                         && let Some(cached) = app.playlist_cache.get(&s.id)

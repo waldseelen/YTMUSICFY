@@ -4,17 +4,28 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ---
 
-## Current Gate Status (2026-11-27 — `v0.4.1` Release Ready)
+## Current Gate Status (2026-11-27 — `v0.4.2` Release Ready)
 
-- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.4.0` + `v0.4.1` UI/Genre/Library UX updates verified; next phase `v0.5.0` / `Phase 7b`).
+- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.4.0`–`v0.4.2` UI/Genre/Library/Sync fixes verified; next phase `v0.5.0` / `Phase 7b`).
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace --locked`: **PASS** exit 0 (`214/214` tests: `ytm-cli` 6, `ytm-core` 42, `ytm-enrich` 17, `ytm-gui` 115, `ytm-ops` 17, `ytm-store` 17)
+- `cargo test --workspace --locked`: **PASS** exit 0 (`217/217` tests: `ytm-cli` 6, `ytm-core` 43, `ytm-enrich` 17, `ytm-gui` 116, `ytm-ops` 17, `ytm-store` 18)
 - `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0 (local release build verified)
-- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
+- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-gui/src/worker_sync.rs` & `crates/ytm-store/tests/store_integration_test.rs`)
 - `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`, `player_bar_left.rs`
-- **Latest Tagged Release:** `v0.4.1` (workspace version `0.4.1`, changelog & local release build updated).
+- **Latest Tagged Release:** `v0.4.2` (workspace version `0.4.2`, changelog & local release build updated).
+
+---
+
+## 2026-11-27 — `v0.4.2` (Zero-Overlap Player Bar, Sync `FAILED_PRECONDITION` Fixes & Cache Pruning)
+
+- **Zero-Overlap Responsive Bottom Player Bar (`bar_layout.rs`, `player_bar.rs`, `player_bar_left.rs`, `player_bar_right.rs`):**
+  - Compact `26x22` bar button geometry + `4px` spacing, `right_to_left` pinned Heart & `+`, truncated artist/album subline, dynamic monospace timestamp width measurement (fixing `01:01:52` collisions), strict per-zone `clip_rect`, and `•••` secondary overflow menu below `350px` side width.
+- **Sync & `browse/edit_playlist` Resilience (`client_mutations.rs`, `worker_sync.rs`, `worker_sync_ops.rs`):**
+  - Post-`playlist/create` settle delay (`>= 1200ms`), `FAILED_PRECONDITION` retry backoff, and bisect fallback in `append_post_create_chunks`; live `set_video_id` validation in `resolve_remove_pairs`; deduped resilient `MoveTracks`; upfront read-only guard on `LM` / non-owned playlists; 2 new unit/integration tests.
+- **SQLite + RAM Deleted-Playlist Pruning (`playlist_cache.rs`, `worker_exec.rs`, `worker.rs`, `worker_auth.rs`, `worker_index.rs`, `app_events.rs`):**
+  - Unified `sync_library_cache` pruning deleted playlists cleanly on bootstrap, auth import, `RefreshLibrary`, and `IndexAllPlaylists` while managing `MPRE...` saved albums independently via `prune_missing_cached_albums`, plus instant `LibraryLoaded` RAM pruning so deleted lists vanish from Library Search (`cyberpunk`, etc.).
 
 ---
 

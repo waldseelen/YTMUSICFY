@@ -253,3 +253,50 @@ async fn mutation_batch_report_preserves_chunks_and_chunked_create_recovers_409(
     assert_eq!(reqs[2].endpoint, "browse/edit_playlist");
     assert_eq!(reqs[3].endpoint, "browse/edit_playlist");
 }
+
+#[tokio::test]
+async fn create_playlist_post_create_recovers_from_400_and_bisects_bad_video() {
+    let chunk_ok = json!({
+        "status": "STATUS_SUCCEEDED",
+        "playlistEditResults": []
+    });
+    let client = InnerTubeClient::new(
+        MockTransport::with_responses(vec![
+            Ok(json!({ "playlistId": "PLNew400" })),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Ok(chunk_ok.clone()),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+            Err(CoreError::HttpError(
+                "HTTP 400 on browse/edit_playlist: FAILED_PRECONDITION".into(),
+            )),
+        ]),
+        test_creds(),
+        ClientConfig {
+            mutation_chunk_size: 2,
+            max_retries: 2,
+            ..fast_config()
+        },
+    );
+    let ids = vec!["v1".into(), "v2".into(), "v3".into(), "bad".into()];
+    let new_id = client
+        .create_playlist("Cyberpunk Mix", "", PlaylistPrivacy::Private, &ids)
+        .await
+        .expect("creates playlist even with one unaddable tail video");
+    assert_eq!(new_id, "PLNew400");
+}

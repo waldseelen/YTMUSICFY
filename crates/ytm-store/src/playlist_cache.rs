@@ -113,7 +113,7 @@ impl SqliteStore {
         })
     }
 
-    /// Remove cached playlists whose IDs are no longer present in `live_playlist_ids`.
+    /// Remove cached playlists whose IDs are no longer present in `live_playlist_ids` (preserving `MPRE...` albums).
     pub fn prune_missing_cached_playlists(
         &self,
         live_playlist_ids: &[String],
@@ -122,14 +122,19 @@ impl SqliteStore {
         self.with_conn(|conn| {
             let tx = conn.unchecked_transaction()?;
             if live_set.is_empty() {
-                let deleted = tx.execute("DELETE FROM playlist_cache", [])?;
+                let deleted = tx.execute(
+                    "DELETE FROM playlist_cache WHERE playlist_id NOT LIKE 'MPRE%'",
+                    [],
+                )?;
                 tx.commit()?;
                 return Ok(deleted);
             }
 
             let mut to_delete = Vec::new();
             {
-                let mut stmt = tx.prepare("SELECT playlist_id FROM playlist_cache")?;
+                let mut stmt = tx.prepare(
+                    "SELECT playlist_id FROM playlist_cache WHERE playlist_id NOT LIKE 'MPRE%'",
+                )?;
                 let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
                 for row in rows {
                     let id = row?;
@@ -139,6 +144,40 @@ impl SqliteStore {
                 }
             }
 
+            let mut deleted = 0usize;
+            {
+                let mut del_stmt =
+                    tx.prepare("DELETE FROM playlist_cache WHERE playlist_id = ?1")?;
+                for id in to_delete {
+                    deleted += del_stmt.execute(params![id])?;
+                }
+            }
+            tx.commit()?;
+            Ok(deleted)
+        })
+    }
+
+    /// Remove cached saved albums (`MPRE...`) no longer present in `live_album_ids`.
+    pub fn prune_missing_cached_albums(
+        &self,
+        live_album_ids: &[String],
+    ) -> Result<usize, StoreError> {
+        let live_set: HashSet<&str> = live_album_ids.iter().map(String::as_str).collect();
+        self.with_conn(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let mut to_delete = Vec::new();
+            {
+                let mut stmt = tx.prepare(
+                    "SELECT playlist_id FROM playlist_cache WHERE playlist_id LIKE 'MPRE%'",
+                )?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+                for row in rows {
+                    let id = row?;
+                    if !live_set.contains(id.as_str()) {
+                        to_delete.push(id);
+                    }
+                }
+            }
             let mut deleted = 0usize;
             {
                 let mut del_stmt =
@@ -197,5 +236,47 @@ mod tests {
                 .expect("empty load")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn prune_missing_playlists_preserves_albums_and_vice_versa() {
+        let store = SqliteStore::open_in_memory(None).expect("open memory store");
+        let mk = |id: &str, owned: bool| Playlist {
+            id: id.into(),
+            title: id.into(),
+            description: None,
+            privacy: PlaylistPrivacy::Private,
+            owned,
+            track_count: 0,
+            tracks: Vec::new(),
+        };
+        store.upsert_cached_playlist(&mk("PL_LIVE", true)).unwrap();
+        store.upsert_cached_playlist(&mk("PL_DEL", true)).unwrap();
+        store
+            .upsert_cached_playlist(&mk("MPRE_KEEP", false))
+            .unwrap();
+        store
+            .upsert_cached_playlist(&mk("MPRE_DEL", false))
+            .unwrap();
+
+        assert_eq!(
+            store
+                .prune_missing_cached_playlists(&["PL_LIVE".into()])
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .prune_missing_cached_albums(&["MPRE_KEEP".into()])
+                .unwrap(),
+            1
+        );
+        let ids: Vec<String> = store
+            .load_all_cached_playlists()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(ids, vec!["MPRE_KEEP", "PL_LIVE"]);
     }
 }

@@ -41,6 +41,12 @@ pub async fn load_playlist<C: InnerTubeClientTrait>(
         .playlist)
 }
 
+pub(crate) fn sync_library_cache(store: &SqliteStore, list: &[ytm_core::PlaylistSummary]) {
+    let _ = store.save_library_summaries(list);
+    let keep: Vec<String> = list.iter().map(|s| s.id.clone()).collect();
+    let _ = store.prune_missing_cached_playlists(&keep);
+}
+
 pub(crate) fn cache_fetched_playlist(
     store: &SqliteStore,
     fetched: &PlaylistFetchResult,

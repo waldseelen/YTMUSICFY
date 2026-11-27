@@ -13,6 +13,9 @@ pub struct PlayerBarLayout {
     pub compact_two_row: bool,
     pub side_width: f32,
     pub center_width: f32,
+    pub show_secondary_inline: bool,
+    pub show_codec_badge: bool,
+    pub volume_width: f32,
 }
 
 #[must_use]
@@ -52,20 +55,41 @@ impl PlayerBarLayout {
     #[must_use]
     pub fn from_width(available_width: f32, font_scale: f32) -> Self {
         let eff = effective_width(available_width, font_scale);
-        if eff < 780.0 {
+        let scale = font_scale.clamp(0.8, 2.0);
+        if eff < 880.0 {
+            let side_width = ((available_width - 16.0) * 0.50).max(120.0);
+            let show_secondary_inline = side_width >= 350.0 * scale.min(1.25);
+            let show_codec_badge = show_secondary_inline && side_width >= 430.0 * scale.min(1.25);
+            let volume_width = if available_width >= 580.0 { 52.0 } else { 0.0 };
             return Self {
                 compact_two_row: true,
-                side_width: (available_width * 0.48).max(120.0),
+                side_width,
                 center_width: available_width.max(240.0),
+                show_secondary_inline,
+                show_codec_badge,
+                volume_width,
             };
         }
-        // Equal left/right side columns keep the center transport locked to window center.
-        let center_width = (available_width * 0.40).clamp(280.0, 440.0);
-        let side_width = ((available_width - center_width - 16.0) * 0.5).max(160.0);
+        // Equal left/right side columns keep center transport centered while
+        // keeping compact right controls <= 185px until wide enough for inline extras.
+        let center_width = (available_width * 0.36).clamp(300.0, 440.0);
+        let side_width = ((available_width - center_width - 24.0) * 0.5).max(160.0);
+        let show_secondary_inline = side_width >= 350.0 * scale.min(1.25);
+        let show_codec_badge = show_secondary_inline && side_width >= 430.0 * scale.min(1.25);
+        let volume_width = if side_width >= 210.0 * scale.min(1.25) {
+            64.0
+        } else if side_width >= 180.0 * scale.min(1.25) {
+            46.0
+        } else {
+            0.0
+        };
         Self {
             compact_two_row: false,
             side_width,
             center_width,
+            show_secondary_inline,
+            show_codec_badge,
+            volume_width,
         }
     }
 }
@@ -134,13 +158,23 @@ mod tests {
     }
 
     #[test]
-    fn player_bar_switches_to_two_row_when_narrow_or_scaled() {
-        let wide = PlayerBarLayout::from_width(1100.0, 1.0);
+    fn player_bar_switches_to_two_row_and_sheds_right_controls_without_overflow() {
+        let wide = PlayerBarLayout::from_width(1400.0, 1.0);
         assert!(!wide.compact_two_row);
-        assert!((wide.side_width * 2.0 + wide.center_width - 1100.0).abs() <= 20.0);
+        assert!(wide.show_secondary_inline);
+        assert!(wide.show_codec_badge);
+        assert_eq!(wide.volume_width, 64.0);
+        assert!(wide.side_width * 2.0 + wide.center_width <= 1400.0);
+
+        let med = PlayerBarLayout::from_width(960.0, 1.0);
+        assert!(!med.compact_two_row);
+        assert!(!med.show_secondary_inline);
+        assert!(!med.show_codec_badge);
+        assert!(med.side_width * 2.0 + med.center_width <= 960.0);
 
         let narrow = PlayerBarLayout::from_width(700.0, 1.0);
         assert!(narrow.compact_two_row);
+        assert!(!narrow.show_secondary_inline);
 
         // 1000px at 1.4x font scale has effective width ~714px -> switches to 2-row compact mode
         let scaled = PlayerBarLayout::from_width(1000.0, 1.4);

@@ -12,7 +12,11 @@ use crate::traits::HttpTransport;
 
 fn is_transient_post_create_error(err: &CoreError) -> bool {
     match err {
-        CoreError::HttpError(msg) => msg.contains("HTTP 409") || msg.contains("HTTP 400"),
+        CoreError::HttpError(msg) => {
+            msg.contains("HTTP 409")
+                || msg.contains("HTTP 400")
+                || msg.contains("FAILED_PRECONDITION")
+        }
         _ => false,
     }
 }
@@ -75,58 +79,118 @@ impl<T: HttpTransport> InnerTubeClient<T> {
         chunk_size: usize,
     ) -> Result<(), CoreError> {
         let clean_id = normalize_playlist_id(playlist_id);
+        // Newly created playlists need a brief server-side propagation window before edit_playlist.
+        if self.config.mutation_delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(
+                self.config.mutation_delay_ms.max(1200),
+            ))
+            .await;
+        }
         let chunks: Vec<&[String]> = remaining.chunks(chunk_size).collect();
         let total = chunks.len();
+        let max_attempts = if self.config.max_retries == 0 {
+            0
+        } else {
+            self.config.max_retries.max(5)
+        };
 
         for (idx, chunk) in chunks.into_iter().enumerate() {
-            let actions: Vec<MutationAction> = chunk
-                .iter()
-                .map(|vid| MutationAction::AddVideo {
-                    added_video_id: Some(vid.clone()),
-                    dedupe_option: Some("DEDUPE_OPTION_SKIP".to_string()),
-                })
-                .collect();
-            let action_values: Vec<Value> = actions
-                .iter()
-                .map(serde_json::to_value)
-                .collect::<Result<_, _>>()
-                .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
-
-            let mut attempt = 0usize;
-            loop {
-                let res = self
-                    .post_authed_with_policy(
-                        "browse/edit_playlist",
-                        json!({
-                            "playlistId": clean_id,
-                            "actions": action_values,
-                        }),
-                        RetryPolicy::MutationSafe,
-                    )
-                    .await;
-                match res.and_then(|resp| parse_edit_playlist_response(&resp)) {
-                    Ok(_) => break,
-                    Err(err)
-                        if is_transient_post_create_error(&err)
-                            && attempt < self.config.max_retries =>
-                    {
-                        if self.config.mutation_delay_ms > 0 {
-                            let exp = 2u64.saturating_pow(u32::try_from(attempt).unwrap_or(4));
-                            let base = self.config.mutation_delay_ms.saturating_mul(exp).min(8_000);
-                            let delay = jittered_delay_ms(base, attempt);
-                            tokio::time::sleep(Duration::from_millis(delay)).await;
-                        }
-                        attempt += 1;
-                    }
-                    Err(err) => return Err(err),
-                }
-            }
-
+            self.send_post_create_chunk_with_bisect(&clean_id, chunk, max_attempts)
+                .await?;
             if idx + 1 < total && self.config.mutation_delay_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(self.config.mutation_delay_ms)).await;
             }
         }
         Ok(())
+    }
+
+    async fn send_post_create_chunk_with_bisect(
+        &self,
+        clean_id: &str,
+        chunk: &[String],
+        max_attempts: usize,
+    ) -> Result<(), CoreError> {
+        let mut queue = std::collections::VecDeque::from([chunk]);
+        let mut last_err = None;
+        let mut added_any = false;
+
+        while let Some(slice) = queue.pop_front() {
+            match self
+                .post_create_single_slice(clean_id, slice, max_attempts)
+                .await
+            {
+                Ok(()) => added_any = true,
+                Err(err) if slice.len() > 1 => {
+                    last_err = Some(err);
+                    let mid = slice.len() / 2;
+                    let (left, right) = slice.split_at(mid);
+                    queue.push_front(right);
+                    queue.push_front(left);
+                    if self.config.mutation_delay_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(350)).await;
+                    }
+                }
+                Err(err) => last_err = Some(err),
+            }
+        }
+        if added_any {
+            Ok(())
+        } else {
+            Err(last_err
+                .unwrap_or_else(|| CoreError::InvalidInput("empty post-create chunk".to_string())))
+        }
+    }
+
+    async fn post_create_single_slice(
+        &self,
+        clean_id: &str,
+        slice: &[String],
+        max_attempts: usize,
+    ) -> Result<(), CoreError> {
+        let actions: Vec<MutationAction> = slice
+            .iter()
+            .map(|vid| MutationAction::AddVideo {
+                added_video_id: Some(vid.clone()),
+                dedupe_option: Some("DEDUPE_OPTION_SKIP".to_string()),
+            })
+            .collect();
+        let action_values: Vec<Value> = actions
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<_, _>>()
+            .map_err(|e| CoreError::InvalidInput(e.to_string()))?;
+
+        let mut attempt = 0usize;
+        loop {
+            let res = self
+                .post_authed_with_policy(
+                    "browse/edit_playlist",
+                    json!({
+                        "playlistId": clean_id,
+                        "actions": action_values,
+                    }),
+                    RetryPolicy::MutationSafe,
+                )
+                .await;
+            match res.and_then(|resp| parse_edit_playlist_response(&resp)) {
+                Ok(_) => return Ok(()),
+                Err(err) if is_transient_post_create_error(&err) && attempt < max_attempts => {
+                    if self.config.mutation_delay_ms > 0 {
+                        let exp = 2u64.saturating_pow(u32::try_from(attempt).unwrap_or(4));
+                        let base = self
+                            .config
+                            .mutation_delay_ms
+                            .max(800)
+                            .saturating_mul(exp)
+                            .min(8_000);
+                        let delay = jittered_delay_ms(base, attempt);
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                    }
+                    attempt += 1;
+                }
+                Err(err) => return Err(err),
+            }
+        }
     }
 
     pub(crate) async fn send_edit_chunks_with_report(
