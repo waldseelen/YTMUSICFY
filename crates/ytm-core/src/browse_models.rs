@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::Track;
+use crate::models::{ArtistRef, Track};
 
 /// Canonical InnerTube browse IDs for top-level YouTube Music feeds.
 pub const BROWSE_HOME: &str = "FEmusic_home";
@@ -24,11 +24,19 @@ impl BrowsePageKind {
     pub fn from_browse_id(id: &str) -> Self {
         if id == BROWSE_HOME {
             Self::Home
-        } else if id.starts_with("UC") || id.starts_with("MPLA") {
+        } else if id.starts_with("UC") || id.starts_with("MPLA") || id.starts_with("MPAD") {
             Self::Artist
-        } else if id.starts_with("MPREb_") {
+        } else if id.starts_with("MPRE") {
             Self::Album
-        } else if id.starts_with("VL") || id.starts_with("PL") || id == "LM" {
+        } else if id.starts_with("VL")
+            || id.starts_with("PL")
+            || id.starts_with("OLAK")
+            || id.starts_with("RD")
+            || id.starts_with("UU")
+            || id.starts_with("FL")
+            || id.starts_with("LL")
+            || id.eq_ignore_ascii_case("LM")
+        {
             Self::Playlist
         } else {
             Self::Unknown
@@ -62,6 +70,10 @@ pub struct BrowseSection {
     pub title: String,
     pub cards: Vec<BrowseCard>,
     pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub browse_id: Option<String>,
+    #[serde(default)]
+    pub browse_params: Option<String>,
 }
 
 /// Normalized Home / Explore / History / Artist / Album browse payload.
@@ -71,6 +83,8 @@ pub struct BrowsePage {
     pub kind: BrowsePageKind,
     pub title: String,
     pub subtitle: Option<String>,
+    #[serde(default)]
+    pub artists: Vec<ArtistRef>,
     pub thumbnail_url: Option<String>,
     pub sections: Vec<BrowseSection>,
     pub tracks: Vec<Track>,

@@ -109,6 +109,18 @@ pub fn show(
 
             ui.add_space(10.0);
             ui.separator();
+            ui.strong(tr(lang, Key::SettingsTrayHeading));
+            ui.checkbox(&mut cfg.tray_enabled, tr(lang, Key::SettingsTrayEnabled));
+            ui.add_enabled_ui(cfg.tray_enabled, |ui| {
+                ui.checkbox(&mut cfg.close_to_tray, tr(lang, Key::SettingsCloseToTray));
+            });
+            ui.checkbox(
+                &mut cfg.mini_player_opacity_on_idle,
+                tr(lang, Key::MiniPlayerOpacityIdle),
+            );
+
+            ui.add_space(10.0);
+            ui.separator();
             ui.strong(tr(lang, Key::SettingsSafetyHeading));
             ui.horizontal(|ui| {
                 ui.radio_value(
@@ -187,5 +199,9 @@ pub fn show(
             if ui.button(tr(lang, Key::SettingsSave)).clicked() {
                 let _ = cmd_tx.send(WorkerCmd::UpdateGuiConfig(cfg.clone()));
             }
+
+            ui.add_space(14.0);
+            ui.separator();
+            crate::shortcuts::show_shortcuts_table(ui, lang);
         });
 }

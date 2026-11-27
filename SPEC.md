@@ -83,6 +83,8 @@
   - `playlist_cache(playlist_id PRIMARY KEY, title, payload_json, manifest_json, updated_at)` (`CachedPlaylistRecord { playlist, manifest, fetched_at }`, preserving legacy rows on schema upgrade and pruning deleted remote playlists)
   - `staged_ops(entry_id PRIMARY KEY, sort_order, op_json, selected, updated_at)` (`PersistedStagedOp` preserving queue order and selection across restarts)
   - `playback_session(id PRIMARY KEY, queue_json, current_index, volume, shuffle, repeat_mode, position_sec, updated_at)` (`PersistedPlaybackSession` for `PlayQueue` recovery)
+  - `library_cache(id PRIMARY KEY, summaries_json, updated_at)`, `lyrics_cache(video_id PRIMARY KEY, browse_id, payload_json, updated_at)`, and `browse_cache(browse_id PRIMARY KEY, payload_json, updated_at)` (`schema v4` offline-first startup hydration)
+  - `lyrics_meta(video_id PRIMARY KEY, offset_ms, pinned_provider, translation_lang, translated_json, updated_at)` (`schema v5` Phase 6 per-track offset, provider pin, and cached translations; backward-compatible `LyricsPayload::Rich` alongside `Plain`/`Synced`)
 - Pre-mutation invariant: every mutating action must atomically persist a snapshot (JSON + SQLite `snapshots` record) before invoking remote mutations (`browse/edit_playlist`, `playlist/create`, `playlist/delete`); snapshot failure aborts the mutation.
 - Export/import formats: `.json`, `.csv`, `.m3u8`.
 
@@ -140,8 +142,9 @@
 ### Session Governance & Dalga UI Contracts
 - `SessionState` (`Unauthenticated`, `Verifying`, `Authenticated(SessionStatus)`, `Expired { reason, last_known }`) tracks authentication without parallel loading booleans.
 - `auto_refresh_browser_cookies` defaults to `false`; startup never executes silent `yt-dlp --cookies-from-browser` extraction without explicit opt-in or user action.
-- `GuiAppConfig` persists `theme_mode: ThemeMode` (`System | Dark | Light`), `accent_palette: AccentPalette` (`Emerald | Gold | YtmPink`), `dynamic_accent: bool` (default `true`), `ui_lang: UiLang` (`System | En | Tr`), `greetings_enabled: bool` (default `true`), `ticker_speed: f32` (default `48.0`), `reduced_motion: bool`, `preferred_external_browser: Option<String>`, and `recent_searches: Vec<String>` with `#[serde(default)]` backward compatibility for `v0.1.x` `config.toml`.
+- `GuiAppConfig` persists `theme_mode: ThemeMode` (`System | Dark | Light`), `accent_palette: AccentPalette` (`Emerald | Gold | YtmPink`), `dynamic_accent: bool` (default `true`), `ui_lang: UiLang` (`System | En | Tr`), `greetings_enabled: bool` (default `true`), `ticker_speed: f32` (default `48.0`), `reduced_motion: bool`, `preferred_external_browser: Option<String>`, `recent_searches: Vec<String>`, `tray_enabled: bool` (default `true`), `close_to_tray: bool` (default `true`), `mini_player_opacity_on_idle: bool` (default `false`), and `mini_player_layouts: HashMap<String, MiniPlayerGeometry>` with `#[serde(default)]` backward compatibility for `v0.1.x` / `v0.2.x` `config.toml`.
 - `StatusMessage` and `StatusPriority` (`ErrorWarning > ActionResult > ContextualHint > Greeting`) drive the Status Ribbon message bus and 50-entry history ring.
+- `TrayBackend` (`LinuxKsniTray`, `WindowsTray`, `NoopTrayBackend`), `CloseAction` (`None | HideToTray | Quit`), `MiniPlayerMode` (`Compact | Expanded`), `ContextTarget` (`Track | Album | Artist | Playlist`), and `SHORTCUTS` drive desktop lifecycle, secondary Mini Player viewport, unified right-click menus, and keyboard navigation.
 
 ---
 

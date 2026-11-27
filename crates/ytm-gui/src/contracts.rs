@@ -48,6 +48,33 @@ pub enum StatusPriority {
     ErrorWarning = 3,
 }
 
+/// Display density mode for the Mini Player secondary viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MiniPlayerMode {
+    #[default]
+    Compact,
+    Expanded,
+}
+
+/// Persisted Mini Player position, size, and mode per monitor key.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MiniPlayerGeometry {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub mode: MiniPlayerMode,
+}
+
+/// Pure window close-request reducer outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAction {
+    None,
+    HideToTray,
+    Quit,
+}
+
 /// Structured message carried by the Status Ribbon bus and history ring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusMessage {

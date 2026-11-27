@@ -21,6 +21,10 @@ pub enum PlayAction {
     ToggleLike(Track),
     StartRadio(Track),
     OpenBrowse(String),
+    OpenBrowseWithParams {
+        browse_id: String,
+        params: Option<String>,
+    },
 }
 
 /// Dispatch playback, queue, like, radio, and browse intents onto `app`.
@@ -72,13 +76,20 @@ pub fn dispatch_play_actions(actions: Vec<PlayAction>, app: &mut YtmGuiApp) {
                 app.toast = Some(ToastState::info(true, "Fetching Radio station tracks..."));
             }
             PlayAction::OpenBrowse(browse_id) => {
-                app.browse_target = browse_id.clone();
-                app.browse_state = AsyncState::Loading(format!("Loading {browse_id}..."));
-                app.active_tab = GuiTab::Browse;
-                let _ = app.cmd_tx.send(WorkerCmd::LoadBrowse { browse_id });
+                open_browse_target(browse_id, None, app);
+            }
+            PlayAction::OpenBrowseWithParams { browse_id, params } => {
+                open_browse_target(browse_id, params, app);
             }
         }
     }
+}
+
+fn open_browse_target(browse_id: String, params: Option<String>, app: &mut YtmGuiApp) {
+    app.browse_target = browse_id.clone();
+    app.browse_state = AsyncState::Loading(format!("Loading {browse_id}..."));
+    app.active_tab = GuiTab::Browse;
+    let _ = app.cmd_tx.send(WorkerCmd::LoadBrowse { browse_id, params });
 }
 
 /// Start playback of `track`, reset lyrics state, persist playback session, and request watch-next metadata.

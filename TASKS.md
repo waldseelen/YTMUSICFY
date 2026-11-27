@@ -179,58 +179,58 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 ## Phase v0.3.0 — Tray, Mini Player, Home, Shortcuts
 
 ### Task 13 — Window lifecycle & tray (M1)
-- [ ] **13.1 Tray abstraction**
-  - [ ] `TrayBackend` trait; Linux `ksni` implementation, Windows `tray-icon` implementation, no-op fallback when no tray host
-  - [ ] verify: trait tests with fake backend; build passes on both targets in CI
-- [ ] **13.2 Tray menu & icon**
-  - [ ] Theme-aware icon; menu: Show/Hide, Play/Pause, Next, Previous, Mini Player, Quit
-  - [ ] verify: manual on Waybar (Linux); Windows verified in CI-built binary by owner
-- [ ] **13.3 Close-to-tray**
-  - [ ] Intercept window close when tray active; playback continues; quit only from tray/menu; Settings toggle
-  - [ ] verify: unit test for close-request reducer (`Quit | HideToTray`)
+- [x] **13.1 Tray abstraction**
+  - [x] `TrayBackend` trait; Linux `ksni` implementation, Windows `tray-icon` implementation, no-op fallback when no tray host
+  - [x] verify: trait tests with fake backend; build passes on both targets in CI
+- [x] **13.2 Tray menu & icon**
+  - [x] Theme-aware icon; menu: Show/Hide, Play/Pause, Next, Previous, Mini Player, Quit
+  - [x] verify: manual on Waybar (Linux); Windows verified in CI-built binary by owner
+- [x] **13.3 Close-to-tray**
+  - [x] Intercept window close when tray active; playback continues; quit only from tray/menu; Settings toggle
+  - [x] verify: unit test for close-request reducer (`Quit | HideToTray`)
 
 ### Task 14 — Mini Player
-- [ ] **14.1 Secondary viewport**
-  - [ ] Borderless, always-on-top, draggable; position/size persisted per monitor
-  - [ ] verify: unit test for position clamping to visible monitors; manual drag on Hyprland (floating rule documented)
-- [ ] **14.2 Compact mode**
-  - [ ] Cover, title/artist, transport, like, shuffle, repeat, progress
-  - [ ] verify: state-sync test: actions in Mini Player reach `PlayerController` and reflect back
-- [ ] **14.3 Expanded mode**
-  - [ ] Search field reusing Task 8 controller; top 3 results; click plays; collapse back
-  - [ ] verify: unit test that Mini Player and main search share one controller instance
-- [ ] **14.4 Spotify-style behaviors**
-  - [ ] Snap to screen edges, opacity-on-idle option, resize handles
-  - [ ] verify: unit tests for snap math
+- [x] **14.1 Secondary viewport**
+  - [x] Borderless, always-on-top, draggable; position/size persisted per monitor
+  - [x] verify: unit test for position clamping to visible monitors; manual drag on Hyprland (floating rule documented)
+- [x] **14.2 Compact mode**
+  - [x] Cover, title/artist, transport, like, shuffle, repeat, progress
+  - [x] verify: state-sync test: actions in Mini Player reach `PlayerController` and reflect back
+- [x] **14.3 Expanded mode**
+  - [x] Search field reusing Task 8 controller; top 3 results; click plays; collapse back
+  - [x] verify: unit test that Mini Player and main search share one controller instance
+- [x] **14.4 Spotify-style behaviors**
+  - [x] Snap to screen edges, opacity-on-idle option, resize handles
+  - [x] verify: unit tests for snap math
 
 ### Task 15 — Home shelves & Continue card
-- [ ] **15.1 Home parser**
-  - [ ] Parse personalised shelves (Listen Again, Mixes, New Releases) with fixtures
-  - [ ] verify: `ytm-core` fixture tests, recursive-search helpers only (no index chains)
-- [ ] **15.2 Shelf UI**
-  - [ ] Card grid with horizontal scroll, skeleton loading, "Continue" card from saved playback session
-  - [ ] verify: manual; cache-first paint verified offline
+- [x] **15.1 Home parser**
+  - [x] Parse personalised shelves (Listen Again, Mixes, New Releases) with fixtures
+  - [x] verify: `ytm-core` fixture tests, recursive-search helpers only (no index chains)
+- [x] **15.2 Shelf UI**
+  - [x] Card grid with horizontal scroll, skeleton loading, "Continue" card from saved playback session
+  - [x] verify: manual; cache-first paint verified offline
 
 ### Task 16 — Consistent context menu
-- [ ] **16.1 Menu model**
-  - [ ] One `ContextTarget` enum (Track, Album, Artist, Playlist) → one menu builder: queue next/last, radio, add to playlist, share link, go to artist, All of Artist (disabled until v0.4.0), Jump to YouTube
-  - [ ] verify: table test: each target yields the expected action set
-- [ ] **16.2 Adopt everywhere**
-  - [ ] Replace per-view menus in Inspector, Search, Browse, Queue, Home
-  - [ ] verify: `rg -n "context_menu" crates/ytm-gui/src/views` shows only the shared builder
+- [x] **16.1 Menu model**
+  - [x] One `ContextTarget` enum (Track, Album, Artist, Playlist) → one menu builder: queue next/last, radio, add to playlist, share link, go to artist, All of Artist (disabled until v0.4.0), Jump to YouTube
+  - [x] verify: table test: each target yields the expected action set
+- [x] **16.2 Adopt everywhere**
+  - [x] Replace per-view menus in Inspector, Search, Browse, Queue, Home
+  - [x] verify: `rg -n "context_menu" crates/ytm-gui/src/views` shows only the shared builder
 
 ### Task 17 — Keyboard-first
-- [ ] **17.1 Shortcut registry**
-  - [ ] Central table of shortcuts (media keys, `Space`, `Ctrl+K`, `/` focus search, arrows, `Ctrl+O`, mini-player toggle)
-  - [ ] verify: registry test detects duplicate bindings
-- [ ] **17.2 Shortcuts page**
-  - [ ] Settings page listing shortcuts generated from the registry
-  - [ ] verify: page content equals registry (test)
+- [x] **17.1 Shortcut registry**
+  - [x] Central table of shortcuts (media keys, `Space`, `Ctrl+K`, `/` focus search, arrows, `Ctrl+O`, mini-player toggle)
+  - [x] verify: registry test detects duplicate bindings
+- [x] **17.2 Shortcuts page**
+  - [x] Settings page listing shortcuts generated from the registry
+  - [x] verify: page content equals registry (test)
 
 ### Task 18 — Release v0.3.0
-- [ ] **18.1 Gates & docs**
-  - [ ] G1 gates; update README features + screenshots (Mini Player, tray); `PROGRESS.md`
-  - [ ] verify: all G1 commands exit 0
+- [x] **18.1 Gates & docs**
+  - [x] G1 gates; update README features + screenshots (Mini Player, tray); `PROGRESS.md`
+  - [x] verify: all G1 commands exit 0
 - [ ] **18.2 Publish**
   - [ ] Bump `0.3.0`, tag, CI Linux + Windows, `SHA256SUMS.txt` in README
   - [ ] verify: `gh release view v0.3.0 --json assets`
@@ -371,3 +371,69 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 - [ ] **31.2 Publish**
   - [ ] Bump `0.5.0`, README (multi-source screenshots), tag, CI Linux + Windows, `SHA256SUMS.txt`
   - [ ] verify: `gh release view v0.5.0 --json assets`
+
+---
+
+## Phase 6 (v0.6.0) — Dalga Lyrics v2: Multi-Provider Sync Engine (`better-lyrics` Inspired)
+
+> Zero-CAPTCHA / zero-Turnstile native Rust pipeline. Inspired by `/tmp/better-lyrics` (`selection.ts`, `providerPin.ts`, `segmentMap.ts`, `translation.ts`, `lyricsDock/`), adapted strictly to Dalga's Rust + SQLite + `egui` architecture.
+
+### Task 32 — Lyrics Contracts, Parsers & Compatibility
+- [ ] **32.1 Rich domain contracts & SQLite `schema v5`**
+  - [ ] Extend `LyricsPayload` (`ytm-core`) backward-compatibly (`Rich(RichLyrics)` with word/syllable `TimedWord` parts, `is_instrumental`, `source_provider`, `#[serde(default)]` fields) so existing `v3`/`v4` `lyrics_cache` JSON continues to deserialize
+  - [ ] Add `lyrics_meta` table in `ytm-store` (`video_id PRIMARY KEY, offset_ms, pinned_provider, translation_lang, translated_json, updated_at`) via idempotent `v4 -> v5` migration
+  - [ ] verify: round-trip + legacy `v3`/`v4` `lyrics_cache` fixture deserialization & SQLite migration test in `ytm-store/tests`
+- [ ] **32.2 Pure Rust LRC / Enhanced LRC / TTML & YouTube Captions (`fmt=json3`) parsers**
+  - [ ] Implement fixture-tested LRC (`[mm:ss.xx]`), Enhanced LRC (`<mm:ss.xx>` word timings), TTML (`<p begin end><span>`), and YouTube manual `fmt=json3` caption parsers in `ytm-core` (skipping `[auto-generated]` ASR captions)
+  - [ ] verify: table-driven parser tests in `ytm-core/tests` covering all-caps normalization, music-note trimming, and malformed lines
+
+### Task 33 — Multi-Provider Race, Quiet-Window Selection & Pinning
+- [ ] **33.1 Zero-Turnstile provider clients**
+  - [ ] Implement LRCLIB REST client (`lrclib.net/api/get` exact duration+artist+title -> `/api/search` fuzzy fallback using `segment`/duration bounds) and local `.lrc`/`.ttml` override loader alongside native YouTube Music & YouTube Captions
+  - [ ] verify: mock HTTP transport tests for exact hit, fuzzy fallback, instrumental flag, and timeout isolation
+- [ ] **33.2 `LyricsSelection` quiet-window arbiter & per-track pinning**
+  - [ ] Port `selection.ts` quiet-window coordinator (`Pending | Rejected | Displayable`, upgrade-only on higher-ranked provider arrival, quiet coalescing window) + `providerPin.ts` per-`video_id` pinning & 1-click source cycler
+  - [ ] verify: deterministic state-machine unit tests (faster low-rank provider waits `quietMs`; slow top-rank provider upgrades seamlessly; pinned provider prioritized)
+
+### Task 34 — Timeline Sync, `segmentMap`, Offset & Translation
+- [ ] **34.1 `segmentMap` ATV ↔ OMV retiming & instrumental intermissions**
+  - [ ] Extract `segmentMap` timing deltas (when present) to shift ATV lyrics onto OMV playback (`retime_to_segment_map`) and inject instrumental break rows for gaps > `5000 ms` with remaining countdown
+  - [ ] verify: unit tests in `ytm-core` asserting copy-on-shift immutability and gap-coalescing boundaries
+- [ ] **34.2 Per-track `+/- ms` timing offset & on-demand Translation/Romanization**
+  - [ ] Add persisted per-track offset (`-500ms` / `-100ms` / `+100ms` / `+500ms` / `Reset`) applied at render time without re-fetching
+  - [ ] Add opt-in, button-triggered Translation & non-Latin Romanization (off by default, zero network calls until clicked, cached in `lyrics_meta`)
+  - [ ] verify: unit tests for non-Latin script detection, offset math, and disabled-by-default zero-network guarantee
+
+### Task 35 — Lyrics UI v2 & Mini Player Lyrics Strip
+- [ ] **35.1 Interactive drawer (`queue_lyrics.rs`)**
+  - [ ] Click-to-Seek on any timed line, smart auto-scroll that pauses on manual wheel/drag and surfaces a `"Resume Scroll"` button, word-level highlight sweep, source badge + cycler, offset toolbar, and translate/romanize toggle
+  - [ ] verify: manual check + unit tests for auto-scroll pause/resume state reducer
+- [ ] **35.2 Mini Player synced strip**
+  - [ ] Optional 1–2 line current/next synced lyric preview inside `mini_player_view.rs`
+  - [ ] verify: G1 gates green; `wc -l <= 400` across all modified files
+
+---
+
+## Phase 7b — Core, Thread, CPU, Cache & Memory Optimization
+
+> Data-driven runtime efficiency pass targeting observed hot spots (`worker.rs`, `artwork.rs`, `views/*.rs`, `ytm-store`), bracketed by measurable before/after metrics in `PROGRESS.md`.
+
+### Task 36 — Thread & Runtime Consolidation
+- [ ] **36.1 Bounded shared runtime & bridge elimination**
+  - [ ] Cap worker Tokio runtime (`worker_threads`, `max_blocking_threads`) instead of unbounded core-count/512 defaults; remove dedicated `std::sync::mpsc` -> `tokio_mpsc` forwarding thread by sending directly to `tokio_mpsc`
+  - [ ] Unify `artwork.rs` and background helpers onto shared bounded pool, offload `image::load_from_memory` + `FilterType::Triangle` downscaling to `spawn_blocking`, and avoid spawning background threads inside headless unit tests
+  - [ ] verify: thread-count check via `/proc/self/status` before/after + zero regression in unit/integration suite
+
+### Task 37 — CPU & Zero-Clone Frame Loop
+- [ ] **37.1 Eliminate per-frame heap clones**
+  - [ ] Replace hot UI per-frame `.to_vec()` calls (`views/queue_lyrics.rs`, `views/home_cards.rs`, `views/browse.rs`, `views/sync.rs`) with borrowed slices or `Arc<[T]>` snapshots; defer payload clones until click/action frames
+  - [ ] Gate `ctx.request_repaint_after` strictly to active timed-lyrics / ticker / audio animation needs so idle/paused frames consume near-zero CPU
+  - [ ] verify: headless render loop micro-benchmark comparing frame allocations and idle CPU before/after logged in `PROGRESS.md`
+
+### Task 38 — Memory & Cache Budgets
+- [ ] **38.1 Bounded RAM LRU for `playlist_cache` & GPU textures**
+  - [ ] Bound in-memory `playlist_cache` with LRU eviction backed cleanly by SQLite `playlist_cache` (re-hydrating transparently on select) and enforce explicit byte + count budget on `ArtworkCache` GPU textures
+  - [ ] verify: store/cache unit tests confirming LRU eviction preserves SQLite persistence and bounds peak RAM across 50 synthetic playlists
+- [ ] **38.2 SQLite prepared statement & batch optimization**
+  - [ ] Adopt `prepare_cached` and transactional batching in `ytm-store` (`offline_cache.rs`, `playlist_cache.rs`, `enrichment`)
+  - [ ] verify: store micro-benchmark measuring bulk cache write/read latency reduction + G1 gates (`fmt`, `check`, `clippy -D warnings`, `test --locked`, `<= 400` lines) green

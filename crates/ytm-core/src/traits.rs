@@ -100,8 +100,18 @@ pub trait InnerTubeClientTrait: Send + Sync {
     /// Like (`liked = true`) or remove like (`liked = false`) for a track video ID.
     async fn set_like_status(&self, video_id: &str, liked: bool) -> Result<(), CoreError>;
 
-    /// Fetch Home (`FEmusic_home`), Artist (`UC...`/`MPLA...`), or Album (`MPREb_...`) browse page.
+    /// Fetch Home (`FEmusic_home`), Artist (`UC...`/`MPLA...`), Album (`MPREb_...`), or Playlist browse page.
     async fn get_browse_page(&self, browse_id: &str) -> Result<BrowsePage, CoreError>;
+
+    /// Fetch a browse page with optional InnerTube `params` (e.g. artist "See all" subpages).
+    async fn get_browse_page_with_params(
+        &self,
+        browse_id: &str,
+        params: Option<&str>,
+    ) -> Result<BrowsePage, CoreError> {
+        let _ = params;
+        self.get_browse_page(browse_id).await
+    }
 
     /// Fetch watch-next radio queue and optional lyrics browse ID for a seed track/playlist.
     async fn get_watch_next(

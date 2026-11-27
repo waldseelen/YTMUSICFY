@@ -4,16 +4,37 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ---
 
-## Current Gate Status (2026-11-27 — `v0.2.0` "Dalga" Released + Local Hotfixes Built)
+## Current Gate Status (2026-11-27 — `v0.3.0` Ready for Tag/Publish)
 
-- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.2.0` Tasks `1`–`12` complete; post-release local fixes ready for `v0.2.1` upon approval).
+- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.3.0` Tasks `13`–`18.1` complete locally; `18.2` tag/CI publish ready upon owner commit/push).
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace --locked`: **PASS** exit 0 (`162/162` tests: `ytm-cli` 6, `ytm-core` 33, `ytm-enrich` 14, `ytm-gui` 81, `ytm-ops` 14, `ytm-store` 14)
+- `cargo test --workspace --locked`: **PASS** exit 0 (`180/180` tests: `ytm-cli` 6, `ytm-core` 38, `ytm-enrich` 14, `ytm-gui` 93, `ytm-ops` 14, `ytm-store` 15)
 - `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0
-- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
-- **Latest Published Release:** `v0.2.0` (`c0d9a70`, Linux & Windows CI run `45983802647` **success**; local working tree holds unpushed UI/sync hotfixes for `v0.2.1`).
+- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs` & `crates/ytm-gui/src/views/player_bar.rs`)
+- `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`
+- **Latest Published Release:** `v0.2.0` (`c0d9a70`, Linux & Windows CI run `45983802647` **success**; local working tree holds `v0.3.0` implementation and version bump ready for owner commit/tag/push).
+
+---
+
+## 2026-11-27 — `v0.3.0` (Tray, Mini Player, Home Shelves, Unified Context Menu, Shortcuts)
+
+- **Task 13 — Window Lifecycle & System Tray (`tray.rs`, `tray_linux.rs`, `tray_windows.rs`, `window_lifecycle.rs`):**
+  - Implemented `TrayBackend` trait with `LinuxKsniTray` (`ksni` StatusNotifierItem, isolated Tokio thread, no GTK), `WindowsTray` (`tray-icon` + `muda` Win32 backend), `NoopTrayBackend` fallback, theme-aware monochrome Dalga icon (`build_tray_rgba`), and tray menu (`Show/Hide`, `Play/Pause`, `Previous`, `Next`, `Mini Player`, `Quit`).
+  - Wired `resolve_close_request` close-to-tray reducer and Settings toggles (`tray_enabled`, `close_to_tray`) keeping playback active when hidden.
+- **Task 14 — Borderless Mini Player (`mini_player.rs`, `views/mini_player_view.rs`, `views/mini_player_search.rs`):**
+  - Implemented always-on-top borderless `egui` secondary viewport (`Dalga Mini`) with Compact and Expanded modes sharing `app.search_controller` (top 3 instant results), monitor clamping, Spotify-style edge snapping, corner resize grip, per-monitor persisted geometry (`mini_player_layouts`), and optional idle opacity (`mini_player_opacity_on_idle`).
+- **Task 15 — Home Shelves, Continue Card & Offline Hydration (`parser/browse_cards.rs`, `offline_cache.rs`, `views/home_cards.rs`, `views/browse.rs`):**
+  - Enhanced `ytm-core` Home parser (`tests/fixtures/home_browse.json`, `home_browse_test.rs`) using recursive tree-search helpers (`watchPlaylistEndpoint` mixes, `Listen again`, `Mixed for you`, `New releases`, `Quick picks`).
+  - Added SQLite `browse_cache` (`schema v4`), stale-while-revalidate Home startup hydration, horizontal shelf scrolling, skeleton loading, and **Continue Listening** card from saved playback session.
+- **Task 16 — Unified Context Menu (`views/context_menu_model.rs`, `views/context_menu.rs`):**
+  - Unified right-click `ContextTarget` (`Track`, `Album`, `Artist`, `Playlist`) across Inspector, Search, Browse, Home, and Queue (with `All of Artist` disabled until `v0.4.0`).
+- **Task 17 — Keyboard-First (`shortcuts.rs`, `interaction.rs`, `views/settings.rs`):**
+  - Added `/` search focus, `Ctrl+M` Mini Player toggle, duplicate-checked `SHORTCUTS` registry, and Settings shortcuts table generated directly from `SHORTCUTS`.
+- **Task 18.1 — Screenshots, Browse Polish & Docs:**
+  - Updated `assets/screenshots/home.png` and captured `assets/screenshots/mini-player.png`; bumped workspace version to `0.3.0`; synced `README.md`, `SPEC.md`, `ARCHITECTURE.md`, and `TASKS.md`.
+  - Fixed document-order Browse section collection (`visit_browse_sections`) so Artist Top Songs stay above carousels, added `musicPlaylistShelfRenderer`/`musicPlaylistShelfContinuation` + `PL->VL` normalization for third-party playlists, added `straplineTextOne`/`facepile` clickable header artists + `"See all ->"` (`params`) + `+ Stage All`, filtered Turkish `"dinlenme"` play counts, and fixed Search overlay `playNavigationEndpoint` card detection (`artist_album_playlist_browse_test.rs`, `search_cards_test.rs`).
 
 ---
 

@@ -1,6 +1,9 @@
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
-use ytm_core::{LyricsPayload, Playlist, PlaylistPrivacy, PlaylistSummary, TimedLyricLine};
+use ytm_core::{
+    BROWSE_HOME, BrowseCard, BrowseCardKind, BrowsePage, BrowsePageKind, BrowseSection,
+    LyricsPayload, Playlist, PlaylistPrivacy, PlaylistSummary, TimedLyricLine,
+};
 use ytm_store::SqliteStore;
 
 #[test]
@@ -105,5 +108,45 @@ fn v0_1_1_legacy_sqlite_schema_migrates_and_preserves_rows() {
     let ver: i64 = check_conn
         .query_row("PRAGMA user_version;", [], |r| r.get(0))
         .expect("read user_version");
-    assert_eq!(ver, 3);
+    assert_eq!(ver, 4);
+}
+
+#[test]
+fn browse_cache_roundtrips_home_page_across_reopen() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("browse.sqlite");
+    let store = SqliteStore::open(&db_path, None).expect("open store");
+    let home = BrowsePage {
+        browse_id: BROWSE_HOME.to_string(),
+        kind: BrowsePageKind::Home,
+        title: "Home".to_string(),
+        subtitle: Some("Listen again".to_string()),
+        artists: Vec::new(),
+        thumbnail_url: None,
+        sections: vec![BrowseSection {
+            title: "Listen again".to_string(),
+            cards: vec![BrowseCard {
+                kind: BrowseCardKind::Album,
+                browse_id: Some("MPREb_1".to_string()),
+                video_id: None,
+                title: "Coastal Echoes".to_string(),
+                subtitle: "Nora Solis".to_string(),
+                thumbnail_url: None,
+            }],
+            tracks: Vec::new(),
+            browse_id: None,
+            browse_params: None,
+        }],
+        tracks: Vec::new(),
+        continuation: None,
+    };
+    store.save_cached_browse_page(&home).expect("save browse");
+    drop(store);
+
+    let reopened = SqliteStore::open(&db_path, None).expect("reopen");
+    let loaded = reopened
+        .load_cached_browse_page(BROWSE_HOME)
+        .expect("load browse")
+        .expect("cached home page");
+    assert_eq!(loaded, home);
 }

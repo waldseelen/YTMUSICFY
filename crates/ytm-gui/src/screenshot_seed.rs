@@ -230,32 +230,39 @@ pub(crate) fn apply_preview_scene(app: &mut YtmGuiApp) {
         },
     ];
 
+    let make_home = |cards: Vec<BrowseCard>, qtracks: Vec<Track>| BrowsePage {
+        browse_id: "FEmusic_home".into(),
+        kind: BrowsePageKind::Home,
+        title: "Home".into(),
+        subtitle: Some("Personalized mixes & recent albums".into()),
+        artists: Vec::new(),
+        thumbnail_url: None,
+        sections: vec![
+            BrowseSection {
+                title: "Listen Again".into(),
+                cards,
+                tracks: Vec::new(),
+                browse_id: None,
+                browse_params: None,
+            },
+            BrowseSection {
+                title: "Quick Picks".into(),
+                cards: Vec::new(),
+                tracks: qtracks,
+                browse_id: None,
+                browse_params: None,
+            },
+        ],
+        tracks: Vec::new(),
+        continuation: None,
+    };
+
     match scene.as_str() {
         "home" => {
             app.gui_config.theme_mode = ThemeMode::Dark;
             app.gui_config.accent_palette = AccentPalette::Emerald;
             app.active_tab = GuiTab::Browse;
-            app.browse_state = AsyncState::Ready(BrowsePage {
-                browse_id: "FEmusic_home".into(),
-                kind: BrowsePageKind::Home,
-                title: "Home".into(),
-                subtitle: Some("Personalized mixes & recent albums".into()),
-                thumbnail_url: None,
-                sections: vec![
-                    BrowseSection {
-                        title: "Listen Again".into(),
-                        cards: home_cards,
-                        tracks: Vec::new(),
-                    },
-                    BrowseSection {
-                        title: "Quick Picks".into(),
-                        cards: Vec::new(),
-                        tracks,
-                    },
-                ],
-                tracks: Vec::new(),
-                continuation: None,
-            });
+            app.browse_state = AsyncState::Ready(make_home(home_cards, tracks));
         }
         "search" => {
             app.gui_config.theme_mode = ThemeMode::Dark;
@@ -270,6 +277,7 @@ pub(crate) fn apply_preview_scene(app: &mut YtmGuiApp) {
             };
             app.catalog_results = AsyncState::Ready(page.clone());
             app.search_controller.on_query_change("nora", 10);
+            app.search_controller.dropdown_open = false;
             let due = app.search_controller.poll_due(300);
             if let Some((rid, _)) = due.fetch_suggestions {
                 app.search_controller.apply_suggestions(
@@ -303,10 +311,71 @@ pub(crate) fn apply_preview_scene(app: &mut YtmGuiApp) {
                 "Lights drift across the bay\nStatic fades before the dawn\nEvery signal finds its wave".into(),
             )));
         }
+        "mini" => {
+            app.gui_config.theme_mode = ThemeMode::Dark;
+            app.gui_config.accent_palette = AccentPalette::Emerald;
+            app.active_tab = GuiTab::Browse;
+            app.mini_player.open = true;
+            app.mini_player.mode = crate::contracts::MiniPlayerMode::Expanded;
+            let page = SearchPage {
+                tracks: tracks.clone(),
+                cards: home_cards.clone(),
+                continuation: None,
+            };
+            app.search_controller.on_query_change("nora", 10);
+            app.search_controller.dropdown_open = false;
+            let due = app.search_controller.poll_due(300);
+            if let Some((rid, _)) = due.fetch_live {
+                app.search_controller.apply_live_results(rid, page);
+            }
+            app.browse_state = AsyncState::Ready(make_home(home_cards, tracks));
+        }
         _ => {
             app.gui_config.theme_mode = ThemeMode::Dark;
             app.gui_config.accent_palette = AccentPalette::Emerald;
             app.active_tab = GuiTab::Inspector;
         }
     }
+}
+
+/// Capture the current viewport framebuffer to `DALGA_SCREENSHOT_OUT` after warmup frames and return `true` when done.
+pub(crate) fn maybe_capture_screenshot(
+    ctx: &eframe::egui::Context,
+    root_ctx: &eframe::egui::Context,
+) -> bool {
+    let Ok(out_path) = std::env::var("DALGA_SCREENSHOT_OUT") else {
+        return false;
+    };
+    let req_id = eframe::egui::Id::new("dalga_ss_req");
+    let frame_id = eframe::egui::Id::new("dalga_ss_frames");
+    let frames: u32 = ctx.data(|d| d.get_temp(frame_id)).unwrap_or(0) + 1;
+    ctx.data_mut(|d| d.insert_temp(frame_id, frames));
+
+    let shot = ctx.input(|i| {
+        i.events.iter().find_map(|ev| match ev {
+            eframe::egui::Event::Screenshot { image, .. } => Some(image.clone()),
+            _ => None,
+        })
+    });
+    if let Some(img) = shot {
+        let [w, h] = img.size;
+        let rgba: Vec<u8> = img
+            .pixels
+            .iter()
+            .flat_map(|c| [c.r(), c.g(), c.b(), c.a()])
+            .collect();
+        if let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, rgba) {
+            let _ = image::DynamicImage::ImageRgba8(buf).save(&out_path);
+        }
+        root_ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
+        return true;
+    }
+
+    let already_req: bool = ctx.data(|d| d.get_temp(req_id)).unwrap_or(false);
+    if frames >= 4 && !already_req {
+        ctx.data_mut(|d| d.insert_temp(req_id, true));
+        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Screenshot(Default::default()));
+    }
+    ctx.request_repaint();
+    false
 }

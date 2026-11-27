@@ -1,11 +1,11 @@
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
-use ytm_core::{LyricsPayload, PlaylistSummary};
+use ytm_core::{BrowsePage, LyricsPayload, PlaylistSummary};
 
 use crate::db::SqliteStore;
 use crate::error::StoreError;
 
-pub const LATEST_SCHEMA_VERSION: i64 = 3;
+pub const LATEST_SCHEMA_VERSION: i64 = 4;
 
 const OFFLINE_CACHE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS library_cache (
@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS library_cache (
 CREATE TABLE IF NOT EXISTS lyrics_cache (
     video_id TEXT PRIMARY KEY,
     browse_id TEXT,
+    payload_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS browse_cache (
+    browse_id TEXT PRIMARY KEY,
     payload_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -107,6 +113,46 @@ impl SqliteStore {
                 return Ok(None);
             };
             let parsed = serde_json::from_str::<LyricsPayload>(&json)
+                .map_err(|e| StoreError::Serialization(e.to_string()))?;
+            Ok(Some(parsed))
+        })
+    }
+
+    /// Persist a `BrowsePage` (such as `FEmusic_home`) in SQLite for offline-first startup paint.
+    pub fn save_cached_browse_page(&self, page: &BrowsePage) -> Result<(), StoreError> {
+        let json =
+            serde_json::to_string(page).map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let now = Utc::now().timestamp();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO browse_cache (browse_id, payload_json, updated_at)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(browse_id) DO UPDATE SET
+                   payload_json = excluded.payload_json,
+                   updated_at = excluded.updated_at",
+                params![page.browse_id, json, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Load a cached `BrowsePage` for `browse_id`, if present.
+    pub fn load_cached_browse_page(
+        &self,
+        browse_id: &str,
+    ) -> Result<Option<BrowsePage>, StoreError> {
+        self.with_conn(|conn| {
+            let raw: Option<String> = conn
+                .query_row(
+                    "SELECT payload_json FROM browse_cache WHERE browse_id = ?1",
+                    params![browse_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(json) = raw else {
+                return Ok(None);
+            };
+            let parsed = serde_json::from_str::<BrowsePage>(&json)
                 .map_err(|e| StoreError::Serialization(e.to_string()))?;
             Ok(Some(parsed))
         })

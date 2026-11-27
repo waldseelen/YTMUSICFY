@@ -4,12 +4,14 @@ use eframe::egui;
 use ytm_core::{PlaylistAccess, PlaylistSummary, SearchFilter, SearchPage};
 
 use crate::artwork::ArtworkCache;
+use crate::i18n::ResolvedLang;
 use crate::icons::{Icon, icon_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
+use crate::views::context_menu::{ContextMenuEnv, ContextTarget, attach_context_menu};
 use crate::views::inspect_helpers::format_duration;
 
 const ALL_FILTERS: [(SearchFilter, &str); 6] = [
@@ -25,6 +27,7 @@ const ALL_FILTERS: [(SearchFilter, &str); 6] = [
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    lang: ResolvedLang,
     query: &mut String,
     filter: &mut SearchFilter,
     results: &mut AsyncState<SearchPage>,
@@ -114,7 +117,26 @@ pub fn show(
                                     .corner_radius(3.0),
                             );
                         }
-                        ui.strong(&t.title);
+                        let title_resp = ui.add(
+                            egui::Label::new(egui::RichText::new(&t.title).strong())
+                                .sense(egui::Sense::click()),
+                        );
+                        attach_context_menu(
+                            &title_resp,
+                            ContextTarget::Track {
+                                track: t.clone(),
+                                queue_list: page.tracks.clone(),
+                                row_idx: idx,
+                            },
+                            ContextMenuEnv {
+                                lang,
+                                playlists,
+                                sync_queue,
+                                toast,
+                                actions: &mut actions,
+                            },
+                            None,
+                        );
                         ui.weak("—");
                         ui.label(t.primary_artist_name().unwrap_or("-"));
                         if let Some(dur) = t.duration_sec {
@@ -166,7 +188,24 @@ pub fn show(
                                     .corner_radius(3.0),
                             );
                         }
-                        ui.strong(&card.title);
+                        let card_resp = ui.add(
+                            egui::Label::new(egui::RichText::new(&card.title).strong())
+                                .sense(egui::Sense::click()),
+                        );
+                        if let Some(target) = ContextTarget::from_browse_card(card) {
+                            attach_context_menu(
+                                &card_resp,
+                                target,
+                                ContextMenuEnv {
+                                    lang,
+                                    playlists,
+                                    sync_queue,
+                                    toast,
+                                    actions: &mut actions,
+                                },
+                                None,
+                            );
+                        }
                         if !card.subtitle.is_empty() {
                             ui.weak(&card.subtitle);
                         }

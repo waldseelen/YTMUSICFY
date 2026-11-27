@@ -1,4 +1,6 @@
 mod browse;
+mod browse_cards;
+mod browse_header;
 mod playlist;
 mod playlist_edit;
 mod search;

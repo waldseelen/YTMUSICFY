@@ -36,5 +36,9 @@ ytm-enrich.workspace = true
 ytm-ops.workspace = true
 ytm-store.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
+tray-icon.workspace = true

@@ -52,11 +52,11 @@ ytm-cli (Clap CLI + Ratatui TUI)                               ──┼──> 
 - `models.rs`, `browse_models.rs`, `fetch_models.rs`, `error.rs`, `traits.rs`: core domain types (`Track`, `Playlist`, `PlaylistAccess`, `FetchManifest`, `SearchPage`, `BrowsePage`, `LyricsPayload`) and `InnerTubeClientTrait`.
 - `auth.rs`, `http.rs`: `SAPISIDHASH` signing, Netscape cookie conversion, `ReqwestTransport` (`rustls-tls`) / `MockTransport`.
 - `client.rs`, `client_playlist.rs`, `client_browse.rs`, `client_mutations.rs`: InnerTube endpoints and chunked POST execution.
-- `parser/{tree,track,playlist,playlist_edit,browse,search}.rs`: anti-fragile recursive JSON extractors (never hardcode array indices).
+- `parser/{tree,track,playlist,playlist_edit,browse,browse_cards,search}.rs`: anti-fragile recursive JSON extractors (never hardcode array indices).
 
 ### `crates/ytm-store/src/`
 - `paths.rs`, `models.rs`, `traits.rs`, `error.rs`: `AppPaths`, `write_atomic`, `write_secret_file` (`0600` on Unix).
-- `db.rs`, `playlist_cache.rs`, `snapshot.rs`, `staged_ops.rs`, `playback_session.rs`, `export.rs`: SQLite schema, snapshot store, JSON/CSV/M3U8 export/import.
+- `db.rs`, `offline_cache.rs`, `playlist_cache.rs`, `snapshot.rs`, `staged_ops.rs`, `playback_session.rs`, `export.rs`: SQLite schema (`v4`), snapshot store, JSON/CSV/M3U8 export/import.
 
 ### `crates/ytm-ops/src/`
 - `models.rs`, `normalize.rs`, `dedupe.rs`, `sort.rs`, `set_ops.rs`, `health.rs`, `restore_plan.rs`: pure planners (`plan_dedupe`, `plan_sort` LIS minimal moves, `plan_set_op`, `scan_playlist_health`, `plan_restore_diff`).
@@ -68,8 +68,9 @@ ytm-cli (Clap CLI + Ratatui TUI)                               ──┼──> 
 - `main.rs`, `lib.rs`, `cli.rs`, `config.rs`, `runner.rs`, `mutations.rs`, `restore.rs`, `render.rs`, `tui.rs`, `tui_render.rs`.
 
 ### `crates/ytm-gui/src/`
-- **App Shell & Navigation:** `main.rs`, `lib.rs` (Wayland `vsync` guard + window icon), `app.rs` (`YtmGuiApp`), `app_events.rs` (`apply_worker_event`, `finish_frame` background repaint throttling), `tab_bar.rs`, `tab_router.rs`, `overlays.rs`, `navigation.rs`, `interaction.rs`, `command_palette.rs`, `sidebar.rs`.
-- **Brand, Theme & Icons:** `brand.rs` (centralized `Dalga` strings & embedded Concept A logos), `contracts.rs` (`ThemeMode`, `AccentPalette`, `UiLang`, `StatusPriority`, `StatusMessage`), `theme.rs`, `icons.rs`.
+- **App Shell & Navigation:** `main.rs`, `lib.rs` (Wayland `vsync` guard + window icon), `app.rs` (`YtmGuiApp`), `app_frame.rs` (`sync_theme_and_input`, `finish_frame`), `app_events.rs` (`apply_worker_event`), `tab_bar.rs`, `tab_router.rs`, `overlays.rs`, `navigation.rs`, `interaction.rs`, `shortcuts.rs`, `command_palette.rs`, `sidebar.rs`.
+- **Tray, Window Lifecycle & Mini Player:** `tray.rs` (`TrayBackend`, `TrayController`), `tray_linux.rs` (`ksni`), `tray_windows.rs` (`tray-icon`), `window_lifecycle.rs` (`resolve_close_request`), `mini_player.rs` (edge snap, monitor clamping, idle opacity).
+- **Brand, Theme & Icons:** `brand.rs` (centralized `Dalga` strings & embedded Concept A logos), `contracts.rs` (`ThemeMode`, `AccentPalette`, `UiLang`, `MiniPlayerMode`, `CloseAction`, `StatusPriority`, `StatusMessage`), `theme.rs`, `icons.rs`.
 - **Credentials & Config:** `auth_store.rs` (`0600` `auth.json` primary, `YTM_USE_SECRET_SERVICE=1` opt-in, `$XDG_RUNTIME_DIR` tmpfs `mpv` cookie jar).
 - **Playback & OS Media:** `player.rs`, `player_actor.rs`, `player_process.rs`, `player_ipc.rs`, `play_queue.rs`, `playback_ops.rs`, `media_controls.rs` (`souvlaki` MPRIS2 / Win32 `HWND` SMTC), `artwork.rs` (bounded HTTP + 50 MiB disk LRU).
 - **State & Sync:** `state.rs`, `state_forms.rs`, `sync_queue.rs`, `sync_ops.rs`, `sync_draft.rs`, `draft_cache.rs`, `playlist_meta_modal.rs`.
@@ -79,8 +80,8 @@ ytm-cli (Clap CLI + Ratatui TUI)                               ──┼──> 
   - `worker_auth.rs`: `yt-dlp` `0700` temp-dir browser import + off-thread Wayland clipboard import (`wl-paste`).
   - `worker_media.rs`, `worker_jobs.rs`, `worker_plans.rs`, `worker_exec.rs`, `worker_sync.rs`, `worker_sync_ops.rs`.
 - **Views (`views/`):**
-  - Core: `auth.rs`, `browse.rs`, `search.rs`, `queue_lyrics.rs`, `player_bar.rs`, `settings.rs`, `components.rs`.
-  - Library & Repertoire: `inspect.rs`, `inspect_toolbar.rs`, `inspect_helpers.rs`, `inspect_rows.rs`, `inspect_actions.rs`, `inspect_menu.rs`, `inspect_sort.rs`, `repertoire_tree.rs`, `repertoire_target.rs`, `repertoire_batch.rs`, `split_diff.rs`, `split_pane.rs`.
+  - Core & Home: `auth.rs`, `browse.rs`, `home_cards.rs`, `search.rs`, `search_dropdown.rs`, `queue_lyrics.rs`, `player_bar.rs`, `mini_player_view.rs`, `mini_player_search.rs`, `settings.rs`, `components.rs`, `context_menu.rs`, `context_menu_model.rs`.
+  - Library & Repertoire: `inspect.rs`, `inspect_toolbar.rs`, `inspect_helpers.rs`, `inspect_rows.rs`, `inspect_actions.rs`, `inspect_sort.rs`, `repertoire_tree.rs`, `repertoire_target.rs`, `repertoire_batch.rs`, `split_diff.rs`, `split_pane.rs`.
   - Studio & Safety: `dedupe.rs`, `sort.rs`, `set_ops.rs`, `health.rs`, `genres_snapshots.rs`, `sync.rs`.
 
 ---

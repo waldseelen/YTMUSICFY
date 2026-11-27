@@ -14,6 +14,7 @@ pub mod icons;
 pub mod interaction;
 pub mod lightbox;
 pub mod media_controls;
+pub mod mini_player;
 pub mod navigation;
 pub mod overlays;
 pub mod play_queue;
@@ -25,6 +26,7 @@ pub mod right_drawer;
 #[cfg(feature = "screenshot-harness")]
 pub mod screenshot_seed;
 pub mod search_controller;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod state;
 pub mod status_bus;
@@ -37,7 +39,13 @@ pub mod theme;
 pub mod theme_accent;
 pub mod theme_detect;
 pub mod top_bar;
+pub mod tray;
+#[cfg(target_os = "linux")]
+mod tray_linux;
+#[cfg(windows)]
+mod tray_windows;
 pub mod views;
+pub mod window_lifecycle;
 pub mod worker;
 pub mod worker_auth;
 pub mod worker_exec;

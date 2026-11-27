@@ -174,6 +174,10 @@ async fn handle_cmd(
             if let Ok(Some(sess)) = state.store.load_playback_session() {
                 let _ = tx.send(WorkerEvent::PlaybackSessionLoaded(sess.session_json));
             }
+            if let Ok(Some(home_page)) = state.store.load_cached_browse_page(ytm_core::BROWSE_HOME)
+            {
+                let _ = tx.send(WorkerEvent::BrowseCacheHydrated(home_page));
+            }
             hydrate_gui_startup_state(&state.store, state.config.mutation_policy, tx);
             handle_bootstrap(state, tx).await;
         }

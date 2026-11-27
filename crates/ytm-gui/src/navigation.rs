@@ -154,6 +154,7 @@ pub struct GlobalInputOutcome {
     pub toggle_sync_drawer: bool,
     pub toggle_play_pause: bool,
     pub toggle_mute: bool,
+    pub toggle_mini_player: bool,
     pub open_ytm: bool,
     pub open_ytm_at_time: bool,
 }
@@ -179,6 +180,7 @@ pub fn apply_global_input(
         toggle_sync_drawer: g.toggle_sync_drawer,
         toggle_play_pause: g.toggle_play_pause,
         toggle_mute: g.toggle_mute,
+        toggle_mini_player: g.toggle_mini_player,
         open_ytm: g.open_ytm,
         open_ytm_at_time: g.open_ytm_at_time,
     };

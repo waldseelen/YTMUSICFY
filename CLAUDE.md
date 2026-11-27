@@ -44,6 +44,8 @@ Binding engineering rules and operational invariants for **Dalga** (workspace `y
 7. **Hygiene & Licensing:**
    - Write original Rust code under `MIT OR Apache-2.0`. Study `.refs/` for protocol shapes and edge cases only; never copy third-party code verbatim.
    - Keep `.refs/`, `*.sqlite*`, `auth.json`, `browser.json`, and `headers_auth.json` gitignored.
+8. **No Unapproved Remote CI / Git Push Triggers:**
+   - Never run `git push`, tag pushes, or remote GitHub Actions workflows (`gh workflow run` or pushing tags/branches that trigger CI) without the user's explicit per-action approval immediately beforehand; remote CI runners consume repository quota.
 
 ---
 

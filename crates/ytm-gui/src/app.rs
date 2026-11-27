@@ -19,11 +19,10 @@ use crate::greetings::GreetingScheduler;
 use crate::i18n::{ResolvedLang, resolve_lang};
 use crate::lightbox::LightboxState;
 use crate::media_controls::OsMediaBridge;
-use crate::navigation::{NavHistory, ToastState, apply_global_input, show_status_bar};
+use crate::mini_player::MiniPlayerState;
+use crate::navigation::{NavHistory, ToastState, show_status_bar};
 use crate::play_queue::PlayQueue;
-use crate::playback_ops::{
-    apply_player_bar_outcome, poll_os_media_bridge, poll_track_end_advance, toggle_mute_state,
-};
+use crate::playback_ops::{apply_player_bar_outcome, poll_os_media_bridge, poll_track_end_advance};
 use crate::player::PlayerController;
 use crate::playlist_meta_modal::PlaylistMetaModal;
 use crate::right_drawer::RightDrawerTab;
@@ -40,6 +39,7 @@ use crate::sync_queue::SyncQueue;
 use crate::tab_router::show_central_panel;
 use crate::theme::ThemeState;
 use crate::top_bar::{TopBarCtx, show_top_bar};
+use crate::tray::TrayController;
 use crate::views;
 use crate::worker::spawn_worker;
 
@@ -133,10 +133,16 @@ pub struct YtmGuiApp {
     pub(crate) last_ended_counter: u64,
     pub(crate) browse_target: String,
     pub(crate) browse_state: AsyncState<BrowsePage>,
+    pub(crate) browse_from_cache: bool,
     pub(crate) lyrics_browse_id: Option<String>,
     pub(crate) lyrics_state: AsyncState<Option<String>>,
     pub(crate) artwork: ArtworkCache,
     pub(crate) meta_modal: Option<PlaylistMetaModal>,
+    pub(crate) tray_ctrl: TrayController,
+    pub(crate) mini_player: MiniPlayerState,
+    pub(crate) main_window_visible: bool,
+    pub(crate) explicit_quit: bool,
+    pub(crate) egui_ctx: Option<egui::Context>,
 }
 
 impl YtmGuiApp {
@@ -155,6 +161,7 @@ impl YtmGuiApp {
         let mut app =
             Self::init_with_channels(cmd_tx, evt_rx, default_export, Some(cc.egui_ctx.clone()));
         app.media_bridge = OsMediaBridge::from_creation_context(cc);
+        app.tray_ctrl = TrayController::new(app.gui_config.tray_enabled, Some(cc.egui_ctx.clone()));
         app
     }
 
@@ -195,59 +202,9 @@ impl eframe::App for YtmGuiApp {
         let current_art = current_art_url
             .as_deref()
             .and_then(|url| self.artwork.texture_for(ctx, url).cloned());
-        self.theme_state.dynamic_target = current_art_url
-            .as_deref()
-            .and_then(|url| self.artwork.accent_for(url));
-        let dt = ctx.input(|i| i.unstable_dt);
-        if self.theme_state.sync_and_apply(
-            ctx,
-            self.gui_config.theme_mode,
-            self.gui_config.accent_palette,
-            self.gui_config.dynamic_accent,
-            self.gui_config.reduced_motion,
-            dt,
-        ) {
-            ctx.request_repaint();
-        }
+        let navigated_via_history =
+            crate::app_frame::sync_theme_and_input(ctx, self, current_art_url.as_deref());
         let lang = self.lang();
-
-        let base_ppp = *self
-            .base_pixels_per_point
-            .get_or_insert_with(|| ctx.pixels_per_point());
-        let input_out = apply_global_input(
-            ctx,
-            base_ppp,
-            &mut self.ui_scale,
-            &mut self.active_tab,
-            &mut self.selected_playlist_id,
-            &mut self.focus_search_once,
-            &mut self.sync_queue,
-            &mut self.toast,
-            &mut self.pending_modal,
-            &mut self.nav_history,
-        );
-        let navigated_via_history = input_out.navigated_via_history;
-        if input_out.toggle_palette {
-            self.palette_open = !self.palette_open;
-        }
-        if input_out.toggle_sync_drawer {
-            self.sync_drawer_open = !self.sync_drawer_open;
-        }
-        if input_out.toggle_play_pause {
-            self.player.toggle_pause();
-        }
-        if input_out.toggle_mute {
-            toggle_mute_state(self);
-        }
-        if input_out.open_ytm {
-            self.open_current_track_in_youtube(false);
-        }
-        if input_out.open_ytm_at_time {
-            self.open_current_track_in_youtube(true);
-        }
-        if let Some(url) = self.pending_copy_url.take() {
-            ctx.copy_text(url);
-        }
         poll_os_media_bridge(self);
 
         let now_ms = self.now_ms();
@@ -270,6 +227,7 @@ impl eframe::App for YtmGuiApp {
                     focus_search_once: self.focus_search_once,
                     status_bus: &mut self.status_bus,
                     sync_queue: &mut self.sync_queue,
+                    mini_player_open: &mut self.mini_player.open,
                     start_instant: self.start_instant,
                     now_ms,
                     cmd_tx: &self.cmd_tx,

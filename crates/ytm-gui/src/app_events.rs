@@ -197,10 +197,34 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 }
             }
         }
+        WorkerEvent::BrowseCacheHydrated(page) => {
+            if page.browse_id == app.browse_target
+                && !matches!(app.browse_state, AsyncState::Ready(_))
+            {
+                app.browse_from_cache = true;
+                app.browse_state = AsyncState::Ready(page);
+            }
+        }
         WorkerEvent::BrowseLoaded { browse_id, result } => {
             if browse_id == app.browse_target || matches!(app.browse_state, AsyncState::Loading(_))
             {
-                app.browse_state = result.map_or_else(AsyncState::Failed, AsyncState::Ready);
+                match result {
+                    Ok(page) => {
+                        app.browse_from_cache = false;
+                        app.browse_state = AsyncState::Ready(page);
+                    }
+                    Err(e) => {
+                        if app.browse_state.data().is_some() && browse_id == app.browse_target {
+                            app.offline_mode = true;
+                            let now = app.now_ms();
+                            let msg = tr(app.lang(), Key::OfflineUsingCache).to_string();
+                            app.status_bus.push_hint(msg, now);
+                        } else {
+                            app.browse_from_cache = false;
+                            app.browse_state = AsyncState::Failed(e);
+                        }
+                    }
+                }
             }
         }
         WorkerEvent::WatchNextLoaded { seed_radio, result } => {
@@ -328,6 +352,8 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             app.mutation_policy = cfg.mutation_policy;
             app.audio_quality = cfg.audio_quality;
             app.search_controller.load_recent(&cfg.recent_searches);
+            app.tray_ctrl
+                .set_enabled(cfg.tray_enabled, app.egui_ctx.clone());
             app.gui_config = cfg;
         }
         WorkerEvent::SystemThemeChanged(dark) => {

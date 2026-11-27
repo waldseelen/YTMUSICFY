@@ -11,9 +11,8 @@ use crate::models::{
     PlaylistPrivacy, PlaylistSummary, SessionStatus, Track,
 };
 use crate::parser::{
-    check_innertube_error, normalize_playlist_id, parse_browse_page,
-    parse_delete_playlist_response, parse_lyrics_response, parse_search_tracks,
-    parse_session_status, parse_watch_next,
+    check_innertube_error, normalize_playlist_id, parse_delete_playlist_response,
+    parse_lyrics_response, parse_search_tracks, parse_session_status, parse_watch_next,
 };
 use crate::traits::{HttpTransport, InnerTubeClientTrait};
 
@@ -301,14 +300,15 @@ impl<T: HttpTransport> InnerTubeClientTrait for InnerTubeClient<T> {
     }
 
     async fn get_browse_page(&self, browse_id: &str) -> Result<BrowsePage, CoreError> {
-        let resp = self
-            .post_authed_with_policy(
-                "browse",
-                json!({ "browseId": browse_id }),
-                RetryPolicy::IdempotentRead,
-            )
-            .await?;
-        parse_browse_page(&resp, browse_id)
+        self.get_browse_page_impl(browse_id, None).await
+    }
+
+    async fn get_browse_page_with_params(
+        &self,
+        browse_id: &str,
+        params: Option<&str>,
+    ) -> Result<BrowsePage, CoreError> {
+        self.get_browse_page_impl(browse_id, params).await
     }
 
     async fn get_watch_next(

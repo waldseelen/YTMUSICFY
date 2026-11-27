@@ -338,6 +338,7 @@ impl InnerTubeClientTrait for StatefulMockClient {
             kind: BrowsePageKind::Home,
             title: "Mock Browse".to_string(),
             subtitle: None,
+            artists: Vec::new(),
             thumbnail_url: None,
             sections: Vec::new(),
             tracks: Vec::new(),

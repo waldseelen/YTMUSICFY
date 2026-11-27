@@ -25,22 +25,31 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 app.browse_state = AsyncState::Loading(format!("Loading {}...", app.browse_target));
                 let _ = app.cmd_tx.send(WorkerCmd::LoadBrowse {
                     browse_id: app.browse_target.clone(),
+                    params: None,
                 });
             }
+            let lang = app.lang();
             pending_actions = views::browse::show(
                 ui,
-                &mut app.browse_target,
-                &app.browse_state,
-                playlists,
-                &mut app.sync_queue,
-                &mut app.artwork,
-                &mut app.toast,
-                &app.cmd_tx,
+                views::browse::BrowseCtx {
+                    lang,
+                    browse_target: &mut app.browse_target,
+                    browse_state: &app.browse_state,
+                    browse_from_cache: app.browse_from_cache,
+                    play_queue: &app.play_queue,
+                    playlists,
+                    sync_queue: &mut app.sync_queue,
+                    artwork: &mut app.artwork,
+                    toast: &mut app.toast,
+                    cmd_tx: &app.cmd_tx,
+                },
             );
         }
         GuiTab::Search => {
+            let lang = app.lang();
             pending_actions = views::search::show(
                 ui,
+                lang,
                 &mut app.catalog_query,
                 &mut app.catalog_filter,
                 &mut app.catalog_results,
@@ -80,9 +89,11 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 let load_err = sel_id
                     .and_then(|id| app.playlist_errors.get(id))
                     .map(String::as_str);
+                let lang = app.lang();
                 let manifest = sel_id.and_then(|id| app.playlist_manifests.get(id));
                 pending_actions = views::inspect::show(
                     ui,
+                    lang,
                     draft_active.as_deref(),
                     manifest,
                     &mut app.selected_playlist_id,

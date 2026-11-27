@@ -12,6 +12,7 @@ use crate::draft_cache::DraftCache;
 use crate::greetings::GreetingScheduler;
 use crate::lightbox::LightboxState;
 use crate::media_controls::OsMediaBridge;
+use crate::mini_player::MiniPlayerState;
 use crate::navigation::NavHistory;
 use crate::play_queue::PlayQueue;
 use crate::player::PlayerController;
@@ -25,6 +26,7 @@ use crate::state::{
 use crate::status_bus::StatusBus;
 use crate::sync_queue::SyncQueue;
 use crate::theme::ThemeState;
+use crate::tray::TrayController;
 
 impl YtmGuiApp {
     pub(crate) fn init_with_channels(
@@ -120,10 +122,16 @@ impl YtmGuiApp {
             last_ended_counter: 0,
             browse_target: "FEmusic_home".to_string(),
             browse_state: AsyncState::Idle,
+            browse_from_cache: false,
             lyrics_browse_id: None,
             lyrics_state: AsyncState::Idle,
-            artwork: ArtworkCache::new(egui_ctx),
+            artwork: ArtworkCache::new(egui_ctx.clone()),
             meta_modal: None,
+            tray_ctrl: TrayController::new(false, None),
+            mini_player: MiniPlayerState::default(),
+            main_window_visible: true,
+            explicit_quit: false,
+            egui_ctx,
         }
     }
 }

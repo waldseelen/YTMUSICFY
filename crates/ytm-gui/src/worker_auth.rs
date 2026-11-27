@@ -49,12 +49,14 @@ impl BrowserKind {
     pub fn ytdlp_candidates(self) -> Vec<String> {
         let base = self.ytdlp_arg();
         if cfg!(target_os = "linux") && !matches!(self, Self::Firefox) {
+            // Try `basictext` (v10) and `yt-dlp` auto-detection before explicit keyring backends
+            // so tiling/Wayland desktops don't pop up GNOME "Choose password for new keyring" dialogs.
             vec![
-                format!("{base}+gnomekeyring"),
-                format!("{base}+kwallet6"),
-                format!("{base}+kwallet5"),
                 format!("{base}+basictext"),
                 base.to_string(),
+                format!("{base}+kwallet6"),
+                format!("{base}+kwallet5"),
+                format!("{base}+gnomekeyring"),
             ]
         } else {
             vec![base.to_string()]
@@ -80,6 +82,18 @@ pub async fn import_auth_inner(
     Ok((client, status))
 }
 
+fn allow_gnome_keyring(desktop: Option<&str>, session: Option<&str>, opt_in: Option<&str>) -> bool {
+    if opt_in.is_some_and(|v| v.trim() == "1" || v.trim().eq_ignore_ascii_case("true")) {
+        return true;
+    }
+    [desktop, session].into_iter().flatten().any(|v| {
+        let lower = v.to_ascii_lowercase();
+        ["gnome", "ubuntu", "cinnamon", "mate", "xfce", "budgie"]
+            .iter()
+            .any(|de| lower.contains(de))
+    })
+}
+
 pub async fn import_browser_auth_inner(
     paths: &AppPaths,
     cfg: &GuiAppConfig,
@@ -87,9 +101,17 @@ pub async fn import_browser_auth_inner(
 ) -> Result<(InnerTubeClient<ReqwestTransport>, SessionStatus)> {
     paths.ensure_dirs()?;
     let runtime_dir = ensure_runtime_cookie_dir()?;
+    let gnome_ok = allow_gnome_keyring(
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        std::env::var("DESKTOP_SESSION").ok().as_deref(),
+        std::env::var("YTM_USE_SECRET_SERVICE").ok().as_deref(),
+    );
 
     let mut last_err = String::new();
     for spec in browser.ytdlp_candidates() {
+        if spec.ends_with("+gnomekeyring") && !gnome_ok {
+            continue;
+        }
         let temp_dir = tempfile::Builder::new()
             .prefix("ytm-cookie-")
             .tempdir_in(&runtime_dir)
@@ -282,112 +304,5 @@ pub(crate) async fn handle_bootstrap(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, mpsc};
-
-    use ytm_core::{MusicVideoType, Playlist, PlaylistPrivacy, Track, TrackAvailability};
-    use ytm_store::{CachedPlaylistRecord, SqliteStore};
-
-    use super::*;
-    use crate::state::WorkerEvent;
-    use crate::worker::BackendState;
-
-    struct TestDir(std::path::PathBuf);
-
-    impl TestDir {
-        fn new(label: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "ytm_gui_{label}_{}_{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_nanos())
-            ));
-            std::fs::create_dir_all(&dir).expect("create test dir");
-            Self(dir)
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[tokio::test]
-    async fn handle_bootstrap_emits_session_err_and_hydrates_records_without_auto_refresh() {
-        let temp = TestDir::new("worker_auth");
-        let paths = AppPaths::from_root(&temp.0);
-        paths.ensure_dirs().expect("ensure dirs");
-        let store = Arc::new(SqliteStore::open_in_memory(None).expect("open memory store"));
-        let pl = Playlist {
-            id: "PL_BOOT".to_string(),
-            title: "Boot Mix".to_string(),
-            description: None,
-            privacy: PlaylistPrivacy::Private,
-            owned: true,
-            track_count: 1,
-            tracks: vec![Track {
-                video_id: "vid1".to_string(),
-                set_video_id: Some("set1".to_string()),
-                position: 0,
-                title: "Song".to_string(),
-                artists: Vec::new(),
-                album: None,
-                duration_sec: Some(180),
-                release_year: None,
-                music_video_type: MusicVideoType::AudioTrack,
-                availability: TrackAvailability::Available,
-                thumbnail_url: None,
-            }],
-        };
-        store
-            .upsert_cached_playlist_record(&CachedPlaylistRecord {
-                playlist: pl,
-                manifest: None,
-                fetched_at: 1_700_000_000,
-            })
-            .expect("upsert cached record");
-
-        let cfg = GuiAppConfig {
-            preferred_browser: Some(BrowserKind::Brave),
-            ..Default::default()
-        };
-        assert!(!cfg.auto_refresh_browser_cookies);
-
-        let mut state = BackendState {
-            paths,
-            config: cfg,
-            store,
-            client: None,
-            mutation_lock: Arc::new(tokio::sync::Mutex::new(())),
-            active_jobs: std::collections::HashMap::new(),
-            next_job_id: 0,
-        };
-        let (tx, rx) = mpsc::channel();
-        handle_bootstrap(&mut state, &tx).await;
-        drop(tx);
-
-        let events: Vec<WorkerEvent> = rx.into_iter().collect();
-        assert!(events.iter().any(|e| matches!(
-            e,
-            WorkerEvent::PlaylistCacheHydrated(pls) if pls.len() == 1 && pls[0].id == "PL_BOOT"
-        )));
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, WorkerEvent::SessionLoaded(Err(_)))),
-            "handle_bootstrap must always emit SessionLoaded(Err) when unverified"
-        );
-    }
-
-    #[test]
-    fn browser_candidates_include_linux_keyring_and_basictext_fallbacks() {
-        let candidates = BrowserKind::Brave.ytdlp_candidates();
-        if cfg!(target_os = "linux") {
-            assert!(candidates.contains(&"brave+gnomekeyring".to_string()));
-            assert!(candidates.contains(&"brave+basictext".to_string()));
-        }
-        assert!(candidates.contains(&"brave".to_string()));
-    }
-}
+#[path = "worker_auth_tests.rs"]
+mod tests;

@@ -31,6 +31,7 @@ pub struct TopBarCtx<'a> {
     pub focus_search_once: bool,
     pub status_bus: &'a mut StatusBus,
     pub sync_queue: &'a mut SyncQueue,
+    pub mini_player_open: &'a mut bool,
     pub start_instant: Instant,
     pub now_ms: u64,
     pub cmd_tx: &'a Sender<WorkerCmd>,
@@ -52,6 +53,7 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
         focus_search_once,
         status_bus,
         sync_queue,
+        mini_player_open,
         start_instant,
         now_ms,
         cmd_tx,
@@ -170,13 +172,17 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
                 *active_tab = GuiTab::Auth;
             }
 
-            let _ = icon_button(
+            if icon_button(
                 ui,
                 Icon::MiniPlayer,
                 15.0,
-                false,
-                tr(lang, Key::MiniPlayerSoon),
-            );
+                true,
+                tr(lang, Key::MiniPlayerToggle),
+            )
+            .clicked()
+            {
+                *mini_player_open = !*mini_player_open;
+            }
 
             let (theme_icon, theme_tip) = match gui_config.theme_mode {
                 ThemeMode::System => (Icon::Monitor, tr(lang, Key::ThemeSystem)),

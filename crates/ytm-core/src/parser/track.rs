@@ -236,6 +236,7 @@ fn is_view_or_play_count(seg: &str) -> bool {
             "listeners",
             "görüntüleme",
             "oynatma",
+            "dinlenme",
             "dinleme",
         ]
         .iter()

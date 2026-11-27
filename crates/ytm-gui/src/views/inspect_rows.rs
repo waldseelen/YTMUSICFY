@@ -5,14 +5,17 @@ use egui_extras::TableBody;
 use ytm_core::{Playlist, PlaylistSummary, Track, TrackAvailability};
 
 use crate::artwork::ArtworkCache;
+use crate::i18n::ResolvedLang;
 use crate::icons::{Icon, paint_icon};
 use crate::interaction::{apply_range_select, auto_scroll_on_drag, paint_drag_ghost};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::DragTrackPayload;
 use crate::sync_queue::SyncQueue;
+use crate::views::context_menu::{
+    ContextMenuEnv, ContextTarget, InspectorContextExtras, attach_context_menu,
+};
 use crate::views::inspect_helpers::format_duration;
-use crate::views::inspect_menu::{RowMenuContext, attach_row_context_menu};
 
 /// Per-frame output collected from rendering track rows.
 pub struct RowRenderOutcome {
@@ -26,6 +29,7 @@ pub struct RowRenderOutcome {
 #[allow(clippy::too_many_arguments)]
 pub fn render_inspect_rows(
     mut body: TableBody<'_>,
+    lang: ResolvedLang,
     pl: &Playlist,
     visible: &[&Track],
     editable: bool,
@@ -35,7 +39,7 @@ pub fn render_inspect_rows(
     last_clicked: &mut Option<usize>,
     focused_row: &mut Option<usize>,
     scroll_target_row: Option<usize>,
-    _sync_queue: &mut SyncQueue,
+    sync_queue: &mut SyncQueue,
     artwork: &mut ArtworkCache,
     toast: &mut Option<ToastState>,
 ) -> RowRenderOutcome {
@@ -198,17 +202,21 @@ pub fn render_inspect_rows(
                     focused_row,
                 );
             }
-            attach_row_context_menu(
+            let queue_list: Vec<Track> = visible.iter().copied().cloned().collect();
+            let row_target = ContextTarget::Track {
+                track: t.clone(),
+                queue_list,
+                row_idx: idx,
+            };
+            attach_row_menu(
                 &r,
-                RowMenuContext {
-                    pl,
-                    track: t,
-                    row_idx: idx,
-                    visible,
-                    selection_tracks: &drag_tracks,
-                    editable,
-                    playlists,
-                },
+                row_target,
+                lang,
+                pl,
+                editable,
+                playlists,
+                &drag_tracks,
+                sync_queue,
                 &mut out,
                 toast,
             );
@@ -228,17 +236,20 @@ pub fn render_inspect_rows(
             } else {
                 ui.add(egui::Label::new("-").sense(egui::Sense::click()))
             };
-            attach_row_context_menu(
+            let queue_list: Vec<Track> = visible.iter().copied().cloned().collect();
+            attach_row_menu(
                 &r,
-                RowMenuContext {
-                    pl,
-                    track: t,
+                ContextTarget::Track {
+                    track: t.clone(),
+                    queue_list,
                     row_idx: idx,
-                    visible,
-                    selection_tracks: &drag_tracks,
-                    editable,
-                    playlists,
                 },
+                lang,
+                pl,
+                editable,
+                playlists,
+                &drag_tracks,
+                sync_queue,
                 &mut out,
                 toast,
             );
@@ -258,17 +269,20 @@ pub fn render_inspect_rows(
             } else {
                 ui.add(egui::Label::new("-").sense(egui::Sense::click()))
             };
-            attach_row_context_menu(
+            let queue_list: Vec<Track> = visible.iter().copied().cloned().collect();
+            attach_row_menu(
                 &r,
-                RowMenuContext {
-                    pl,
-                    track: t,
+                ContextTarget::Track {
+                    track: t.clone(),
+                    queue_list,
                     row_idx: idx,
-                    visible,
-                    selection_tracks: &drag_tracks,
-                    editable,
-                    playlists,
                 },
+                lang,
+                pl,
+                editable,
+                playlists,
+                &drag_tracks,
+                sync_queue,
                 &mut out,
                 toast,
             );
@@ -317,6 +331,40 @@ pub fn render_inspect_rows(
     });
 
     out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn attach_row_menu(
+    resp: &egui::Response,
+    target: ContextTarget,
+    lang: ResolvedLang,
+    pl: &Playlist,
+    editable: bool,
+    playlists: &[PlaylistSummary],
+    selection_tracks: &[Track],
+    sync_queue: &mut SyncQueue,
+    out: &mut RowRenderOutcome,
+    toast: &mut Option<ToastState>,
+) {
+    attach_context_menu(
+        resp,
+        target,
+        ContextMenuEnv {
+            lang,
+            playlists,
+            sync_queue,
+            toast,
+            actions: &mut out.play_actions,
+        },
+        Some(InspectorContextExtras {
+            pl_id: &pl.id,
+            editable,
+            selection_tracks,
+            batch_copy_move: &mut out.batch_copy_move,
+            remove_single: &mut out.remove_single,
+            filter_artist: &mut out.filter_artist,
+        }),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

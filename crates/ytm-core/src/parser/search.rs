@@ -3,6 +3,9 @@ use serde_json::Value;
 use crate::browse_models::{BrowseCard, BrowseCardKind, LyricsPayload, SearchPage, TimedLyricLine};
 use crate::error::CoreError;
 use crate::parser::browse::{parse_lyrics_response, parse_two_row_card};
+use crate::parser::browse_cards::{
+    browse_endpoint_page_type, classify_browse_card_kind, parse_list_item_card,
+};
 use crate::parser::playlist::extract_continuation_token;
 use crate::parser::track::{extract_thumbnail_url, parse_tracks_from_items};
 use crate::parser::tree::{
@@ -61,52 +64,6 @@ pub fn parse_lyrics_payload(response: &Value) -> Option<LyricsPayload> {
     parse_lyrics_response(response).map(LyricsPayload::Plain)
 }
 
-fn parse_list_item_card(renderer: &Value) -> Option<BrowseCard> {
-    let nav = renderer
-        .get("navigationEndpoint")
-        .or_else(|| {
-            renderer
-                .pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint")
-        })?;
-    let browse_id = nav
-        .pointer("/browseEndpoint/browseId")
-        .and_then(Value::as_str)
-        .map(str::to_string)?;
-
-    let cols = renderer.get("flexColumns").and_then(Value::as_array)?;
-    let title = cols
-        .first()
-        .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text"))
-        .map(extract_runs_text)
-        .filter(|s| !s.is_empty())?;
-    let subtitle = cols
-        .get(1)
-        .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text"))
-        .map(extract_runs_text)
-        .unwrap_or_default();
-
-    let page_type = nav
-        .pointer("/browseEndpoint/browseEndpointContextSupportedConfigs/browseEndpointContextMusicConfig/pageType")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let kind = match page_type {
-        "MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL" => BrowseCardKind::Artist,
-        "MUSIC_PAGE_TYPE_ALBUM" | "MUSIC_PAGE_TYPE_AUDIOBOOK" => BrowseCardKind::Album,
-        _ if browse_id.starts_with("UC") || browse_id.starts_with("MPLA") => BrowseCardKind::Artist,
-        _ if browse_id.starts_with("MPREb_") => BrowseCardKind::Album,
-        _ => BrowseCardKind::Playlist,
-    };
-
-    Some(BrowseCard {
-        kind,
-        browse_id: Some(browse_id),
-        video_id: None,
-        title,
-        subtitle,
-        thumbnail_url: extract_thumbnail_url(renderer),
-    })
-}
-
 fn collect_search_items(
     items: &[Value],
     tracks: &mut Vec<crate::models::Track>,
@@ -120,9 +77,7 @@ fn collect_search_items(
             continue;
         }
         if let Some(renderer) = item.get("musicResponsiveListItemRenderer") {
-            let has_watch = find_first_by_key(renderer, "watchEndpoint").is_some()
-                || find_first_by_key(renderer, "playNavigationEndpoint").is_some();
-            if !has_watch && let Some(card) = parse_list_item_card(renderer) {
+            if let Some(card) = parse_list_item_card(renderer) {
                 cards.push(card);
                 continue;
             }
@@ -130,6 +85,75 @@ fn collect_search_items(
             tracks.extend(parsed);
         }
     }
+}
+
+fn parse_top_result_card(card_shelf: &Value) -> Option<BrowseCard> {
+    let browse_ep = card_shelf
+        .get("onTap")
+        .and_then(|t| find_first_by_key(t, "browseEndpoint"))
+        .or_else(|| {
+            card_shelf
+                .get("title")
+                .and_then(|t| find_first_by_key(t, "browseEndpoint"))
+        })
+        .or_else(|| {
+            card_shelf
+                .get("header")
+                .and_then(|h| find_first_by_key(h, "browseEndpoint"))
+        });
+
+    let browse_id = browse_ep
+        .and_then(|ep| ep.get("browseId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let video_id = card_shelf
+        .get("onTap")
+        .and_then(|t| find_first_by_key(t, "watchEndpoint"))
+        .and_then(|w| w.get("videoId"))
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            card_shelf
+                .get("buttons")
+                .and_then(|b| find_first_by_key(b, "watchEndpoint"))
+                .and_then(|w| w.get("videoId"))
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+        })
+        .map(str::to_string);
+
+    let kind = match browse_id.as_deref() {
+        Some(bid) => {
+            let page_type = browse_ep.and_then(browse_endpoint_page_type);
+            classify_browse_card_kind(bid, page_type)
+        }
+        None => BrowseCardKind::Track,
+    };
+
+    if browse_id.is_none() && video_id.is_none() {
+        return None;
+    }
+
+    let title = card_shelf
+        .get("title")
+        .map(extract_runs_text)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Top result".to_string());
+
+    Some(BrowseCard {
+        kind,
+        browse_id,
+        video_id,
+        title,
+        subtitle: card_shelf
+            .get("subtitle")
+            .map(extract_runs_text)
+            .unwrap_or_default(),
+        thumbnail_url: extract_thumbnail_url(card_shelf),
+    })
 }
 
 /// Parse InnerTube `POST search` (initial or continuation) into [`SearchPage`].
@@ -144,46 +168,8 @@ pub fn parse_search_page(response: &Value) -> Result<SearchPage, CoreError> {
     let mut continuation = None;
 
     if let Some(card_shelf) = find_first_by_key(response, "musicCardShelfRenderer") {
-        if let Some(title) = card_shelf.get("title").map(extract_runs_text)
-            && !title.is_empty()
-        {
-            let nav = card_shelf.pointer("/title/runs/0/navigationEndpoint");
-            let video_id = nav
-                .and_then(|n| n.pointer("/watchEndpoint/videoId"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let browse_id = nav
-                .and_then(|n| n.pointer("/browseEndpoint/browseId"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            if video_id.is_some() || browse_id.is_some() {
-                let kind = if video_id.is_some() {
-                    BrowseCardKind::Track
-                } else if browse_id
-                    .as_deref()
-                    .is_some_and(|id| id.starts_with("UC") || id.starts_with("MPLA"))
-                {
-                    BrowseCardKind::Artist
-                } else if browse_id
-                    .as_deref()
-                    .is_some_and(|id| id.starts_with("MPREb_"))
-                {
-                    BrowseCardKind::Album
-                } else {
-                    BrowseCardKind::Playlist
-                };
-                cards.push(BrowseCard {
-                    kind,
-                    browse_id,
-                    video_id,
-                    title,
-                    subtitle: card_shelf
-                        .get("subtitle")
-                        .map(extract_runs_text)
-                        .unwrap_or_default(),
-                    thumbnail_url: extract_thumbnail_url(card_shelf),
-                });
-            }
+        if let Some(card) = parse_top_result_card(card_shelf) {
+            cards.push(card);
         }
         if let Some(contents) = card_shelf.get("contents").and_then(Value::as_array) {
             collect_search_items(contents, &mut tracks, &mut cards);

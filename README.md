@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Release v0.2.0" src="https://img.shields.io/badge/release-v0.2.0-4CAF80?style=flat-square"></a>
+  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-4CAF80?style=flat-square"></a>
   <a href="LICENSE-MIT"><img alt="License MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="Platforms Linux & Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-222834?style=flat-square">
   <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square">
@@ -30,16 +30,20 @@ Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalg
 ## Why Dalga?
 
 - **Zero Electron / WebView Overhead:** Native `eframe`/`egui` desktop studio (`ytm-gui`), terminal dashboard (`ytm tui`), and scriptable CLI (`ytm`).
-- **Offline-First Resilience:** SQLite-backed library, playlists, and lyrics cache (`schema v3`) hydrate instantly on launch and remain browsable even when your network or session goes offline.
+- **Offline-First Resilience:** SQLite-backed library, playlists, Home shelves, and lyrics cache (`schema v4`) hydrate instantly on launch and remain browsable even when your network or session goes offline.
 - **No Unattended Background Scraping:** Uses your existing YouTube Music browser cookies explicitly on demand—plus a one-click **Refresh Session** flow that opens YouTube Music and imports the renewed session once ready.
 - **Safety-Locked Playlist Engineering:** `FetchManifest` completeness checks, `PlanFingerprint` staleness guards, chunked verified writes, SQLite pre-mutation snapshots with restore diffs, and `StrictLock` / `QuickLike` controls.
 
 ---
 
-## What's Inside Dalga (`v0.2.0`)
+## What's Inside Dalga (`v0.3.0`)
 
 | Area | Highlights |
 | :--- | :--- |
+| **System Tray & Close-to-Tray** | Theme-aware system tray (`ksni` StatusNotifierItem on Linux, Win32 `tray-icon` on Windows) with Show/Hide, Play/Pause, Next, Previous, Mini Player, and Quit; closing the main window minimizes to tray while playback continues. |
+| **Borderless Mini Player** | Always-on-top secondary viewport (`Ctrl+M`) with Compact & Expanded live search modes, Spotify-style edge snapping, per-monitor layout persistence, corner resize handle, and optional idle opacity dimming. |
+| **Home Shelves & Continue Card** | Personalized Home shelves (`Listen Again`, `Mixed for you`, `New releases`, `Quick picks`) with horizontal shelf scroll, skeleton loading, a **Continue Listening** card from your saved playback session, and SQLite `browse_cache` offline hydration. |
+| **Unified Context Menu & Shortcuts** | Consistent right-click `ContextTarget` menu across Home, Browse, Search, Queue, and Inspector, paired with a central `SHORTCUTS` registry (`/`, `Ctrl+M`, `Ctrl+K`, media keys) rendered live in Settings. |
 | **Brand & Vector Iconography** | 53 crisp monochrome Lucide SVG icons rendered cleanly on all HiDPI scales; zero emoji/glyph drift across buttons and drawers. |
 | **Adaptive Theme Engine** | **Ultra-Dark** and **Apple-style Light** themes following OS preference (`System` / `Dark` / `Light`), paired with **Emerald**, **Gold**, and **YTM Pink** accents plus optional off-thread **Dynamic Album Art Accent** (`WCAG AA >= 4.5:1` verified). |
 | **Bilingual UI (EN & TR)** | Instant Turkish/English interface (`System` locale detection or explicit `EN`/`TR` switcher) across bars, drawers, playback, and settings. |
@@ -47,6 +51,12 @@ Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalg
 | **Typeahead Instant Search** | Debounced InnerTube autocomplete + live categorized dropdown (`Top Match`, `Songs`, `Artist`, `Album`) with full keyboard navigation (`Up`/`Down`/`Enter`/`Esc`) and 12-item recent history. |
 | **Playback, Drawers & Lightbox** | Headless `mpv` IPC with 15s prefetch, MPRIS2/SMTC OS media controls, independent right-hand **Queue** & **Lyrics** drawers, and click-to-zoom **Album Artwork Lightbox**. |
 | **Playlist Studio (`ytm` + GUI)** | Exact/fuzzy **Dedupe**, `O(N log N)` LIS minimal-move **Sort**, **Set Algebra** (`diff`, `intersect`, `merge`), **Health** (`UGC -> Official ATV` upgrade), **Genre Split**, and **Snapshots**. |
+
+### Mini Player (Compact & Expanded Search)
+
+<p align="center">
+  <img src="assets/screenshots/mini-player.png" alt="Dalga Borderless Mini Player with Expanded Search" width="100%">
+</p>
 
 ### Instant Search & Album Lightbox
 
@@ -118,6 +128,12 @@ cargo build --release --locked --bin ytm-gui --bin ytm
 .\target\release\ytm-gui.exe
 ```
 
+### Linux (Hyprland Floating Rule for Mini Player)
+Add a floating rule to your Hyprland config so `Dalga Mini` opens as a compact floating overlay rather than tiling:
+```ini
+windowrulev2 = float, title:^(Dalga Mini)$
+```
+
 ---
 
 ## Keyboard Shortcuts
@@ -125,7 +141,8 @@ cargo build --release --locked --bin ytm-gui --bin ytm
 | Shortcut | Action |
 | :--- | :--- |
 | `Ctrl+1` .. `Ctrl+5` | Switch primary workspaces (`Home`, `Library`, `Studio`, `Safety`, `Settings`) |
-| `Ctrl+F` | Focus top-bar instant search |
+| `/` or `Ctrl+F` | Focus top-bar instant search (`/` active when not typing) |
+| `Ctrl+M` | Toggle always-on-top Mini Player |
 | `Ctrl+K` | Open Command Palette |
 | `Ctrl+Shift+S` | Toggle Sync Staging Drawer |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo staged playlist mutation |
@@ -198,11 +215,11 @@ ytm tui
 ```
 crates/
 ├── ytm-core    # InnerTube HTTP client, SAPISIDHASH signing, FetchManifest, Search/Suggestions/Browse/Lyrics
-├── ytm-store   # SQLite offline cache (v3: library_cache, lyrics_cache, staged_ops, snapshots), JSON/CSV/M3U8 exports
+├── ytm-store   # SQLite offline cache (v4: library_cache, lyrics_cache, browse_cache, staged_ops, snapshots), exports
 ├── ytm-ops     # Pure playlist engines: Dedupe, O(N log N) LIS Sort, Set Algebra, Health, Restore Diff
 ├── ytm-enrich  # Normalized SQLite enrichment cache + MusicBrainz / Deezer / Last.fm / ListenBrainz genre pipeline
 ├── ytm-cli     # `ytm` CLI binary + 5-tab Ratatui TUI
-└── ytm-gui     # `ytm-gui` Dalga desktop studio: theme engine, Lucide SVGs, EN/TR i18n, Status Ribbon, mpv IPC player
+└── ytm-gui     # `ytm-gui` Dalga desktop studio: tray, Mini Player, themes, Lucide SVGs, EN/TR i18n, mpv IPC player
 ```
 
 For architectural contracts and domain terms, see [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SPEC.md`](SPEC.md), and [`GLOSSARY.md`](GLOSSARY.md).

@@ -179,3 +179,105 @@ fn offline_cache_hydrates_library_and_survives_network_failure() {
     // Does not hijack active workspace when cached library exists.
     assert_eq!(app.active_tab, GuiTab::Inspector);
 }
+
+#[test]
+fn mini_player_actions_sync_with_player_controller_and_share_search_controller() {
+    let (cmd_tx, _cmd_rx) = mpsc::channel();
+    let (_evt_tx, evt_rx) = mpsc::channel();
+    let mut app = YtmGuiApp::init_with_channels(cmd_tx, evt_rx, "./backups".to_string(), None);
+
+    let t1 = Track {
+        video_id: "M1".into(),
+        set_video_id: None,
+        position: 0,
+        title: "One".into(),
+        artists: Vec::new(),
+        album: None,
+        duration_sec: Some(120),
+        release_year: None,
+        music_video_type: ytm_core::MusicVideoType::AudioTrack,
+        availability: ytm_core::TrackAvailability::Available,
+        thumbnail_url: None,
+    };
+    let mut t2 = t1.clone();
+    t2.video_id = "M2".into();
+    t2.title = "Two".into();
+
+    crate::playback_ops::dispatch_play_actions(
+        vec![crate::playback_ops::PlayAction::PlayFromList {
+            tracks: vec![t1, t2],
+            start_idx: 0,
+        }],
+        &mut app,
+    );
+    assert_eq!(app.player.snapshot().state.video_id(), Some("M1"));
+
+    let out = crate::views::player_bar::PlayerBarOutcome {
+        next: true,
+        toggle_shuffle: true,
+        cycle_repeat: true,
+        ..Default::default()
+    };
+    crate::playback_ops::apply_player_bar_outcome(out, &mut app);
+    assert!(app.play_queue.is_shuffle());
+    assert_eq!(
+        app.play_queue.repeat_mode(),
+        crate::play_queue::RepeatMode::All
+    );
+    assert_eq!(app.player.snapshot().state.video_id(), Some("M2"));
+
+    let seek_out = crate::views::player_bar::PlayerBarOutcome {
+        seek_to: Some(42.0),
+        ..Default::default()
+    };
+    crate::playback_ops::apply_player_bar_outcome(seek_out, &mut app);
+    assert!((app.player.snapshot().position_sec - 42.0).abs() < 0.01);
+
+    // Mini Player and top bar share the exact same SearchController instance.
+    let ptr_before: *const SearchController = &app.search_controller;
+    app.search_controller.on_query_change("daft", 10);
+    let ptr_after: *const SearchController = &app.search_controller;
+    assert_eq!(ptr_before, ptr_after);
+    assert_eq!(app.search_controller.query, "daft");
+}
+
+#[test]
+fn home_browse_cache_hydrates_first_and_survives_offline_failure() {
+    let (cmd_tx, _cmd_rx) = mpsc::channel();
+    let (evt_tx, evt_rx) = mpsc::channel();
+    let mut app = YtmGuiApp::init_with_channels(cmd_tx, evt_rx, "./backups".to_string(), None);
+
+    let cached_home = BrowsePage {
+        browse_id: ytm_core::BROWSE_HOME.to_string(),
+        kind: ytm_core::BrowsePageKind::Home,
+        title: "Home".to_string(),
+        subtitle: None,
+        artists: Vec::new(),
+        thumbnail_url: None,
+        sections: vec![ytm_core::BrowseSection {
+            title: "Listen again".to_string(),
+            cards: Vec::new(),
+            tracks: Vec::new(),
+            browse_id: None,
+            browse_params: None,
+        }],
+        tracks: Vec::new(),
+        continuation: None,
+    };
+
+    evt_tx
+        .send(WorkerEvent::BrowseCacheHydrated(cached_home))
+        .unwrap();
+    evt_tx
+        .send(WorkerEvent::BrowseLoaded {
+            browse_id: ytm_core::BROWSE_HOME.to_string(),
+            result: Err("offline".to_string()),
+        })
+        .unwrap();
+    app.drain_events();
+
+    assert!(app.offline_mode);
+    assert!(app.browse_from_cache);
+    let page = app.browse_state.data().expect("cached home kept");
+    assert_eq!(page.sections[0].title, "Listen again");
+}

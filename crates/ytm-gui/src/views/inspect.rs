@@ -30,6 +30,7 @@ use crate::views::split_diff;
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    lang: crate::i18n::ResolvedLang,
     playlist: Option<&Playlist>,
     manifest: Option<&FetchManifest>,
     selected_playlist_id: &mut Option<String>,
@@ -229,6 +230,7 @@ pub fn show(
             .body(|body| {
                 row_out = Some(render_inspect_rows(
                     body,
+                    lang,
                     &pl,
                     &visible,
                     editable,

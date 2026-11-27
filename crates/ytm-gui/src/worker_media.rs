@@ -51,7 +51,13 @@ pub(crate) fn handle_interactive_cmd(
     let Some(client) = state.client.as_ref().map(Arc::clone) else {
         let msg = "Not authenticated: sign in under Settings & Auth first.".to_string();
         match cmd {
-            WorkerCmd::LoadBrowse { browse_id } => {
+            WorkerCmd::LoadBrowse {
+                browse_id,
+                params: _,
+            } => {
+                if let Ok(Some(cached)) = state.store.load_cached_browse_page(&browse_id) {
+                    let _ = tx.send(WorkerEvent::BrowseCacheHydrated(cached));
+                }
                 let _ = tx.send(WorkerEvent::BrowseLoaded {
                     browse_id,
                     result: Err(msg),
@@ -152,11 +158,22 @@ pub(crate) fn handle_interactive_cmd(
                     result: res,
                 });
             }
-            WorkerCmd::LoadBrowse { browse_id } => {
+            WorkerCmd::LoadBrowse { browse_id, params } => {
+                if params.is_none()
+                    && let Ok(Some(cached)) = store.load_cached_browse_page(&browse_id)
+                {
+                    let _ = tx.send(WorkerEvent::BrowseCacheHydrated(cached));
+                    ctx.request_repaint();
+                }
                 let res = client
-                    .get_browse_page(&browse_id)
+                    .get_browse_page_with_params(&browse_id, params.as_deref())
                     .await
                     .map_err(|e| e.to_string());
+                if params.is_none()
+                    && let Ok(page) = &res
+                {
+                    let _ = store.save_cached_browse_page(page);
+                }
                 let _ = tx.send(WorkerEvent::BrowseLoaded {
                     browse_id,
                     result: res,

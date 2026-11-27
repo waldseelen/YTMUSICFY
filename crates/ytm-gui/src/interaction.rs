@@ -18,6 +18,7 @@ pub struct GlobalInput {
     pub redo_last: bool,
     pub toggle_play_pause: bool,
     pub toggle_mute: bool,
+    pub toggle_mini_player: bool,
     pub open_ytm: bool,
     pub open_ytm_at_time: bool,
     pub zoom_delta: Option<f32>,
@@ -53,6 +54,9 @@ pub fn decode_global_input(i: &egui::InputState, typing: bool) -> GlobalInput {
         if i.key_pressed(egui::Key::F) {
             out.focus_search = true;
         }
+        if i.key_pressed(egui::Key::M) {
+            out.toggle_mini_player = true;
+        }
         if i.key_pressed(egui::Key::O) {
             if i.modifiers.shift {
                 out.open_ytm_at_time = true;
@@ -83,6 +87,9 @@ pub fn decode_global_input(i: &egui::InputState, typing: bool) -> GlobalInput {
         }
         if i.key_pressed(egui::Key::M) {
             out.toggle_mute = true;
+        }
+        if !i.modifiers.alt && i.key_pressed(egui::Key::Slash) {
+            out.focus_search = true;
         }
     }
     if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
@@ -257,5 +264,42 @@ mod tests {
         let decoded_so = decode_global_input(&state_so, false);
         assert!(decoded_so.open_ytm_at_time);
         assert!(!decoded_so.open_ytm);
+    }
+
+    #[test]
+    fn global_input_decodes_slash_search_and_ctrl_m_mini_player() {
+        let raw_slash = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: egui::Key::Slash,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let state_slash = egui::InputState::default().begin_pass(
+            raw_slash.clone(),
+            false,
+            1.0,
+            &Default::default(),
+        );
+        assert!(decode_global_input(&state_slash, false).focus_search);
+        assert!(!decode_global_input(&state_slash, true).focus_search);
+
+        let raw_ctrl_m = egui::RawInput {
+            modifiers: egui::Modifiers::CTRL,
+            events: vec![egui::Event::Key {
+                key: egui::Key::M,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::CTRL,
+            }],
+            ..Default::default()
+        };
+        let state_m =
+            egui::InputState::default().begin_pass(raw_ctrl_m, false, 1.0, &Default::default());
+        assert!(decode_global_input(&state_m, false).toggle_mini_player);
     }
 }

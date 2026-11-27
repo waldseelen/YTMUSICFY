@@ -9,6 +9,7 @@ use crate::playback_ops::{PlayAction, start_playing_track};
 use crate::state::{AsyncState, WorkerCmd};
 use crate::sync_queue::StagedOp;
 use crate::views::async_banner;
+use crate::views::context_menu::{ContextMenuEnv, ContextTarget, attach_context_menu};
 use crate::views::inspect_helpers::format_duration;
 
 /// Render live Play Queue management alongside InnerTube Lyrics panel.
@@ -90,7 +91,14 @@ pub(crate) fn show_queue_section(ui: &mut egui::Ui, app: &mut YtmGuiApp) -> Vec<
     if app.play_queue.tracks().is_empty() {
         ui.label("Queue is empty. Double-click any track in Inspector or Browse to start playing.");
     } else {
-        render_queue_table(ui, app, &mut jump_to, &mut move_pair, &mut remove_idx);
+        render_queue_table(
+            ui,
+            app,
+            &mut jump_to,
+            &mut move_pair,
+            &mut remove_idx,
+            &mut actions,
+        );
     }
 
     if let Some((from, to)) = move_pair {
@@ -200,7 +208,15 @@ fn render_queue_table(
     jump_to: &mut Option<usize>,
     move_pair: &mut Option<(usize, usize)>,
     remove_idx: &mut Option<usize>,
+    actions: &mut Vec<PlayAction>,
 ) {
+    let lang = app.lang();
+    let playlists = app
+        .library
+        .data()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .to_vec();
     let cur_idx = app.play_queue.current_index();
     let len = app.play_queue.tracks().len();
     let tracks = app.play_queue.tracks().to_vec();
@@ -265,6 +281,22 @@ fn render_queue_table(
                         if resp.double_clicked() {
                             *jump_to = Some(idx);
                         }
+                        attach_context_menu(
+                            &resp,
+                            ContextTarget::Track {
+                                track: t.clone(),
+                                queue_list: tracks.clone(),
+                                row_idx: idx,
+                            },
+                            ContextMenuEnv {
+                                lang,
+                                playlists: &playlists,
+                                sync_queue: &mut app.sync_queue,
+                                toast: &mut app.toast,
+                                actions,
+                            },
+                            None,
+                        );
                     });
 
                     row.col(|ui| {

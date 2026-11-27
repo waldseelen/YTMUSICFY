@@ -94,6 +94,7 @@ pub enum WorkerCmd {
     },
     LoadBrowse {
         browse_id: String,
+        params: Option<String>,
     },
     LoadBrowseContinuation {
         browse_id: String,
@@ -183,6 +184,7 @@ pub enum WorkerEvent {
         browse_id: String,
         result: Result<BrowsePage, String>,
     },
+    BrowseCacheHydrated(BrowsePage),
     BrowseContinuationLoaded {
         browse_id: String,
         result: Result<BrowsePage, String>,

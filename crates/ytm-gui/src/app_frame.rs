@@ -5,9 +5,69 @@ use crate::app::YtmGuiApp;
 use crate::browser_launch::{build_watch_url, open_url_in_browser};
 use crate::i18n::{Key, ResolvedLang, tr};
 use crate::icons::{Icon, icon_text_button, paint_icon};
-use crate::playback_ops::dispatch_play_actions;
+use crate::navigation::apply_global_input;
+use crate::playback_ops::{dispatch_play_actions, toggle_mute_state};
 use crate::state::{AsyncState, WorkerCmd};
 use crate::theme::Palette;
+
+pub(crate) fn sync_theme_and_input(
+    ctx: &egui::Context,
+    app: &mut YtmGuiApp,
+    current_art_url: Option<&str>,
+) -> bool {
+    app.theme_state.dynamic_target = current_art_url.and_then(|url| app.artwork.accent_for(url));
+    let dt = ctx.input(|i| i.unstable_dt);
+    if app.theme_state.sync_and_apply(
+        ctx,
+        app.gui_config.theme_mode,
+        app.gui_config.accent_palette,
+        app.gui_config.dynamic_accent,
+        app.gui_config.reduced_motion,
+        dt,
+    ) {
+        ctx.request_repaint();
+    }
+    let base_ppp = *app
+        .base_pixels_per_point
+        .get_or_insert_with(|| ctx.pixels_per_point());
+    let input_out = apply_global_input(
+        ctx,
+        base_ppp,
+        &mut app.ui_scale,
+        &mut app.active_tab,
+        &mut app.selected_playlist_id,
+        &mut app.focus_search_once,
+        &mut app.sync_queue,
+        &mut app.toast,
+        &mut app.pending_modal,
+        &mut app.nav_history,
+    );
+    if input_out.toggle_palette {
+        app.palette_open = !app.palette_open;
+    }
+    if input_out.toggle_sync_drawer {
+        app.sync_drawer_open = !app.sync_drawer_open;
+    }
+    if input_out.toggle_play_pause {
+        app.player.toggle_pause();
+    }
+    if input_out.toggle_mute {
+        toggle_mute_state(app);
+    }
+    if input_out.toggle_mini_player {
+        app.mini_player.open = !app.mini_player.open;
+    }
+    if input_out.open_ytm {
+        app.open_current_track_in_youtube(false);
+    }
+    if input_out.open_ytm_at_time {
+        app.open_current_track_in_youtube(true);
+    }
+    if let Some(url) = app.pending_copy_url.take() {
+        ctx.copy_text(url);
+    }
+    input_out.navigated_via_history
+}
 
 impl YtmGuiApp {
     pub(crate) fn drain_toast_to_bus(&mut self) {
@@ -183,6 +243,14 @@ pub(crate) fn finish_frame(
     crate::lightbox::show_lightbox(ctx, &mut app.lightbox, &mut app.artwork, &palette, lang);
 
     app.drain_toast_to_bus();
+    crate::window_lifecycle::process_tray_and_close(ctx, app);
+    crate::views::mini_player_view::show_mini_player_viewport(ctx, app);
+    #[cfg(feature = "screenshot-harness")]
+    if (!app.mini_player.open || ctx.embed_viewports())
+        && crate::screenshot_seed::maybe_capture_screenshot(ctx, ctx)
+    {
+        app.explicit_quit = true;
+    }
 
     if app.sync_queue.revision() != app.last_persisted_rev {
         app.mark_staged_persisted();
@@ -221,6 +289,8 @@ pub(crate) fn finish_frame(
         || app.library.is_loading()
         || app.session_refresh.is_busy()
         || !app.loading_playlists.is_empty()
+        || app.mini_player.open
+        || (!app.main_window_visible && app.player.snapshot().state.is_active())
         || app.player.snapshot().state.is_active();
     if actively_working {
         let interval_ms = if window_active { 500 } else { 1500 };
