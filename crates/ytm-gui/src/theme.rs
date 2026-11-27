@@ -316,7 +316,10 @@ pub fn apply_palette(ctx: &egui::Context, pal: &Palette, high_contrast: bool, fo
     visuals.window_corner_radius = CornerRadius::same(8);
 
     // Apply Apple/Linear spacing & non-compounding font scaling from clean defaults.
-    let mut style = egui::Style::default();
+    let mut style = egui::Style {
+        visuals: visuals.clone(),
+        ..Default::default()
+    };
     let scale = font_scale.clamp(0.8, 2.0);
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);

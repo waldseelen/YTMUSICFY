@@ -25,7 +25,13 @@ pub fn load_window_icon() -> Option<egui::IconData> {
 /// Return the cached theme-appropriate Dalga logo texture for UI chrome.
 #[must_use]
 pub fn logo_texture(ctx: &egui::Context) -> Option<TextureHandle> {
-    let dark = ctx.style().visuals.dark_mode;
+    logo_texture_for_mode(ctx, ctx.style().visuals.dark_mode)
+}
+
+/// Return the cached Dalga logo texture for an explicit `dark_mode` flag
+/// (light ink on dark surfaces, dark ink on light surfaces).
+#[must_use]
+pub fn logo_texture_for_mode(ctx: &egui::Context, dark: bool) -> Option<TextureHandle> {
     let key = egui::Id::new(if dark {
         "dalga_brand_logo_dark"
     } else {

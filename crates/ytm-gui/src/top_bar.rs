@@ -90,7 +90,7 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
             *active_tab = entry.tab;
             *selected_playlist_id = entry.playlist_id;
         }
-        if let Some(tex) = crate::brand::logo_texture(ui.ctx()) {
+        if let Some(tex) = crate::brand::logo_texture_for_mode(ui.ctx(), palette.dark_mode) {
             ui.add(egui::Image::new((tex.id(), egui::vec2(28.0, 28.0))).corner_radius(6.0));
         }
         if layout.show_brand_title {
