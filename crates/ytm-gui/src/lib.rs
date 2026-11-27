@@ -4,6 +4,7 @@ pub mod app_frame;
 pub mod artwork;
 pub mod audio_fx;
 pub mod auth_store;
+pub mod bar_layout;
 pub mod brand;
 pub mod browser_launch;
 pub mod command_palette;
@@ -79,9 +80,9 @@ pub fn run() -> Result<()> {
         .init();
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_app_id("ytm-architect")
+        .with_app_id("dalga")
         .with_inner_size([1280.0, 820.0])
-        .with_min_inner_size([960.0, 640.0])
+        .with_min_inner_size([560.0, 480.0])
         .with_title(brand::WINDOW_TITLE);
     if let Some(icon) = brand::load_window_icon() {
         viewport = viewport.with_icon(Arc::new(icon));

@@ -329,5 +329,11 @@ pub async fn backup_inner(
 }
 
 #[cfg(test)]
+#[path = "worker_exec_artist_tests.rs"]
+mod artist_tests;
+#[cfg(test)]
+#[path = "worker_exec_mock.rs"]
+mod mock;
+#[cfg(test)]
 #[path = "worker_exec_tests.rs"]
 mod tests;

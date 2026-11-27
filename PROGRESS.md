@@ -6,13 +6,13 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ## Current Gate Status (2026-11-27 — `v0.4.0` Published)
 
-- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.3.0` Tasks `13`–`18.2` complete; next phase `v0.4.0`).
+- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.4.0` Tasks `19`–`25` complete; next phase `v0.5.0`).
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace --locked`: **PASS** exit 0 (`180/180` tests: `ytm-cli` 6, `ytm-core` 38, `ytm-enrich` 14, `ytm-gui` 93, `ytm-ops` 14, `ytm-store` 15)
-- `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0
-- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs` & `crates/ytm-gui/src/views/player_bar.rs`)
+- `cargo test --workspace --locked`: **PASS** exit 0 (`205/205` tests: `ytm-cli` 6, `ytm-core` 42, `ytm-enrich` 14, `ytm-gui` 109, `ytm-ops` 17, `ytm-store` 17)
+- `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0 (local release build + Linux desktop/icon installation verified)
+- `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
 - `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`
 - **Latest Published Release:** `v0.4.0` (Linux & Windows CI run **success**; `SHA256SUMS.txt` published).
 
@@ -21,12 +21,12 @@ Sole authority for dates, release status, and gate verification outputs.
 ## 2026-11-27 — `v0.4.0` (All of Artist, Quick-Add, Audio FX, History, Notifications, Accessibility, Last.fm)
 
 - **Verified `SHA256SUMS.txt` (`v0.4.0`, CI run **success**):**
-  - `ytm-architect-v0.4.0-linux-x86_64.tar.gz`: `<sha256>`
-  - `ytm` (Linux): `<sha256>`
-  - `ytm-gui` (Linux): `<sha256>`
-  - `ytm-architect-v0.4.0-windows-x86_64.zip`: `<sha256>`
-  - `ytm.exe` (Windows): `<sha256>`
-  - `ytm-gui.exe` (Windows): `<sha256>`
+  - `ytm-architect-v0.4.0-linux-x86_64.tar.gz`: `573c75b540d5690b3a972933e894788c55f8775b6f99bbf3cf8f3dacefb81287`
+  - `ytm` (Linux): `b08f651f374973af368b2de3bb9b4a2e00fcad1cc7fcdbe7a68d87798b963fed`
+  - `ytm-gui` (Linux): `334ebe237b47b0975a441d4423399f93f09ffa858315eaa3445d751c56a924b1`
+  - `ytm-architect-v0.4.0-windows-x86_64.zip`: `8eb607b577810ebf24f9054478d7c438103168d8e514220b33ab01ed7937df7f`
+  - `ytm.exe` (Windows): `9f6515ccd9b0b11d81b8d0354cfa59867e792748e19dcec1626b03552f3a0b7b`
+  - `ytm-gui.exe` (Windows): `7909904d30774611e5f45ed094cf9f4c449b62608cd229d0594721e442dd416b`
 
 - **Task 19 — All of Artist (`ytm-core/src/artist_harvest.rs`, `ytm-ops/src/artist_plan.rs`, `crates/ytm-gui/src/views/artist_harvest.rs`):**
   - Harvest: recursive artist page walk (albums, singles, appears-on shelves + continuations + "See all" sub-pages) with `tests/fixtures/artist_*.json` fixtures; strict ATV-over-UGC dedupe in `ytm-ops::plan_artist_harvest` with `include_features` / `include_compilations` options; unit tests for shelf classification (TR/EN), continuation walking, and option filters.
@@ -40,7 +40,7 @@ Sole authority for dates, release status, and gate verification outputs.
 
 - **Task 22 — History & Notifications:**
   - 22.1 Play history SQLite table (`play_history`, capped at 500 entries, `played_at` index) with insert/get/cap tests; auto-recorded on track start via worker.
-  - 22.2 Desktop notifications opt-in (`notifications_enabled` config, default `false`); stub implementation ready for `notify-rust` (Linux) / `windows-toast` (Windows).
+  - 22.2 Desktop notifications opt-in (`notifications_enabled` config, default `false`); non-blocking `notify-send -a Dalga -- <summary> <body>` on Linux with disabled-path unit tests (zero calls when off).
 
 - **Task 23 — Accessibility (`crates/ytm-gui/src/theme.rs`):**
   - Font scale (`font_scale`, 0.8–2.0) applied to all text styles; high-contrast palette (`high_contrast` bool) with WCAG-AA-safe colors; visible focus ring (2px accent stroke) on active widgets; AccessKit readiness via existing `Icon` enum tooltip labels.
@@ -48,6 +48,11 @@ Sole authority for dates, release status, and gate verification outputs.
 - **Task 24 — Discovery Extras:**
   - 24.1 Similar & Radio: existing `WatchNextResult` / `LoadWatchNext` infrastructure reused for "Similar songs" shelf and radio station from any track/album/artist.
   - 24.2 Last.fm scrobble opt-in (`crates/ytm-gui/src/lastfm.rs`): injected-clock state machine (idle → pending → submitting → submitted/failed) with 50%/4-min threshold; credentials stored like auth; disabled = zero network; unit tests for threshold calc and state transitions.
+
+- **Task 25 — Release & Post-Release Audit (`v0.4.0`):**
+  - Release notes automation: added [CHANGELOG.md](CHANGELOG.md) (`[v0.4.0]`–`[v0.1.0]`) and updated `.github/workflows/release.yml` to extract `## [${TAG}]` into `release-notes.md` (with `git log` fallback) so GitHub Releases include full features, changes, and bug fixes.
+  - Module size cleanup (`<= 400` lines): split `views/player_bar_right.rs`, `worker_exec_artist_tests.rs`, `playback_ops_tests.rs`, `ytm-store/src/play_history.rs`, `ytm-store/src/schema.sql`, `ytm-store/tests/play_history_test.rs`, `worker_jobs::spawn_execute_mutation`, and `worker_sync_ops::execute_set_like_status_batch`.
+  - Responsive bar redesign & Omarchy/Dalga desktop polish (`bar_layout.rs`, `top_bar.rs`, `player_bar.rs`, `player_bar_right.rs`, `theme.rs`, `navigation.rs`, `lib.rs`, `tray_linux.rs`, `scripts/install-desktop-linux.sh`): `effective_width` breakpoints, 2-row compact Player Bar (`< 780px`), centered 3-column wide Player Bar, wheel/touchpad seek & volume scrubbing, non-compounding Apple/Linear typography & spacing, `with_app_id("dalga")` + `StartupWMClass=dalga` + `ytm-architect.desktop` cleanup.
 
 ---
 

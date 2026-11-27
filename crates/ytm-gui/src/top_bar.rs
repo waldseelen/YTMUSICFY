@@ -60,6 +60,8 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
         now_ms,
         cmd_tx,
     } = ctx;
+    let layout =
+        crate::bar_layout::TopBarLayout::from_width(ui.available_width(), gui_config.font_scale);
     let mut search_bar_rect = egui::Rect::NOTHING;
     ui.horizontal(|ui| {
         if icon_button(
@@ -89,12 +91,14 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
             *selected_playlist_id = entry.playlist_id;
         }
         if let Some(tex) = crate::brand::logo_texture(ui.ctx()) {
-            ui.add(egui::Image::new((tex.id(), egui::vec2(20.0, 20.0))).corner_radius(4.0));
+            ui.add(egui::Image::new((tex.id(), egui::vec2(28.0, 28.0))).corner_radius(6.0));
         }
-        ui.strong(crate::brand::APP_NAME);
+        if layout.show_brand_title {
+            ui.strong(crate::brand::APP_NAME);
+        }
         ui.separator();
 
-        let search_w = (ui.available_width() * 0.28).clamp(160.0, 320.0);
+        let search_w = layout.search_width;
         let mut query_buf = search_controller.query.clone();
         let search_resp = ui.scope(|ui| {
             paint_icon(ui, Icon::Search, 14.0, palette.text_muted);
@@ -167,7 +171,13 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
             }
 
             let sync_len = sync_queue.entries().len();
-            let drawer_label = if sync_len > 0 {
+            let drawer_label = if !layout.show_brand_title {
+                if sync_len > 0 {
+                    format!("{sync_len}")
+                } else {
+                    String::new()
+                }
+            } else if sync_len > 0 {
                 format!("Sync ({sync_len})")
             } else {
                 "Sync".to_string()
@@ -244,9 +254,13 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
                 AccentPalette::Gold => tr(lang, Key::AccentGold),
                 AccentPalette::YtmPink => tr(lang, Key::AccentYtmPink),
             };
-            if ui
-                .small_button(accent_label)
-                .on_hover_text(tr(lang, Key::AccentLabel))
+            let accent_btn = if layout.show_accent_text {
+                ui.small_button(accent_label)
+            } else {
+                ui.small_button(egui::RichText::new("●").color(palette.accent_primary))
+            };
+            if accent_btn
+                .on_hover_text(format!("{}: {accent_label}", tr(lang, Key::AccentLabel)))
                 .clicked()
             {
                 gui_config.accent_palette = match gui_config.accent_palette {
@@ -266,21 +280,23 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
                 *ui_scale = 1.0;
             }
 
-            let elapsed = start_instant.elapsed().as_secs_f32();
-            show_status_ribbon(
-                ui,
-                status_bus,
-                palette,
-                lang,
-                RibbonTiming {
-                    now_ms,
-                    elapsed_secs: elapsed,
-                    ticker_speed: gui_config.ticker_speed,
-                    reduced_motion: gui_config.reduced_motion,
-                },
-                sync_queue,
-                active_tab,
-            );
+            if layout.show_ribbon && ui.available_width() > 140.0 {
+                let elapsed = start_instant.elapsed().as_secs_f32();
+                show_status_ribbon(
+                    ui,
+                    status_bus,
+                    palette,
+                    lang,
+                    RibbonTiming {
+                        now_ms,
+                        elapsed_secs: elapsed,
+                        ticker_speed: gui_config.ticker_speed,
+                        reduced_motion: gui_config.reduced_motion,
+                    },
+                    sync_queue,
+                    active_tab,
+                );
+            }
         });
     });
     search_bar_rect

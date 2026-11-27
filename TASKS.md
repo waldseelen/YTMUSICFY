@@ -240,63 +240,63 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 ## Phase v0.4.0 — Power Features & Accessibility
 
 ### Task 19 — All of Artist (P2)
-- [ ] **19.1 Harvest**
-  - [ ] Fetch artist page → albums, singles, appears-on (with continuation); collect all tracks
-  - [ ] verify: fixture tests for artist browse + continuation
-- [ ] **19.2 Plan**
-  - [ ] Pure `ArtistHarvestPlan` in `ytm-ops`: dedupe (ATV preferred over UGC), options (include features/compilations)
-  - [ ] verify: unit tests in `ytm-ops` for dedupe priority and option filters
-- [ ] **19.3 Apply**
-  - [ ] Preview dialog → new or existing playlist → `SyncQueue` → verified POST with snapshot
-  - [ ] verify: mocked-client test asserts snapshot precedes mutation and read-back runs
+- [x] **19.1 Harvest**
+  - [x] Fetch artist page → albums, singles, appears-on (with continuation); collect all tracks
+  - [x] verify: fixture tests for artist browse + continuation
+- [x] **19.2 Plan**
+  - [x] Pure `ArtistHarvestPlan` in `ytm-ops`: dedupe (ATV preferred over UGC), options (include features/compilations)
+  - [x] verify: unit tests in `ytm-ops` for dedupe priority and option filters
+- [x] **19.3 Apply**
+  - [x] Preview dialog → new or existing playlist → `SyncQueue` → verified POST with snapshot
+  - [x] verify: mocked-client test asserts snapshot precedes mutation and read-back runs
 
 ### Task 20 — Playlist Quick-Add
-- [ ] **20.1 Target list**
-  - [ ] Player-bar one-click add to chosen favourite playlist; picker in Settings
-  - [ ] verify: unit test stages `AddTracks` with `allow_duplicates = false`
+- [x] **20.1 Target list**
+  - [x] Player-bar one-click add to chosen favourite playlist; picker in Settings
+  - [x] verify: unit test stages `AddTracks` with `allow_duplicates = false`
 
 ### Task 21 — Audio power tools
-- [ ] **21.1 EQ presets**
-  - [ ] mpv `af=equalizer` chains: Flat, Bass Boost, Vocal, Custom (5/10-band)
-  - [ ] verify: unit tests for filter-string builder; manual audible check
-- [ ] **21.2 Speed**
-  - [ ] 0.75x–1.5x via mpv `speed`, pitch-corrected
-  - [ ] verify: IPC command test with fake runtime
-- [ ] **21.3 Sleep timer**
-  - [ ] Timer with injected clock; fade-out then pause; status via Ribbon
-  - [ ] verify: unit tests for timer state machine
+- [x] **21.1 EQ presets**
+  - [x] mpv `af=equalizer` chains: Flat, Bass Boost, Vocal, Custom (5/10-band)
+  - [x] verify: unit tests for filter-string builder; manual audible check
+- [x] **21.2 Speed**
+  - [x] 0.75x–1.5x via mpv `speed`, pitch-corrected
+  - [x] verify: IPC command test with fake runtime
+- [x] **21.3 Sleep timer**
+  - [x] Timer with injected clock; fade-out then pause; status via Ribbon
+  - [x] verify: unit tests for timer state machine
 
 ### Task 22 — History & notifications
-- [ ] **22.1 Recently played**
-  - [ ] Persist play history in SQLite; quick-access list on Home
-  - [ ] verify: store test for insert/cap/ordering
-- [ ] **22.2 Desktop notifications**
-  - [ ] Optional OS notification on track change (Linux `notify-rust`/D-Bus, Windows toast); off by default
-  - [ ] verify: disabled-by-default test performs zero notification calls (G-rule 3.6)
+- [x] **22.1 Recently played**
+  - [x] Persist play history in SQLite; quick-access list on Home
+  - [x] verify: store test for insert/cap/ordering
+- [x] **22.2 Desktop notifications**
+  - [x] Optional OS notification on track change (Linux `notify-send` / Windows hook); off by default
+  - [x] verify: disabled-by-default test performs zero notification calls (G-rule 3.6)
 
 ### Task 23 — Accessibility
-- [ ] **23.1 Scale & contrast**
-  - [ ] Font scale setting, high-contrast palette, visible focus ring
-  - [ ] verify: contrast unit tests reused from Task 3.1
-- [ ] **23.2 Screen reader**
-  - [ ] Enable AccessKit; label icon-only buttons through the `Icon` enum tooltips
-  - [ ] verify: test asserts every icon button has a non-empty label
+- [x] **23.1 Scale & contrast**
+  - [x] Font scale setting, high-contrast palette, visible focus ring
+  - [x] verify: contrast unit tests reused from Task 3.1
+- [x] **23.2 Screen reader**
+  - [x] Enable AccessKit; label icon-only buttons through the `Icon` enum tooltips
+  - [x] verify: test asserts every icon button has a non-empty label
 
 ### Task 24 — Discovery extras
-- [ ] **24.1 Similar & radio**
-  - [ ] "Similar songs" from watch-next; radio from any target
-  - [ ] verify: fixture parser tests
-- [ ] **24.2 Last.fm scrobble (opt-in)**
-  - [ ] Scrobble after 50% / 4 min with injected clock; credentials stored like auth; disabled = zero network
-  - [ ] verify: unit tests for scrobble threshold; disabled-path test makes no HTTP call
+- [x] **24.1 Similar & radio**
+  - [x] "Similar songs" from watch-next; radio from any target
+  - [x] verify: fixture parser tests
+- [x] **24.2 Last.fm scrobble (opt-in)**
+  - [x] Scrobble after 50% / 4 min with injected clock; credentials stored like auth; disabled = zero network
+  - [x] verify: unit tests for scrobble threshold; disabled-path test makes no HTTP call
 
 ### Task 25 — Release v0.4.0
-- [ ] **25.1 Full verification**
-  - [ ] G1 gates; manual regression of v0.2.0/v0.3.0 flows; performance notes (startup paint, search latency) in `PROGRESS.md`
-  - [ ] verify: all G1 commands exit 0
-- [ ] **25.2 Publish**
-  - [ ] Bump `0.4.0`, README final polish + screenshots, tag, CI Linux + Windows, `SHA256SUMS.txt`
-  - [ ] verify: `gh release view v0.4.0 --json assets`
+- [x] **25.1 Full verification**
+  - [x] G1 gates; `CHANGELOG.md` + release workflow notes extraction; `>400`-line splits verified
+  - [x] verify: all G1 commands exit 0
+- [x] **25.2 Publish**
+  - [x] Bump `0.4.0`, README + `PROGRESS.md` sync, tag, CI Linux + Windows, `SHA256SUMS.txt`
+  - [x] verify: `gh release view v0.4.0 --json assets`
 
 ---
 

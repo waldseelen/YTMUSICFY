@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use ytm_core::Playlist;
 
-use crate::db::PlayHistoryEntry;
 use crate::error::StoreError;
 use crate::models::{
     CachedArtistGenre, CachedTrack, CachedTrackEnrichment, Snapshot, SnapshotMetadata,
 };
+use crate::play_history::PlayHistoryEntry;
 
 /// Atomic playlist snapshot persistence contract (JSON disk file + SQLite index).
 #[async_trait]

@@ -339,6 +339,25 @@ pub(super) async fn add_tracks_resilient<C: InnerTubeClientTrait>(
     Ok((ok_chunks, ok_items))
 }
 
+pub(super) async fn execute_set_like_status_batch<C: InnerTubeClientTrait>(
+    client: &C,
+    video_ids: &[String],
+    liked: bool,
+    touched_ids: &mut Vec<String>,
+) -> Result<(usize, usize), (usize, usize, String)> {
+    let mut completed = 0;
+    for vid in video_ids {
+        if let Err(e) = client.set_like_status(vid, liked).await {
+            return Err((completed, video_ids.len(), e.to_string()));
+        }
+        completed += 1;
+    }
+    if !touched_ids.iter().any(|id| id == "LM") {
+        touched_ids.push("LM".to_string());
+    }
+    Ok((completed, video_ids.len()))
+}
+
 pub(super) fn failed_outcome(
     entry_id: u64,
     completed_chunks: usize,

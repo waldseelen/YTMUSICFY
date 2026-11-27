@@ -293,36 +293,54 @@ pub fn apply_palette(ctx: &egui::Context, pal: &Palette, high_contrast: bool, fo
     };
 
     visuals.widgets.noninteractive.bg_fill = pal.bg_panel;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, border_subtle);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5_f32, border_subtle);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_primary);
-    visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
+    visuals.widgets.noninteractive.corner_radius = CornerRadius::same(6);
 
     visuals.widgets.inactive.bg_fill = pal.bg_elevated;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, border_subtle);
+    visuals.widgets.inactive.bg_stroke = Stroke::NONE;
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, text_primary);
-    visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
+    visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
 
     visuals.widgets.hovered.bg_fill = pal.bg_hover;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, accent_primary);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(0.75_f32, accent_primary);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, text_primary);
-    visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
+    visuals.widgets.hovered.corner_radius = CornerRadius::same(6);
 
     visuals.widgets.active.bg_fill = pal.accent_selection;
     visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, accent_primary);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, text_primary);
-    visuals.widgets.active.corner_radius = CornerRadius::same(4);
-
-    // Focus ring for accessibility - visible focus indicator
     visuals.widgets.active.fg_stroke = Stroke::new(2.0_f32, accent_primary);
+    visuals.widgets.active.corner_radius = CornerRadius::same(6);
 
     visuals.window_stroke = Stroke::new(1.0_f32, border_subtle);
-    visuals.window_corner_radius = CornerRadius::same(6);
+    visuals.window_corner_radius = CornerRadius::same(8);
 
-    // Apply font scaling
-    let mut style = (*ctx.style()).clone();
-    style.text_styles.iter_mut().for_each(|(_, font_id)| {
-        font_id.size = (font_id.size * font_scale).clamp(8.0, 48.0);
-    });
+    // Apply Apple/Linear spacing & non-compounding font scaling from clean defaults.
+    let mut style = egui::Style::default();
+    let scale = font_scale.clamp(0.8, 2.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.interact_size = egui::vec2(32.0, 24.0);
+    style.text_styles.insert(
+        egui::TextStyle::Body,
+        egui::FontId::proportional((14.0 * scale).clamp(10.0, 32.0)),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::proportional((13.5 * scale).clamp(10.0, 30.0)),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::proportional((12.0 * scale).clamp(9.0, 26.0)),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::proportional((19.0 * scale).clamp(13.0, 42.0)),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::monospace((12.5 * scale).clamp(9.0, 28.0)),
+    );
     ctx.set_style(style);
 
     let (pref, target_theme) = if pal.dark_mode {

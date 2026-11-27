@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-4CAF80?style=flat-square"></a>
+  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-4CAF80?style=flat-square"></a>
   <a href="LICENSE-MIT"><img alt="License MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="Platforms Linux & Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-222834?style=flat-square">
   <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square">
@@ -36,10 +36,13 @@ Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalg
 
 ---
 
-## What's Inside Dalga (`v0.3.0`)
+## What's Inside Dalga (`v0.4.0`)
 
 | Area | Highlights |
 | :--- | :--- |
+| **All of Artist & Discovery** | Recursive artist discography harvester (albums, singles, appears-on + continuations) with ATV-over-UGC dedupe and snapshot-guarded playlist apply, plus **Similar Songs** / Radio from any target and opt-in **Last.fm** scrobbling. |
+| **Audio FX & Quick-Add** | mpv `af=equalizer` chains (**Flat**, **Bass Boost**, **Vocal**, Custom 5/10-band), pitch-corrected **0.75x–1.5x** playback speed, injected-clock **Sleep Timer** with fade-out, and one-click player-bar **Quick-Add** to a favourite playlist. |
+| **History, Notifications & A11y** | SQLite **Recently Played** history (capped at 500 entries), opt-in desktop notifications (`notify-send` on Linux, off by default), **Font Scale** (`0.8x–2.0x`), **High-Contrast** WCAG-AA palette, visible focus rings, and AccessKit-ready `Icon` tooltips. |
 | **System Tray & Close-to-Tray** | Theme-aware system tray (`ksni` StatusNotifierItem on Linux, Win32 `tray-icon` on Windows) with Show/Hide, Play/Pause, Next, Previous, Mini Player, and Quit; closing the main window minimizes to tray while playback continues. |
 | **Borderless Mini Player** | Always-on-top secondary viewport (`Ctrl+M`) with Compact & Expanded live search modes, Spotify-style edge snapping, per-monitor layout persistence, corner resize handle, and optional idle opacity dimming. |
 | **Home Shelves & Continue Card** | Personalized Home shelves (`Listen Again`, `Mixed for you`, `New releases`, `Quick picks`) with horizontal shelf scroll, skeleton loading, a **Continue Listening** card from your saved playback session, and SQLite `browse_cache` offline hydration. |
@@ -79,32 +82,32 @@ Pre-built archives and checksums are published on [**GitHub Releases**](https://
 
 | Platform | Target | Archive | Binaries Included |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.3.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
-| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.3.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.4.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
+| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.4.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
-### Verify Checksums (`SHA256SUMS.txt` — `v0.3.0`)
+### Verify Checksums (`SHA256SUMS.txt` — `v0.4.0`)
 
 | Artifact | SHA-256 |
 | :--- | :--- |
-| `ytm-architect-v0.3.0-linux-x86_64.tar.gz` | `0997d6b66d8a1e7a3d1fced79a43feaa61cbd2abceddfb5c02466953d0a12100` |
-| `ytm` (Linux x86_64) | `fab6cb46d66a016f662f23fe88dcf3cd71cfb97155d41e7973f32b449c080a56` |
-| `ytm-gui` (Linux x86_64) | `2379190af9d0f48e35790c06a3dab0de479e253640124dacfb1a342b8a352b54` |
-| `ytm-architect-v0.3.0-windows-x86_64.zip` | `2c9d92ad7374213c1a976e1b6ff24a79249b9ac106de3d8fde6f387df759dfb8` |
-| `ytm.exe` (Windows x86_64) | `4e81395521f5a47e4ac358824bd50763f2574fdeecdca8fbbe059497bb231331` |
-| `ytm-gui.exe` (Windows x86_64) | `11ce0a990c27ade371a7aedc48581f7417f3415c3619830bf11f00306b287d90` |
+| `ytm-architect-v0.4.0-linux-x86_64.tar.gz` | `573c75b540d5690b3a972933e894788c55f8775b6f99bbf3cf8f3dacefb81287` |
+| `ytm` (Linux x86_64) | `b08f651f374973af368b2de3bb9b4a2e00fcad1cc7fcdbe7a68d87798b963fed` |
+| `ytm-gui` (Linux x86_64) | `334ebe237b47b0975a441d4423399f93f09ffa858315eaa3445d751c56a924b1` |
+| `ytm-architect-v0.4.0-windows-x86_64.zip` | `8eb607b577810ebf24f9054478d7c438103168d8e514220b33ab01ed7937df7f` |
+| `ytm.exe` (Windows x86_64) | `9f6515ccd9b0b11d81b8d0354cfa59867e792748e19dcec1626b03552f3a0b7b` |
+| `ytm-gui.exe` (Windows x86_64) | `7909904d30774611e5f45ed094cf9f4c449b62608cd229d0594721e442dd416b` |
 
 #### Linux
 ```bash
-tar -xzf ytm-architect-v0.3.0-linux-x86_64.tar.gz
+tar -xzf ytm-architect-v0.4.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-./ytm-architect-v0.3.0-linux-x86_64/ytm-gui
+./ytm-architect-v0.4.0-linux-x86_64/ytm-gui
 ```
 
 #### Windows (PowerShell)
 ```powershell
-Expand-Archive .\ytm-architect-v0.3.0-windows-x86_64.zip -DestinationPath .\dalga
-Get-FileHash .\dalga\ytm-architect-v0.3.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
-.\dalga\ytm-architect-v0.3.0-windows-x86_64\ytm-gui.exe
+Expand-Archive .\ytm-architect-v0.4.0-windows-x86_64.zip -DestinationPath .\dalga
+Get-FileHash .\dalga\ytm-architect-v0.4.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
+.\dalga\ytm-architect-v0.4.0-windows-x86_64\ytm-gui.exe
 ```
 
 > **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. Library inspection, offline browsing, search, dedupe, sorting, set algebra, exports, and verified sync work standalone without external binaries.

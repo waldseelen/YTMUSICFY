@@ -7,102 +7,10 @@ use ytm_core::MusicVideoType;
 
 use crate::error::StoreError;
 use crate::models::{CachedArtistGenre, CachedTrack, CachedTrackEnrichment};
+use crate::play_history::{PlayHistoryEntry, get_play_history_sync, insert_play_history_sync};
 use crate::traits::EnrichmentCacheStore;
 
-/// A single entry in the play history.
-#[derive(Debug, Clone)]
-pub struct PlayHistoryEntry {
-    pub id: i64,
-    pub video_id: String,
-    pub title: String,
-    pub artists_json: String,
-    pub album: Option<String>,
-    pub duration_sec: Option<u32>,
-    pub played_at: i64,
-}
-
-const SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS track_cache (
-    video_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    artists_json TEXT NOT NULL,
-    album TEXT,
-    duration_sec INTEGER,
-    release_year INTEGER,
-    music_video_type TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS artist_genres (
-    artist_name_norm TEXT PRIMARY KEY,
-    raw_tags_json TEXT NOT NULL,
-    primary_genre TEXT NOT NULL,
-    source TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS track_enrichment (
-    cache_key TEXT PRIMARY KEY,
-    video_id TEXT,
-    tags_json TEXT NOT NULL,
-    primary_genre TEXT NOT NULL,
-    release_year INTEGER,
-    bpm REAL,
-    source TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS snapshots (
-    id TEXT PRIMARY KEY,
-    playlist_id TEXT NOT NULL,
-    playlist_title TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    item_count INTEGER NOT NULL,
-    payload_json TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_snapshots_playlist_created
-    ON snapshots (playlist_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS playlist_cache (
-    playlist_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    manifest_json TEXT,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS staged_ops (
-    entry_id INTEGER PRIMARY KEY,
-    seq INTEGER NOT NULL,
-    selected INTEGER NOT NULL DEFAULT 1,
-    op_json TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_staged_ops_seq
-    ON staged_ops (seq ASC, entry_id ASC);
-
-CREATE TABLE IF NOT EXISTS playback_session (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    session_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS play_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    artists_json TEXT NOT NULL,
-    album TEXT,
-    duration_sec INTEGER,
-    played_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_play_history_played_at
-    ON play_history (played_at DESC);
-"#;
+const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Local SQLite persistence and atomic disk snapshot store.
 #[derive(Clone)]
@@ -405,65 +313,24 @@ impl EnrichmentCacheStore for SqliteStore {
         let title = title.to_string();
         let artists_json = artists_json.to_string();
         let album = album.map(str::to_string);
-        let duration = duration_sec.map(|d| d as i64);
         let played_at = chrono::Utc::now().timestamp_millis();
         self.with_conn_blocking(move |conn| {
-            conn.execute(
-                "INSERT INTO play_history (video_id, title, artists_json, album, duration_sec, played_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![video_id, title, artists_json, album, duration, played_at],
-            )?;
-            // Cap history at 500 entries
-            conn.execute(
-                "DELETE FROM play_history WHERE id NOT IN (
-                    SELECT id FROM play_history ORDER BY played_at DESC, id DESC LIMIT 500
-                )",
-                [],
-            )?;
-            Ok(())
+            insert_play_history_sync(
+                conn,
+                &video_id,
+                &title,
+                &artists_json,
+                album.as_deref(),
+                duration_sec,
+                played_at,
+            )
         })
         .await
     }
 
     /// Get recent play history entries, most recent first.
     async fn get_play_history(&self, limit: usize) -> Result<Vec<PlayHistoryEntry>, StoreError> {
-        let limit = limit as i64;
-        self.with_conn_blocking(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, video_id, title, artists_json, album, duration_sec, played_at
-                 FROM play_history ORDER BY played_at DESC, id DESC LIMIT ?1",
-            )?;
-            let rows = stmt.query_map(params![limit], |r| {
-                Ok(PlayHistoryEntry {
-                    id: r.get(0)?,
-                    video_id: r.get(1)?,
-                    title: r.get(2)?,
-                    artists_json: r.get(3)?,
-                    album: r.get(4)?,
-                    duration_sec: r.get::<_, Option<i64>>(5)?.map(|d| d as u32),
-                    played_at: r.get(6)?,
-                })
-            })?;
-            let mut entries = Vec::new();
-            for row in rows {
-                entries.push(row?);
-            }
-            Ok(entries)
-        })
-        .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn open_sets_busy_timeout_to_5000_ms() {
-        let store = SqliteStore::open_in_memory(None).expect("open in-memory store");
-        let timeout: i64 = store
-            .with_conn(|conn| Ok(conn.query_row("PRAGMA busy_timeout;", [], |r| r.get(0))?))
-            .expect("query pragma");
-        assert_eq!(timeout, 5000);
+        self.with_conn_blocking(move |conn| get_play_history_sync(conn, limit))
+            .await
     }
 }

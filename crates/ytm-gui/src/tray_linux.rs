@@ -27,7 +27,7 @@ impl DalgaKsniTray {
 
 impl Tray for DalgaKsniTray {
     fn id(&self) -> String {
-        "ytm-architect".to_string()
+        "dalga".to_string()
     }
 
     fn category(&self) -> Category {

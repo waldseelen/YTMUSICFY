@@ -7,9 +7,11 @@ use eframe::egui;
 use ytm_enrich::{EnrichmentService, MetadataProvider, ReqwestEnrichmentHttp};
 use ytm_ops::{SortField, plan_dedupe, plan_set_op, plan_sort};
 
-use crate::state::{WorkerCmd, WorkerEvent};
+use ytm_store::SnapshotStore;
+
+use crate::state::{ConfirmedMutation, WorkerCmd, WorkerEvent};
 use crate::worker::BackendState;
-use crate::worker_exec::{emit_progress, load_playlist};
+use crate::worker_exec::{emit_progress, load_playlist, run_confirmed_mutation};
 use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
 
 /// Dispatches Lane 2 cancellable background planning jobs (`Dedupe`, `Sort`, `SetOp`, `Health`, `GenreSplit`).
@@ -160,4 +162,41 @@ pub(crate) async fn handle_background_job(
         }
         other => Some(other),
     }
+}
+
+/// Spawns Lane 3 serialized remote mutation execution.
+pub(crate) fn spawn_execute_mutation(
+    state: &BackendState,
+    mutation: ConfirmedMutation,
+    tx: &Sender<WorkerEvent>,
+    ctx: &egui::Context,
+) {
+    let Some(client) = state.client.as_ref().map(Arc::clone) else {
+        return;
+    };
+    let store = Arc::clone(&state.store);
+    let mlock = Arc::clone(&state.mutation_lock);
+    let tx = tx.clone();
+    let ctx = ctx.clone();
+    tokio::spawn(async move {
+        let _guard = mlock.lock().await;
+        let event = match run_confirmed_mutation(client.as_ref(), &store, mutation, &tx, &ctx).await
+        {
+            Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
+                ok: true,
+                message,
+                reload_ids,
+            },
+            Err(e) => WorkerEvent::MutationFinished {
+                ok: false,
+                message: format!("Sync error: {e}"),
+                reload_ids: Vec::new(),
+            },
+        };
+        let _ = tx.send(event);
+        if let Ok(snaps) = store.list_snapshots(None).await {
+            let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
+        }
+        ctx.request_repaint();
+    });
 }

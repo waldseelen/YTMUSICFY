@@ -4,7 +4,7 @@ use eframe::egui;
 
 use crate::contracts::{AccentPalette, ThemeMode, UiLang};
 use crate::i18n::{Key, ResolvedLang, tr};
-use crate::state::{GuiAppConfig, MutationPolicy, WorkerCmd, WindowCloseAction};
+use crate::state::{GuiAppConfig, MutationPolicy, WindowCloseAction, WorkerCmd};
 
 /// Dedicated Settings panel editing `config.toml` governance, appearance, ribbon, and enrichment.
 pub fn show(

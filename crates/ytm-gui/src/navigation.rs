@@ -193,7 +193,7 @@ pub fn apply_global_input(
         ));
     }
     if let Some(delta) = g.zoom_delta {
-        *ui_scale = (*ui_scale + delta).clamp(0.8, 1.6);
+        *ui_scale = (*ui_scale + delta).clamp(0.8, 2.0);
     } else if g.reset_zoom {
         *ui_scale = 1.0;
     }

@@ -368,23 +368,9 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
             .map_err(|e| DispatchStop::Fail(0, 1, e.to_string())),
         StagedOp::SetLikeStatusBatch {
             video_ids, liked, ..
-        } => {
-            let mut completed = 0;
-            for vid in video_ids {
-                if let Err(e) = client.set_like_status(vid, *liked).await {
-                    return Err(DispatchStop::Fail(
-                        completed,
-                        video_ids.len(),
-                        e.to_string(),
-                    ));
-                }
-                completed += 1;
-            }
-            if !touched_ids.iter().any(|id| id == "LM") {
-                touched_ids.push("LM".to_string());
-            }
-            Ok((completed, video_ids.len()))
-        }
+        } => ops::execute_set_like_status_batch(client, video_ids, *liked, touched_ids)
+            .await
+            .map_err(|(c, t, e)| DispatchStop::Fail(c, t, e)),
         StagedOp::UpgradeTracks {
             playlist_id,
             upgrades,

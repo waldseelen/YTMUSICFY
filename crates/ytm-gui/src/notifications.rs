@@ -1,19 +1,43 @@
+use std::process::{Command, Stdio};
+
+use crate::brand::APP_NAME;
 use crate::state::GuiAppConfig;
 
-/// Send a desktop notification for track change.
-/// Does nothing if notifications are disabled in config.
-/// Actual platform-specific implementation is a stub for now.
-pub fn notify_track_change(_config: &GuiAppConfig, _title: &str, _artist: &str) {
-    // Stub: Desktop notifications implementation pending
-    // On Linux: use notify-rust
-    // On Windows: use windows-toast or similar
-    // For now, this is a no-op when disabled, and a stub when enabled.
+#[must_use]
+fn build_notify_args<'a>(title: &'a str, artist: &'a str) -> (&'a str, String) {
+    let body = if artist.trim().is_empty() {
+        "Now playing".to_string()
+    } else {
+        artist.trim().to_string()
+    };
+    (title.trim(), body)
+}
+
+/// Send a non-blocking OS notification on track change when explicitly enabled.
+/// Performs zero OS/process calls when `config.notifications_enabled` is `false`.
+pub fn notify_track_change(config: &GuiAppConfig, title: &str, artist: &str) {
+    if !config.notifications_enabled || title.trim().is_empty() {
+        return;
+    }
+    let (summary, body) = build_notify_args(title, artist);
+    #[cfg(target_os = "linux")]
+    {
+        let _ = Command::new("notify-send")
+            .args(["-a", APP_NAME, "--", summary, &body])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (APP_NAME, summary, body);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::GuiAppConfig;
 
     #[test]
     fn notify_track_change_disabled_does_nothing() {
@@ -21,7 +45,18 @@ mod tests {
             notifications_enabled: false,
             ..Default::default()
         };
-        // Should not panic or do anything
         notify_track_change(&config, "Test Track", "Test Artist");
+    }
+
+    #[test]
+    fn build_notify_args_handles_blank_artist() {
+        assert_eq!(
+            build_notify_args("  Song  ", "  Artist  "),
+            ("Song", "Artist".to_string())
+        );
+        assert_eq!(
+            build_notify_args("Song", "   "),
+            ("Song", "Now playing".to_string())
+        );
     }
 }

@@ -89,7 +89,12 @@ pub(crate) fn process_tray_and_close(ctx: &egui::Context, app: &mut YtmGuiApp) {
     let close_requested = ctx.input(|i| i.viewport().close_requested());
     let tray_active = app.tray_ctrl.is_active();
     let close_action = app.gui_config.close_action;
-    let action = resolve_close_request(close_requested, tray_active, close_action, app.explicit_quit);
+    let action = resolve_close_request(
+        close_requested,
+        tray_active,
+        close_action,
+        app.explicit_quit,
+    );
 
     match (action, close_action) {
         (CloseAction::None, WindowCloseAction::Minimize) => {
@@ -138,27 +143,60 @@ mod tests {
     fn close_request_reducer_respects_window_close_action() {
         use WindowCloseAction::*;
         // Quit always quits
-        assert_eq!(resolve_close_request(true, true, Quit, false), CloseAction::Quit);
-        assert_eq!(resolve_close_request(true, false, Quit, false), CloseAction::Quit);
+        assert_eq!(
+            resolve_close_request(true, true, Quit, false),
+            CloseAction::Quit
+        );
+        assert_eq!(
+            resolve_close_request(true, false, Quit, false),
+            CloseAction::Quit
+        );
 
         // HideToTray with active tray hides to tray
-        assert_eq!(resolve_close_request(true, true, HideToTray, false), CloseAction::HideToTray);
+        assert_eq!(
+            resolve_close_request(true, true, HideToTray, false),
+            CloseAction::HideToTray
+        );
         // HideToTray without tray falls back (caller handles)
-        assert_eq!(resolve_close_request(true, false, HideToTray, false), CloseAction::Quit);
+        assert_eq!(
+            resolve_close_request(true, false, HideToTray, false),
+            CloseAction::Quit
+        );
 
         // Minimize never closes
-        assert_eq!(resolve_close_request(true, true, Minimize, false), CloseAction::None);
-        assert_eq!(resolve_close_request(true, false, Minimize, false), CloseAction::None);
+        assert_eq!(
+            resolve_close_request(true, true, Minimize, false),
+            CloseAction::None
+        );
+        assert_eq!(
+            resolve_close_request(true, false, Minimize, false),
+            CloseAction::None
+        );
 
         // HideWindow hides without tray
-        assert_eq!(resolve_close_request(true, true, HideWindow, false), CloseAction::HideToTray);
-        assert_eq!(resolve_close_request(true, false, HideWindow, false), CloseAction::HideToTray);
+        assert_eq!(
+            resolve_close_request(true, true, HideWindow, false),
+            CloseAction::HideToTray
+        );
+        assert_eq!(
+            resolve_close_request(true, false, HideWindow, false),
+            CloseAction::HideToTray
+        );
 
         // Explicit quit always quits
-        assert_eq!(resolve_close_request(true, true, HideToTray, true), CloseAction::Quit);
-        assert_eq!(resolve_close_request(true, true, Minimize, true), CloseAction::Quit);
+        assert_eq!(
+            resolve_close_request(true, true, HideToTray, true),
+            CloseAction::Quit
+        );
+        assert_eq!(
+            resolve_close_request(true, true, Minimize, true),
+            CloseAction::Quit
+        );
 
         // No close requested
-        assert_eq!(resolve_close_request(false, true, HideToTray, false), CloseAction::None);
+        assert_eq!(
+            resolve_close_request(false, true, HideToTray, false),
+            CloseAction::None
+        );
     }
 }

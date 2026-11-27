@@ -128,6 +128,29 @@ jobs:
             echo ""
             echo "Native pure-Rust YouTube Music desktop player & library studio (\`ytm-gui\`) + CLI/TUI (\`ytm\`) powered by direct InnerTube HTTP requests and local \`mpv\` audio playback (no Electron / WebView)."
             echo ""
+            if [ -f CHANGELOG.md ]; then
+              NOTES=$(awk -v tag="${TAG}" '
+                $0 ~ "^## \\[" tag "\\]" { in_sec=1; next }
+                in_sec && /^## \[/ { exit }
+                in_sec { print }
+              ' CHANGELOG.md)
+              if [ -n "${NOTES}" ]; then
+                echo "### What's Changed"
+                echo "${NOTES}"
+                echo ""
+              fi
+            fi
+            if [ -z "${NOTES:-}" ]; then
+              PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+              echo "### Changes"
+              if [ -n "${PREV_TAG}" ]; then
+                git log --no-merges --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}" | head -n 30
+              else
+                git log --no-merges --pretty=format:"- %s (%h)" -n 15 "${TAG}"
+              fi
+              echo ""
+              echo ""
+            fi
             echo "### Downloads"
             echo "- **Linux (x86_64):** \`ytm-architect-${TAG}-linux-x86_64.tar.gz\` (\`ytm-gui\`, \`ytm\`)"
             echo "- **Windows (x86_64):** \`ytm-architect-${TAG}-windows-x86_64.zip\` (\`ytm-gui.exe\`, \`ytm.exe\`)"

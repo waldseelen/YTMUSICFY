@@ -7,7 +7,7 @@ use eframe::egui;
 use tokio::sync::{Mutex as AsyncMutex, mpsc as tokio_mpsc};
 use ytm_core::{InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
 use ytm_ops::{plan_dedupe, plan_sort};
-use ytm_store::{AppPaths, EnrichmentCacheStore, SnapshotStore, SqliteStore};
+use ytm_store::{AppPaths, EnrichmentCacheStore, SqliteStore};
 
 #[path = "worker_jobs.rs"]
 mod worker_jobs;
@@ -19,7 +19,7 @@ use crate::worker_auth::{
 };
 use crate::worker_exec::{
     cache_fetched_playlist, hydrate_gui_startup_state, load_config, load_playlist_with_manifest,
-    load_saved_client, persist_staged_entries, run_confirmed_mutation,
+    load_saved_client, persist_staged_entries,
 };
 use crate::worker_media::{handle_interactive_cmd, spawn_backup_job, spawn_index_all_job};
 
@@ -365,41 +365,7 @@ async fn handle_cmd(
         }
         // --- Lane 3: Serialized Remote Mutations ---
         WorkerCmd::ExecuteMutation(mutation) => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let store = Arc::clone(&state.store);
-            let mlock = Arc::clone(&state.mutation_lock);
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            tokio::spawn(async move {
-                let _guard = mlock.lock().await;
-                let event = match run_confirmed_mutation(
-                    client.as_ref(),
-                    &store,
-                    mutation,
-                    &tx,
-                    &ctx,
-                )
-                .await
-                {
-                    Ok((message, reload_ids)) => WorkerEvent::MutationFinished {
-                        ok: true,
-                        message,
-                        reload_ids,
-                    },
-                    Err(e) => WorkerEvent::MutationFinished {
-                        ok: false,
-                        message: format!("Sync error: {e}"),
-                        reload_ids: Vec::new(),
-                    },
-                };
-                let _ = tx.send(event);
-                if let Ok(snaps) = store.list_snapshots(None).await {
-                    let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
-                }
-                ctx.request_repaint();
-            });
+            worker_jobs::spawn_execute_mutation(state, mutation, tx, ctx);
         }
         other => {
             if let Some(rem) = worker_jobs::handle_background_job(state, other, tx, ctx).await {

@@ -7,5 +7,5 @@ Exec=ytm-gui
 Icon=dalga
 Terminal=false
 Categories=AudioVideo;Audio;Player;
-StartupWMClass=ytm-architect
+StartupWMClass=dalga
 Keywords=music;youtube;player;audio;
