@@ -63,7 +63,7 @@ impl OsMediaBridge {
         let controls = if can_init {
             let config = PlatformConfig {
                 dbus_name: "ytm_architect",
-                display_name: "ytm-architect",
+                display_name: crate::brand::MPRIS_DISPLAY_NAME,
                 hwnd,
             };
             MediaControls::new(config).ok().and_then(|mut c| {

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dalga
+GenericName=Music & Media Player
+Comment=Native YouTube Music and media desktop player
+Exec=ytm-gui
+Icon=dalga
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=ytm-architect
+Keywords=music;youtube;player;audio;

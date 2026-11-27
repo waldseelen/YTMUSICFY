@@ -46,11 +46,7 @@ fn draw_tabs(app: &TuiApp, frame: &mut Frame<'_>, area: Rect) {
         .map(|t| Line::from(Span::raw(t.title())))
         .collect();
     let tabs = Tabs::new(titles)
-        .block(
-            Block::default()
-                .title("ytm-architect")
-                .borders(Borders::ALL),
-        )
+        .block(Block::default().title("Dalga").borders(Borders::ALL))
         .select(app.active_tab.index())
         .highlight_style(
             Style::default()

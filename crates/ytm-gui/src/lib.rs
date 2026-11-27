@@ -2,6 +2,7 @@ pub mod app;
 pub mod app_events;
 pub mod artwork;
 pub mod auth_store;
+pub mod brand;
 pub mod command_palette;
 pub mod draft_cache;
 pub mod icons;
@@ -29,6 +30,7 @@ pub mod worker_msgs;
 pub mod worker_plans;
 
 use std::ffi::OsStr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use eframe::egui;
@@ -42,24 +44,29 @@ fn should_enable_vsync(wayland_display: Option<&OsStr>) -> bool {
     !(cfg!(target_os = "linux") && wayland_display.is_some_and(|v| !v.is_empty()))
 }
 
-/// Launch the `ytm-architect` desktop GUI application.
+/// Launch the Dalga desktop GUI application.
 pub fn run() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_app_id("ytm-architect")
+        .with_inner_size([1280.0, 820.0])
+        .with_min_inner_size([960.0, 640.0])
+        .with_title(brand::WINDOW_TITLE);
+    if let Some(icon) = brand::load_window_icon() {
+        viewport = viewport.with_icon(Arc::new(icon));
+    }
+
     let options = eframe::NativeOptions {
         vsync: should_enable_vsync(std::env::var_os("WAYLAND_DISPLAY").as_deref()),
-        viewport: egui::ViewportBuilder::default()
-            .with_app_id("ytm-architect")
-            .with_inner_size([1280.0, 820.0])
-            .with_min_inner_size([960.0, 640.0])
-            .with_title("ytm-architect"),
+        viewport,
         ..Default::default()
     };
 
     eframe::run_native(
-        "ytm-architect",
+        brand::WINDOW_TITLE,
         options,
         Box::new(|cc| {
             theme::apply_theme(&cc.egui_ctx);

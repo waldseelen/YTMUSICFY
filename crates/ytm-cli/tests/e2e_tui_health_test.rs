@@ -94,7 +94,7 @@ async fn e2e_health_upgrade_and_headless_tui_tabs() {
                 assert_eq!(app.active_tab, expected);
                 let buf = app.render_to_test_buffer(100, 30);
                 let rendered: String = buf.content().iter().map(|c| c.symbol()).collect();
-                assert!(rendered.contains("ytm-architect"));
+                assert!(rendered.contains("Dalga"));
                 assert!(rendered.contains(expected.title()));
                 app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
             }

@@ -45,7 +45,10 @@ pub fn show_top_bar(
             *active_tab = entry.tab;
             *selected_playlist_id = entry.playlist_id;
         }
-        ui.strong("ytm-architect");
+        if let Some(tex) = crate::brand::logo_texture(ui.ctx()) {
+            ui.add(egui::Image::new((tex.id(), egui::vec2(20.0, 20.0))).corner_radius(4.0));
+        }
+        ui.strong(crate::brand::APP_NAME);
         ui.separator();
         match session {
             AsyncState::Ready(s) => {

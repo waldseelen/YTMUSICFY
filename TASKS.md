@@ -53,16 +53,16 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
   - [x] Generate dark-variant and light-variant monochrome 3D draft concepts (`concept-a-ribbon-{dark,light}.png` approved by owner)
   - [ ] Produce clean SVG vector + horizontal `dalga` wordmark + 1024px icon & 16px tray silhouette from Concept A
   - [ ] verify: final vector/wordmark drafts approved and recorded in `PROGRESS.md`
-- [ ] **2.2 Asset packaging**
-  - [ ] Store sources under `assets/brand/`; export PNG sizes, `.ico` (Windows), `.desktop` + hicolor icons (Linux)
-  - [ ] Embed window icon via `ViewportBuilder::with_icon`
-  - [ ] verify: `file assets/brand/*.png` dimensions match; app launches with icon on Linux
-- [ ] **2.3 Rename visible strings**
-  - [ ] Window title, top-bar label, About, tray title → `Dalga`
-  - [ ] verify: `rg -n '"ytm-architect"' crates/ytm-gui/src` returns only app-id/config-path constants
-- [ ] **2.4 Central brand constants (N1)**
-  - [ ] `brand.rs` exposes `APP_NAME`, `TAGLINE`, `WINDOW_TITLE`, tray title; every visible brand string reads from it
-  - [ ] verify: unit test asserts no other module contains the literal `"Dalga"` (`rg -n 'Dalga' crates/ytm-gui/src` hits only `brand.rs` and tests)
+- [x] **2.2 Asset packaging**
+  - [x] Store sources under `assets/brand/`; export PNG sizes, `.ico` (Windows), `.desktop` + hicolor icons (Linux)
+  - [x] Embed window icon via `ViewportBuilder::with_icon`
+  - [x] verify: `file assets/brand/*.png` dimensions match; app launches with icon on Linux
+- [x] **2.3 Rename visible strings**
+  - [x] Window title, top-bar label, About, tray title → `Dalga`
+  - [x] verify: `rg -n '"ytm-architect"' crates/ytm-gui/src` returns only app-id/config-path constants
+- [x] **2.4 Central brand constants (N1)**
+  - [x] `brand.rs` exposes `APP_NAME`, `TAGLINE`, `WINDOW_TITLE`, tray title; every visible brand string reads from it
+  - [x] verify: unit test asserts no other module contains the literal `"Dalga"` (`rg -n 'Dalga' crates/ytm-gui/src` hits only `brand.rs` and tests)
 
 ### Task 3 — Theme engine
 - [ ] **3.1 Palettes**

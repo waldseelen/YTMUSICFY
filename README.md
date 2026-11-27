@@ -1,12 +1,22 @@
-# ytm-architect
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/dalga-dark.png" width="160">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/dalga-light.png" width="160">
+    <img alt="Dalga" src="assets/brand/dalga-dark.png" width="160">
+  </picture>
+</p>
 
-Local-first, pure-Rust **YouTube Music desktop studio (`ytm-gui`) + CLI/TUI (`ytm`)** for **Linux & Windows**.
+<h1 align="center">Dalga</h1>
 
-Instead of wrapping YouTube Music in Electron or a heavy WebView, `ytm-architect` speaks YouTube Music's own **InnerTube HTTP API** directly using your local browser session (`SAPISIDHASH` + `Cookie`), backs audio playback with an ultra-light **headless `mpv` IPC player**, and enforces a strict **`Configure -> Preview -> Verified POST`** mutation lock so nothing alters your remote library without explicit inspection and snapshot protection.
+<p align="center">
+  Local-first, pure-Rust <strong>YouTube Music desktop studio (<code>ytm-gui</code>) + CLI/TUI (<code>ytm</code>)</strong> for <strong>Linux &amp; Windows</strong>.
+</p>
+
+Instead of wrapping YouTube Music in Electron or a heavy WebView, **Dalga** speaks YouTube Music's own **InnerTube HTTP API** directly using your local browser session (`SAPISIDHASH` + `Cookie`), backs audio playback with an ultra-light **headless `mpv` IPC player**, and enforces a strict **`Configure -> Preview -> Verified POST`** mutation lock so nothing alters your remote library without explicit inspection and snapshot protection.
 
 ---
 
-## Why `ytm-architect`?
+## Why Dalga?
 
 - **Zero Electron / WebView Bloat:** Native `eframe`/`egui` desktop studio + `ratatui` TUI + `clap` CLI compiled to native binaries.
 - **No Cloud Relay, No OAuth Headache:** Uses your existing signed-in Chromium/Brave/Firefox/Edge session locally (plus optional Brand Account `X-Goog-PageId` & multi-account `X-Goog-AuthUser` support).
