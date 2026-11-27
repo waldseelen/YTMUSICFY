@@ -176,8 +176,8 @@ fn offline_cache_hydrates_library_and_survives_network_failure() {
     let cached = app.library.data().expect("cached library preserved");
     assert_eq!(cached.len(), 1);
     assert_eq!(cached[0].id, "PL_CACHE");
-    // Does not hijack active workspace when cached library exists.
-    assert_eq!(app.active_tab, GuiTab::Inspector);
+    // Opens on Home & Explore even when offline/unauthenticated.
+    assert_eq!(app.active_tab, GuiTab::Browse);
 }
 
 #[test]

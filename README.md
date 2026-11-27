@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-4CAF80?style=flat-square"></a>
+  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Version 0.4.1" src="https://img.shields.io/badge/version-0.4.1-4CAF80?style=flat-square"></a>
   <a href="LICENSE-MIT"><img alt="License MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="Platforms Linux & Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-222834?style=flat-square">
   <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square">
@@ -36,10 +36,12 @@ Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalg
 
 ---
 
-## What's Inside Dalga (`v0.4.0`)
+## What's Inside Dalga (`v0.4.1`)
 
 | Area | Highlights |
 | :--- | :--- |
+| **Direct Genre Split & Enrich** | Non-blocking cancellable MusicBrainz / Deezer / ListenBrainz enrichment with expanded taxonomy (`cyberpunk`, `darksynth`, `R&B`, `Soundtrack`, `Folk`), expandable track/tag bucket inspector, Copy vs. Split/Move mode, and one-click snapshot-safe direct execution. |
+| **Library Search & New Playlists** | Search across all cached playlists, Liked Songs, and **Saved Albums** (`FEmusic_liked_albums`) by song/artist/album with album grouping, bulk selection, top-bar dropdown shortcut, and inline **`Create & Add Track(s) Now...`** playlist creation. |
 | **All of Artist & Discovery** | Recursive artist discography harvester (albums, singles, appears-on + continuations) with ATV-over-UGC dedupe and snapshot-guarded playlist apply, plus **Similar Songs** / Radio from any target and opt-in **Last.fm** scrobbling. |
 | **Audio FX & Quick-Add** | mpv `af=equalizer` chains (**Flat**, **Bass Boost**, **Vocal**, Custom 5/10-band), pitch-corrected **0.75x–1.5x** playback speed, injected-clock **Sleep Timer** with fade-out, and one-click player-bar **Quick-Add** to a favourite playlist. |
 | **History, Notifications & A11y** | SQLite **Recently Played** history (capped at 500 entries), opt-in desktop notifications (`notify-send` on Linux, off by default), **Font Scale** (`0.8x–2.0x`), **High-Contrast** WCAG-AA palette, visible focus rings, and AccessKit-ready `Icon` tooltips. |
@@ -82,32 +84,25 @@ Pre-built archives and checksums are published on [**GitHub Releases**](https://
 
 | Platform | Target | Archive | Binaries Included |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.4.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
-| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.4.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.4.1-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
+| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.4.1-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
-### Verify Checksums (`SHA256SUMS.txt` — `v0.4.0`)
+### Verify Checksums (`SHA256SUMS.txt`)
 
-| Artifact | SHA-256 |
-| :--- | :--- |
-| `ytm-architect-v0.4.0-linux-x86_64.tar.gz` | `573c75b540d5690b3a972933e894788c55f8775b6f99bbf3cf8f3dacefb81287` |
-| `ytm` (Linux x86_64) | `b08f651f374973af368b2de3bb9b4a2e00fcad1cc7fcdbe7a68d87798b963fed` |
-| `ytm-gui` (Linux x86_64) | `334ebe237b47b0975a441d4423399f93f09ffa858315eaa3445d751c56a924b1` |
-| `ytm-architect-v0.4.0-windows-x86_64.zip` | `8eb607b577810ebf24f9054478d7c438103168d8e514220b33ab01ed7937df7f` |
-| `ytm.exe` (Windows x86_64) | `9f6515ccd9b0b11d81b8d0354cfa59867e792748e19dcec1626b03552f3a0b7b` |
-| `ytm-gui.exe` (Windows x86_64) | `7909904d30774611e5f45ed094cf9f4c449b62608cd229d0594721e442dd416b` |
+Download `SHA256SUMS.txt` alongside the archive from the [**GitHub Release**](https://github.com/waldseelen/YTMUSICFY/releases) page to verify archive and binary hashes before running.
 
 #### Linux
 ```bash
-tar -xzf ytm-architect-v0.4.0-linux-x86_64.tar.gz
+tar -xzf ytm-architect-v0.4.1-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-./ytm-architect-v0.4.0-linux-x86_64/ytm-gui
+./ytm-architect-v0.4.1-linux-x86_64/ytm-gui
 ```
 
 #### Windows (PowerShell)
 ```powershell
-Expand-Archive .\ytm-architect-v0.4.0-windows-x86_64.zip -DestinationPath .\dalga
-Get-FileHash .\dalga\ytm-architect-v0.4.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
-.\dalga\ytm-architect-v0.4.0-windows-x86_64\ytm-gui.exe
+Expand-Archive .\ytm-architect-v0.4.1-windows-x86_64.zip -DestinationPath .\dalga
+Get-FileHash .\dalga\ytm-architect-v0.4.1-windows-x86_64\ytm-gui.exe -Algorithm SHA256
+.\dalga\ytm-architect-v0.4.1-windows-x86_64\ytm-gui.exe
 ```
 
 > **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. Library inspection, offline browsing, search, dedupe, sorting, set algebra, exports, and verified sync work standalone without external binaries.

@@ -21,4 +21,7 @@ pub enum EnrichError {
         path: String,
         source: std::io::Error,
     },
+
+    #[error("genre enrichment cancelled by user")]
+    Cancelled,
 }

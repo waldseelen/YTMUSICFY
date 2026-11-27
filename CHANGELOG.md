@@ -3,6 +3,23 @@
 All notable changes to **Dalga** (`ytm-architect`) are documented in this file.
 `.github/workflows/release.yml` extracts the matching `## [vX.Y.Z]` section directly into GitHub Release notes.
 
+## [v0.4.1] — 2026-11-27
+
+### Added
+- **Direct Genre Split Workspace (`views/genre_split.rs`, `genre_split_ops.rs`):** Added an in-view source playlist picker, preset minimum bucket thresholds (`1 | 3 | 5`), Copy vs. Split/Move mode (with mandatory pre-sync snapshots), expandable genre buckets with per-track tag/source breakdown, individual track/bucket exclusion checkboxes, small-bucket inclusion toggle, and one-click **`Split & Apply Now...`** execution.
+- **Full Personal Library Search & Direct Playlist Creation (`worker_index.rs`, `repertoire_tree.rs`, `repertoire_target.rs`, `repertoire_batch.rs`):**
+  - Expanded local repertoire indexing (`Index Missing (Playlists + Albums)`) to scan saved YouTube Music albums (`FEmusic_liked_albums` / `MPRE...`) alongside all personal playlists and Liked Songs (`LM`).
+  - Added field scope filtering (`All | Song | Artist | Album`), **Group by Album** view, one-click `Select All` / per-group `Select Group` toggles, and inline **`Create & Add Track(s) Now...`** / `+ Stage New` playlist creation right inside Library Search results.
+  - Added a direct `"Search personal playlists & saved albums"` shortcut to the top-bar search dropdown (`search_dropdown.rs`) and `Search My Library` button in catalog Search (`search.rs`).
+- **Expanded Genre Taxonomy (`taxonomy.rs`, `config/genres.example.toml`):** Added `cyberpunk`, `darksynth`, `retrowave`, `vaporwave`, `industrial`, `lo-fi`, `phonk`, `R&B`, `Soundtrack` (`video game music`, `game ost`), and `Folk` rules to the built-in default taxonomy.
+
+### Fixed & Polished
+- **Genre Worker & Enrichment Reliability (`worker_jobs.rs`, `worker_plans.rs`, `ytm-enrich`):** Moved `PlanGenreSplit` out of the main worker loop into cancellable `tokio::spawn` tasks with per-track progress (`emit_progress`), capped empty-tag `"Other"` negative cache entries to 24h retry instead of 30d lockout, and added a Deezer `artist + album` fallback query when track titles fail to match.
+- **Auto-Refresh Newly Created Playlists (`worker_sync.rs`):** `CreatePlaylist` sync outcomes now push the returned `playlist_id` into reload targets so new playlists load into cache immediately.
+- **Apple / Linear Desktop UI & UX Polish (`ytm-gui`, `assets/brand/dalga-launcher.svg`):**
+  - Simplified navigation into a unified 4-item primary sidebar (`Home & Explore`, `Studio Tools`, `Safety & History`, `Settings`) with contextual sub-tabs, removed the duplicate top workspace strip and fake `Library` header, centered top-bar search, moved accent controls out of the top bar into Settings, removed the unused `Stop` button from the player bar, and added track/cover right-click context menus to the player bar.
+  - Defaulted startup to **Home & Explore** with a top-bar one-click `Import Session` button when unauthenticated, upgraded Lightbox & thumbnails to high-res (`=s1024` / `hqdefault`, Lanczos3 `<= 800px`) with aspect-preserving `cover_crop_uv`, un-squished `112x112` circular Artist avatars + `<= 660px` collapsible bios, hid raw `browse_id` strings, and added a high-contrast `#14181F` Dalga launcher icon.
+
 ## [v0.4.0] — 2026-11-27
 
 ### Added

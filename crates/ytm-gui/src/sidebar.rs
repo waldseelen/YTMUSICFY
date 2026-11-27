@@ -43,8 +43,9 @@ pub fn show(
     focused_idx: &mut Option<usize>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
+    crate::studio_menu::show_primary_sidebar_nav(ui, lang, active_tab, sync_queue.len());
+    ui.separator();
     ui.horizontal(|ui| {
-        ui.strong(tr(lang, Key::SidebarLibrary));
         ui.selectable_value(
             search_mode,
             SidebarSearchMode::Playlists,
@@ -134,8 +135,6 @@ pub fn show(
             new_resp.request_focus();
         }
     });
-    ui.separator();
-    crate::studio_menu::show_studio_tools_menu(ui, lang, active_tab, sync_queue.len());
     ui.separator();
 
     if let AsyncState::Loading(m) = library {

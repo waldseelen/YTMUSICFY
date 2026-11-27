@@ -314,8 +314,11 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
             client
                 .create_playlist(title, description, *privacy, &ids)
                 .await
-                .map(|_| {
+                .map(|new_id| {
                     *created_any = true;
+                    if !new_id.is_empty() && !touched_ids.iter().any(|id| id == &new_id) {
+                        touched_ids.push(new_id);
+                    }
                     (1, ids.len())
                 })
                 .map_err(|e| DispatchStop::Fail(0, 1, e.to_string()))

@@ -5,6 +5,7 @@ pub mod components;
 pub mod context_menu;
 pub mod context_menu_model;
 pub mod dedupe;
+pub mod genre_split;
 pub mod genres_snapshots;
 pub mod health;
 pub mod home_cards;

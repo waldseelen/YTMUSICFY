@@ -1,3 +1,4 @@
+use ytm_core::PlaylistPrivacy;
 use ytm_ops::{
     DedupeConfig, KeeperStrategy, SetAlgebraOp, SortDirection, SortField, SortKey, SortSpec,
 };
@@ -115,13 +116,67 @@ impl Default for HealthForm {
 pub struct GenreSplitForm {
     pub min_tracks: usize,
     pub custom_genres_toml: String,
+    pub move_mode: bool,
+    pub include_skipped: bool,
+    pub excluded_buckets: std::collections::HashSet<String>,
+    pub excluded_video_ids: std::collections::HashSet<String>,
+    pub expanded_buckets: std::collections::HashSet<String>,
 }
 
 impl Default for GenreSplitForm {
     fn default() -> Self {
         Self {
-            min_tracks: 5,
+            min_tracks: 3,
             custom_genres_toml: String::new(),
+            move_mode: false,
+            include_skipped: false,
+            excluded_buckets: std::collections::HashSet::new(),
+            excluded_video_ids: std::collections::HashSet::new(),
+            expanded_buckets: std::collections::HashSet::new(),
+        }
+    }
+}
+
+/// Search field filter inside Repertoire / Personal Library Search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RepertoireMatchScope {
+    #[default]
+    All,
+    Title,
+    Artist,
+    Album,
+}
+
+impl RepertoireMatchScope {
+    pub const ALL: [Self; 4] = [Self::All, Self::Title, Self::Artist, Self::Album];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Title => "Song",
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+        }
+    }
+}
+
+/// Grouping mode inside Repertoire / Personal Library Search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RepertoireGroupMode {
+    #[default]
+    BySource,
+    ByAlbum,
+}
+
+impl RepertoireGroupMode {
+    pub const ALL: [Self; 2] = [Self::BySource, Self::ByAlbum];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::BySource => "By Playlist / Album",
+            Self::ByAlbum => "Group by Album",
         }
     }
 }
@@ -163,6 +218,10 @@ pub struct RepertoireTreeState {
     pub selected_keys: std::collections::HashSet<String>,
     pub target_playlist_id: Option<String>,
     pub split_ratio: f32,
+    pub match_scope: RepertoireMatchScope,
+    pub group_mode: RepertoireGroupMode,
+    pub new_playlist_title: String,
+    pub new_playlist_privacy: PlaylistPrivacy,
 }
 
 impl Default for RepertoireTreeState {
@@ -172,6 +231,10 @@ impl Default for RepertoireTreeState {
             selected_keys: std::collections::HashSet::new(),
             target_playlist_id: None,
             split_ratio: 0.52,
+            match_scope: RepertoireMatchScope::All,
+            group_mode: RepertoireGroupMode::BySource,
+            new_playlist_title: String::new(),
+            new_playlist_privacy: PlaylistPrivacy::Private,
         }
     }
 }

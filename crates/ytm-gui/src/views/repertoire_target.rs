@@ -9,7 +9,8 @@ use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
 use crate::playback_ops::PlayAction;
 use crate::state::{
-    AsyncState, DragDropMode, DragTrackPayload, DropPrompt, RepertoireTreeState, WorkerCmd,
+    AsyncState, DragDropMode, DragTrackPayload, DropPrompt, RepertoireGroupMode,
+    RepertoireMatchScope, RepertoireTreeState, WorkerCmd,
 };
 use crate::sync_queue::SyncQueue;
 
@@ -19,10 +20,36 @@ pub struct PlaylistMatches {
     pub tracks: Vec<Track>,
 }
 
-/// Collects tracks matching `query` across all locally cached/indexed playlists.
+/// Returns `true` when `id` is an indexed saved album browse ID (`MPRE...`).
+#[must_use]
+pub fn is_indexed_album_id(id: &str) -> bool {
+    id.starts_with("MPRE")
+}
+
+/// Collects tracks matching `query` across all locally cached/indexed playlists and albums.
 #[must_use]
 pub fn collect_repertoire_matches(
     query: &str,
+    playlists: &[PlaylistSummary],
+    playlist_cache: &HashMap<String, Playlist>,
+    sync_queue: &SyncQueue,
+) -> Vec<PlaylistMatches> {
+    collect_repertoire_matches_scoped(
+        query,
+        RepertoireMatchScope::All,
+        RepertoireGroupMode::BySource,
+        playlists,
+        playlist_cache,
+        sync_queue,
+    )
+}
+
+/// Collects tracks matching `query` using the chosen field scope and grouping mode.
+#[must_use]
+pub fn collect_repertoire_matches_scoped(
+    query: &str,
+    scope: RepertoireMatchScope,
+    group_mode: RepertoireGroupMode,
     playlists: &[PlaylistSummary],
     playlist_cache: &HashMap<String, Playlist>,
     sync_queue: &SyncQueue,
@@ -39,7 +66,7 @@ pub fn collect_repertoire_matches(
             continue;
         }
         if let Some(pl) = sync_queue.working_playlist(&sum.id, playlist_cache) {
-            let tracks = filter_matching_tracks(&pl, &needle);
+            let tracks = filter_matching_tracks(&pl, &needle, scope);
             if !tracks.is_empty() {
                 out.push(PlaylistMatches {
                     playlist: pl,
@@ -52,7 +79,7 @@ pub fn collect_repertoire_matches(
         if seen_ids.insert(id.clone())
             && let Some(pl) = sync_queue.working_playlist(id, playlist_cache)
         {
-            let tracks = filter_matching_tracks(&pl, &needle);
+            let tracks = filter_matching_tracks(&pl, &needle, scope);
             if !tracks.is_empty() {
                 out.push(PlaylistMatches {
                     playlist: pl,
@@ -61,22 +88,89 @@ pub fn collect_repertoire_matches(
             }
         }
     }
+    if group_mode == RepertoireGroupMode::ByAlbum {
+        return group_matches_by_album(out);
+    }
     out
 }
 
-fn filter_matching_tracks(pl: &Playlist, needle: &str) -> Vec<Track> {
+fn group_matches_by_album(groups: Vec<PlaylistMatches>) -> Vec<PlaylistMatches> {
+    let mut by_album: HashMap<String, (String, Vec<Track>, HashSet<String>)> = HashMap::new();
+    for g in groups {
+        for tr in g.tracks {
+            let album_name = tr
+                .album
+                .as_ref()
+                .map(|a| a.name.trim())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("Single / Unknown Album")
+                .to_string();
+            let key = album_name.to_ascii_lowercase();
+            let entry = by_album
+                .entry(key)
+                .or_insert_with(|| (album_name, Vec::new(), HashSet::new()));
+            let vid = if tr.video_id.is_empty() {
+                tr.title.clone()
+            } else {
+                tr.video_id.clone()
+            };
+            if entry.2.insert(vid) {
+                entry.1.push(tr);
+            }
+        }
+    }
+    let mut out: Vec<PlaylistMatches> = by_album
+        .into_iter()
+        .map(|(key, (album_title, tracks, _))| PlaylistMatches {
+            playlist: Playlist {
+                id: format!("MPRE_GROUP::{key}"),
+                title: album_title,
+                description: None,
+                privacy: ytm_core::PlaylistPrivacy::Private,
+                owned: false,
+                track_count: tracks.len(),
+                tracks: tracks.clone(),
+            },
+            tracks,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.tracks
+            .len()
+            .cmp(&a.tracks.len())
+            .then_with(|| a.playlist.title.cmp(&b.playlist.title))
+    });
+    out
+}
+
+fn filter_matching_tracks(pl: &Playlist, needle: &str, scope: RepertoireMatchScope) -> Vec<Track> {
+    let is_album_source = is_indexed_album_id(&pl.id);
+    let source_title_matches = is_album_source && pl.title.to_ascii_lowercase().contains(needle);
     pl.tracks
         .iter()
         .filter(|t| {
-            t.title.to_ascii_lowercase().contains(needle)
-                || t.primary_artist_name()
-                    .unwrap_or_default()
-                    .to_ascii_lowercase()
-                    .contains(needle)
-                || t.album
-                    .as_ref()
-                    .is_some_and(|a| a.name.to_ascii_lowercase().contains(needle))
-                || t.video_id.to_ascii_lowercase().contains(needle)
+            let match_title = t.title.to_ascii_lowercase().contains(needle);
+            let match_artist = t
+                .primary_artist_name()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .contains(needle);
+            let match_album = t
+                .album
+                .as_ref()
+                .is_some_and(|a| a.name.to_ascii_lowercase().contains(needle))
+                || source_title_matches;
+            match scope {
+                RepertoireMatchScope::All => {
+                    match_title
+                        || match_artist
+                        || match_album
+                        || t.video_id.to_ascii_lowercase().contains(needle)
+                }
+                RepertoireMatchScope::Title => match_title,
+                RepertoireMatchScope::Artist => match_artist,
+                RepertoireMatchScope::Album => match_album,
+            }
         })
         .cloned()
         .collect()
@@ -255,74 +349,5 @@ pub(crate) fn build_drop_prompt(
 }
 
 #[cfg(test)]
-mod tests {
-    use ytm_core::{ArtistRef, MusicVideoType, PlaylistPrivacy, TrackAvailability};
-
-    use super::*;
-
-    fn mk_playlist(id: &str, title: &str, artist: &str, track_title: &str) -> Playlist {
-        Playlist {
-            id: id.to_string(),
-            title: title.to_string(),
-            description: None,
-            privacy: PlaylistPrivacy::Private,
-            owned: true,
-            track_count: 1,
-            tracks: vec![Track {
-                video_id: format!("{id}_v1"),
-                set_video_id: Some(format!("{id}_s1")),
-                position: 0,
-                title: track_title.to_string(),
-                artists: vec![ArtistRef {
-                    name: artist.to_string(),
-                    browse_id: None,
-                }],
-                album: None,
-                duration_sec: Some(210),
-                release_year: Some(2013),
-                music_video_type: MusicVideoType::AudioTrack,
-                availability: TrackAvailability::Available,
-                thumbnail_url: None,
-            }],
-        }
-    }
-
-    #[test]
-    fn collect_repertoire_matches_finds_artist_across_cached_playlists() {
-        let mut cache = HashMap::new();
-        cache.insert(
-            "PL1".to_string(),
-            mk_playlist("PL1", "2025", "Daft Punk", "Instant Crush"),
-        );
-        cache.insert(
-            "PL2".to_string(),
-            mk_playlist("PL2", "Chill", "Sagopa Kajmer", "Bir Pesimistin Gozyaslari"),
-        );
-        cache.insert(
-            "PL3".to_string(),
-            mk_playlist("PL3", "Cyberpunk", "Daft Punk", "Derezzed"),
-        );
-
-        let sums = vec![
-            PlaylistSummary {
-                id: "PL1".to_string(),
-                title: "2025".to_string(),
-                track_count: Some(1),
-                owned: true,
-                is_liked_music: false,
-            },
-            PlaylistSummary {
-                id: "PL2".to_string(),
-                title: "Chill".to_string(),
-                track_count: Some(1),
-                owned: true,
-                is_liked_music: false,
-            },
-        ];
-
-        let hits = collect_repertoire_matches("daft punk", &sums, &cache, &SyncQueue::default());
-        assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0].playlist.id, "PL1");
-        assert_eq!(hits[1].playlist.id, "PL3");
-    }
-}
+#[path = "repertoire_target_tests.rs"]
+mod tests;

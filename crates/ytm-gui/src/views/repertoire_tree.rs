@@ -4,20 +4,26 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistSummary, Track};
 
-use crate::icons::{Icon, icon_button, icon_text_button};
+use crate::icons::{Icon, icon_text_button};
 use crate::interaction::{paint_drag_ghost, search_box_with_clear};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
 use crate::playback_ops::PlayAction;
 use crate::state::{
-    AsyncState, DragDropMode, DragTrackPayload, DropPrompt, GuiTab, RepertoireTreeState,
-    SidebarSearchMode, WorkerCmd,
+    AsyncState, DragDropMode, DragTrackPayload, DropPrompt, GuiTab, PendingMutation,
+    RepertoireGroupMode, RepertoireMatchScope, RepertoireTreeState, SidebarSearchMode, WorkerCmd,
 };
 use crate::sync_queue::SyncQueue;
-use crate::views::inspect_helpers::format_duration;
-use crate::views::repertoire_batch::show_tree_selection_bar;
-pub use crate::views::repertoire_target::{PlaylistMatches, collect_repertoire_matches};
+use crate::views::repertoire_batch::{TreeSelectionCtx, show_tree_selection_bar};
+pub use crate::views::repertoire_target::{
+    PlaylistMatches, collect_repertoire_matches, collect_repertoire_matches_scoped,
+    is_indexed_album_id,
+};
 use crate::views::repertoire_target::{build_drop_prompt, render_target_pane};
+
+#[path = "repertoire_rows.rs"]
+mod rows;
+use rows::render_track_row;
 
 pub(crate) fn selection_key(playlist_id: &str, track: &Track) -> String {
     format!("{playlist_id}::{}::{}", track.position, track.video_id)
@@ -58,15 +64,27 @@ pub fn show(
     selected_playlist_id: &mut Option<String>,
     active_tab: &mut GuiTab,
     drop_prompt: &mut Option<DropPrompt>,
+    pending_modal: &mut Option<PendingMutation>,
     toast: &mut Option<ToastState>,
     cmd_tx: &Sender<WorkerCmd>,
 ) -> Vec<PlayAction> {
     let mut actions = Vec::new();
-    let matches = collect_repertoire_matches(query, playlists, playlist_cache, sync_queue);
+    let matches = collect_repertoire_matches_scoped(
+        query,
+        tree_state.match_scope,
+        tree_state.group_mode,
+        playlists,
+        playlist_cache,
+        sync_queue,
+    );
     let total_hits: usize = matches.iter().map(|m| m.tracks.len()).sum();
-    let cached_cnt = playlists
+    let cached_pl_cnt = playlists
         .iter()
         .filter(|p| playlist_cache.contains_key(&p.id))
+        .count();
+    let cached_album_cnt = playlist_cache
+        .keys()
+        .filter(|id| is_indexed_album_id(id))
         .count();
 
     if let Some(p) = egui::DragAndDrop::payload::<DragTrackPayload>(ui.ctx()) {
@@ -81,7 +99,7 @@ pub fn show(
     }
 
     ui.horizontal_wrapped(|ui| {
-        ui.heading("Repertoire Search:");
+        ui.heading("Library Search:");
         search_box_with_clear(
             ui,
             "rep_tree_main_search",
@@ -91,11 +109,15 @@ pub fn show(
             false,
         );
         ui.label(format!(
-            "{total_hits} track(s) in {} playlist(s) | Indexed: {cached_cnt}/{}",
+            "{total_hits} track(s) in {} group(s) | Playlists: {cached_pl_cnt}/{}, Albums: {cached_album_cnt}",
             matches.len(),
             playlists.len()
         ));
-        if cached_cnt < playlists.len() && ui.button("Index Missing Playlists").clicked() {
+        if ui
+            .button("Index Missing (Playlists + Albums)")
+            .on_hover_text("Scan uncached playlists and saved albums into local search index")
+            .clicked()
+        {
             let _ = cmd_tx.send(WorkerCmd::IndexAllPlaylists { missing_only: true });
         }
         if ui.small_button("Expand All").clicked() {
@@ -106,14 +128,24 @@ pub fn show(
                 .collapsed_playlists
                 .extend(matches.iter().map(|m| m.playlist.id.clone()));
         }
-        ui.separator();
-        ui.label("Drag:");
-        for mode in DragDropMode::ALL {
-            ui.selectable_value(drag_mode, mode, mode.label());
+        if icon_text_button(ui, Icon::Close, "Exit Library Search", 13.0, true).clicked() {
+            *search_mode = SidebarSearchMode::Playlists;
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.small("Field:");
+        for scope in RepertoireMatchScope::ALL {
+            ui.selectable_value(&mut tree_state.match_scope, scope, scope.label());
         }
         ui.separator();
-        if icon_text_button(ui, Icon::Close, "Exit Track Search", 13.0, true).clicked() {
-            *search_mode = SidebarSearchMode::Playlists;
+        ui.small("Group:");
+        for mode in RepertoireGroupMode::ALL {
+            ui.selectable_value(&mut tree_state.group_mode, mode, mode.label());
+        }
+        ui.separator();
+        ui.small("Drag:");
+        for mode in DragDropMode::ALL {
+            ui.selectable_value(drag_mode, mode, mode.label());
         }
     });
     ui.separator();
@@ -140,7 +172,18 @@ pub fn show(
             .map(str::to_string);
     }
 
-    show_tree_selection_bar(ui, &matches, playlists, tree_state, sync_queue, toast);
+    show_tree_selection_bar(
+        ui,
+        TreeSelectionCtx {
+            query,
+            matches: &matches,
+            playlists,
+            tree_state,
+            sync_queue,
+            pending_modal,
+            toast,
+        },
+    );
 
     let pointer_pos = ui.input(|i| i.pointer.hover_pos()).unwrap_or_default();
     let avail = ui.available_size();
@@ -184,14 +227,30 @@ pub fn show(
                                     let pl = &group.playlist;
                                     let collapsed = tree_state.collapsed_playlists.contains(&pl.id);
                                     let arrow = if collapsed { ">" } else { "v" };
+                                    let kind_tag = if is_indexed_album_id(&pl.id) { "[Album] " } else { "" };
+                                    let all_grp_sel = !group.tracks.is_empty() && selected_counts[group_idx] == group.tracks.len();
                                     let header_resp = ui
                                         .horizontal(|ui| {
-                                            let lbl = format!("{arrow} {} ({} / {})", pl.title, group.tracks.len(), pl.tracks.len());
+                                            let lbl = format!("{arrow} {kind_tag}{} ({} / {})", pl.title, group.tracks.len(), pl.tracks.len());
                                             if ui.selectable_label(false, egui::RichText::new(lbl).strong()).clicked() {
                                                 if collapsed { tree_state.collapsed_playlists.remove(&pl.id); }
                                                 else { tree_state.collapsed_playlists.insert(pl.id.clone()); }
                                             }
-                                            if ui.small_button("Open ↗").clicked() {
+                                            let sel_lbl = if all_grp_sel { "Unselect" } else { "Select Group" };
+                                            if ui.small_button(sel_lbl).clicked() {
+                                                for tr in &group.tracks {
+                                                    let key = selection_key(&pl.id, tr);
+                                                    if all_grp_sel { tree_state.selected_keys.remove(&key); }
+                                                    else { tree_state.selected_keys.insert(key); }
+                                                }
+                                            }
+                                            if pl.id.starts_with("MPRE_GROUP::") {
+                                                // Virtual album grouping synthesized across playlists
+                                            } else if is_indexed_album_id(&pl.id) {
+                                                if ui.small_button("Open ↗").clicked() {
+                                                    actions.push(PlayAction::OpenBrowse(pl.id.clone()));
+                                                }
+                                            } else if ui.small_button("Open ↗").clicked() {
                                                 *selected_playlist_id = Some(pl.id.clone());
                                                 *search_mode = SidebarSearchMode::Playlists;
                                                 *active_tab = GuiTab::Inspector;
@@ -235,84 +294,6 @@ pub fn show(
     });
 
     actions
-}
-
-fn render_track_row(
-    ui: &mut egui::Ui,
-    group: &PlaylistMatches,
-    track_idx: usize,
-    selected_count: usize,
-    tree_state: &mut RepertoireTreeState,
-) -> Option<PlayAction> {
-    let pl = &group.playlist;
-    let t = &group.tracks[track_idx];
-    let key = selection_key(&pl.id, t);
-    let mut checked = tree_state.selected_keys.contains(&key);
-    let drag_id = egui::Id::new(("tree_drag", &pl.id, track_idx, &t.video_id));
-
-    let tracks = if !ui.ctx().is_being_dragged(drag_id) {
-        Vec::new()
-    } else if checked && selected_count > 1 {
-        group
-            .tracks
-            .iter()
-            .filter(|tr| {
-                tree_state
-                    .selected_keys
-                    .contains(&selection_key(&pl.id, tr))
-            })
-            .cloned()
-            .collect()
-    } else {
-        vec![t.clone()]
-    };
-    let payload = DragTrackPayload {
-        source_playlist_id: if tracks.is_empty() {
-            String::new()
-        } else {
-            pl.id.clone()
-        },
-        tracks,
-    };
-
-    let mut action = None;
-    ui.horizontal(|ui| {
-        ui.add_space(18.0);
-        if ui.checkbox(&mut checked, "").changed() {
-            if checked {
-                tree_state.selected_keys.insert(key);
-            } else {
-                tree_state.selected_keys.remove(&key);
-            }
-        }
-        let drag_resp = ui
-            .dnd_drag_source(drag_id, payload, |ui| {
-                let dur = t
-                    .duration_sec
-                    .map_or_else(|| "-".into(), |d| format_duration(u64::from(d)));
-                ui.add(
-                    egui::Label::new(format!(
-                        "::  {} — {} ({dur})",
-                        t.primary_artist_name().unwrap_or("-"),
-                        t.title
-                    ))
-                    .truncate(),
-                );
-            })
-            .response;
-        if drag_resp.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        } else if drag_resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
-        if icon_button(ui, Icon::Play, 12.0, true, "Play track").clicked() {
-            action = Some(PlayAction::PlayFromList {
-                tracks: group.tracks.clone(),
-                start_idx: track_idx,
-            });
-        }
-    });
-    action
 }
 
 #[cfg(test)]

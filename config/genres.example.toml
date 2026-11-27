@@ -25,6 +25,7 @@ parent = "Metal"
 patterns = [
   "progressive metal",
   "melodic death metal",
+  "industrial metal",
   "thrash metal",
   "heavy metal",
   "black metal",
@@ -38,16 +39,31 @@ patterns = [
 [[rules]]
 parent = "Electronic"
 patterns = [
+  "cyberpunk",
+  "darksynth",
   "synthwave",
+  "retrowave",
+  "vaporwave",
+  "chillwave",
+  "future funk",
   "drum and bass",
   "deep house",
   "tech house",
+  "french house",
+  "industrial",
+  "downtempo",
+  "trip-hop",
   "ambient",
   "electro",
   "electronic",
+  "electronica",
   "techno",
   "trance",
   "house",
+  "dubstep",
+  "lo-fi",
+  "lofi",
+  "phonk",
   "idm",
   "edm",
 ]
@@ -77,23 +93,60 @@ patterns = [
 ]
 
 [[rules]]
+parent = "R&B"
+patterns = [
+  "contemporary r&b",
+  "neo soul",
+  "r&b",
+  "rnb",
+  "soul",
+  "funk",
+]
+
+[[rules]]
 parent = "Jazz"
 patterns = [
   "jazz fusion",
   "nu jazz",
+  "smooth jazz",
   "bebop",
+  "fusion",
   "jazz",
   "blues",
-  "soul",
-  "funk",
+]
+
+[[rules]]
+parent = "Soundtrack"
+patterns = [
+  "video game music",
+  "soundtrack",
+  "film score",
+  "game ost",
+  "anime",
+  "score",
+  "vgm",
+]
+
+[[rules]]
+parent = "Folk"
+patterns = [
+  "anatolian folk",
+  "turkish folk",
+  "indie folk",
+  "acoustic",
+  "country",
+  "türkü",
+  "folk",
 ]
 
 [[rules]]
 parent = "Classical"
 patterns = [
   "contemporary classical",
+  "chamber music",
   "neoclassical",
   "orchestral",
   "classical",
-  "soundtrack",
+  "symphony",
+  "baroque",
 ]

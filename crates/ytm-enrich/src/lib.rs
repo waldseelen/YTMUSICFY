@@ -9,10 +9,10 @@ pub mod taxonomy;
 pub mod traits;
 
 pub use error::EnrichError;
-pub use genre_split::plan_genre_split;
+pub use genre_split::{plan_genre_split, plan_genre_split_with_progress};
 pub use models::{
     EnrichedTrackMetadata, EnrichmentConfig, EnrichmentSource, GenreBucket, GenreRule,
-    GenreSplitPlan, GenreTaxonomyConfig,
+    GenreSplitPlan, GenreTaxonomyConfig, TrackGenreInfo,
 };
 pub use normalize::build_cache_key;
 pub use providers::{EnrichmentHttp, MockEnrichmentHttp, ReqwestEnrichmentHttp};

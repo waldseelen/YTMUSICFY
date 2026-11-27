@@ -12,7 +12,9 @@ use ytm_store::SnapshotStore;
 use crate::state::{ConfirmedMutation, WorkerCmd, WorkerEvent};
 use crate::worker::BackendState;
 use crate::worker_exec::{emit_progress, load_playlist, run_confirmed_mutation};
-use crate::worker_plans::{build_matcher, plan_genre_split_inner, scan_health_inner};
+use crate::worker_plans::{
+    GenreSplitJobEnv, build_matcher, plan_genre_split_inner, scan_health_inner,
+};
 
 /// Dispatches Lane 2 cancellable background planning jobs (`Dedupe`, `Sort`, `SetOp`, `Health`, `GenreSplit`).
 pub(crate) async fn handle_background_job(
@@ -147,17 +149,41 @@ pub(crate) async fn handle_background_job(
             min_tracks,
             custom_genres_path,
         } => {
-            let res = plan_genre_split_inner(
-                state,
-                &playlist_id,
-                min_tracks,
-                custom_genres_path.as_deref(),
-                tx,
-                ctx,
-            )
-            .await
-            .map_err(|e| e.to_string());
-            let _ = tx.send(WorkerEvent::GenreSplitPlanned(res));
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
+                let _ = tx.send(WorkerEvent::GenreSplitPlanned(Err(
+                    "not authenticated".to_string()
+                )));
+                return None;
+            };
+            let (job_id, cancel) = state.allocate_job();
+            let env = GenreSplitJobEnv {
+                store: Arc::clone(&state.store),
+                paths: state.paths.clone(),
+                enrich_cfg: state.config.enrichment.clone(),
+                tx: tx.clone(),
+                ctx: ctx.clone(),
+            };
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            let _ = tx.send(WorkerEvent::JobStarted {
+                job_id,
+                label: "Genre Enrichment".to_string(),
+            });
+            tokio::spawn(async move {
+                let res = plan_genre_split_inner(
+                    client.as_ref(),
+                    env,
+                    &playlist_id,
+                    min_tracks,
+                    custom_genres_path.as_deref(),
+                    &cancel,
+                )
+                .await
+                .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::GenreSplitPlanned(res));
+                let _ = tx.send(WorkerEvent::JobEnded(job_id));
+                ctx.request_repaint();
+            });
             None
         }
         other => Some(other),

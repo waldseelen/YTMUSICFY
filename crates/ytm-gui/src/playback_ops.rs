@@ -29,6 +29,7 @@ pub enum PlayAction {
         browse_id: String,
         params: Option<String>,
     },
+    SearchMyLibrary(String),
 }
 
 /// Dispatch playback, queue, like, radio, and browse intents onto `app`.
@@ -97,6 +98,11 @@ pub fn dispatch_play_actions(actions: Vec<PlayAction>, app: &mut YtmGuiApp) {
             }
             PlayAction::OpenBrowseWithParams { browse_id, params } => {
                 open_browse_target(browse_id, params, app);
+            }
+            PlayAction::SearchMyLibrary(query) => {
+                app.sidebar_search_mode = crate::state::SidebarSearchMode::AllTracks;
+                app.sidebar_filter = query;
+                app.active_tab = GuiTab::Inspector;
             }
         }
     }

@@ -136,29 +136,41 @@ min_bucket_tracks = 5
 
 [[rules]]
 parent = "Rock"
-patterns = ["rock", "alt-rock", "alternative rock", "indie rock", "post-rock", "prog rock", "progressive rock", "classic rock", "punk"]
+patterns = ["rock", "alt-rock", "alternative rock", "indie rock", "post-rock", "post-punk", "prog rock", "progressive rock", "classic rock", "hard rock", "punk", "punk rock", "anatolian rock", "turkish rock", "grunge", "shoegaze", "psychedelic rock"]
 
 [[rules]]
 parent = "Metal"
-patterns = ["metal", "heavy metal", "death metal", "melodic death metal", "black metal", "thrash metal", "metalcore", "doom metal"]
+patterns = ["metal", "heavy metal", "death metal", "melodic death metal", "black metal", "thrash metal", "progressive metal", "metalcore", "doom metal", "nu metal", "industrial metal"]
 
 [[rules]]
 parent = "Electronic"
-patterns = ["electronic", "edm", "house", "techno", "trance", "synthwave", "drum and bass", "dnb", "ambient", "idm", "dubstep"]
+patterns = ["electronic", "electronica", "edm", "house", "deep house", "tech house", "french house", "techno", "trance", "synthwave", "darksynth", "cyberpunk", "retrowave", "vaporwave", "chillwave", "future funk", "industrial", "drum and bass", "dnb", "ambient", "downtempo", "trip-hop", "idm", "dubstep", "electro", "lo-fi", "lofi", "phonk"]
 
 [[rules]]
 parent = "Hip-Hop"
-patterns = ["hip-hop", "hip hop", "rap", "trap", "boom bap", "drill"]
+patterns = ["hip-hop", "hip hop", "rap", "trap", "boom bap", "drill", "turkish hip hop", "turkish rap"]
 
 [[rules]]
 parent = "Pop"
-patterns = ["pop", "synthpop", "indie pop", "dream pop", "k-pop", "j-pop"]
+patterns = ["pop", "synthpop", "indie pop", "dream pop", "turkish pop", "k-pop", "j-pop"]
+
+[[rules]]
+parent = "R&B"
+patterns = ["r&b", "rnb", "contemporary r&b", "neo soul", "soul", "funk"]
 
 [[rules]]
 parent = "Jazz"
-patterns = ["jazz", "bebop", "fusion", "nu jazz", "smooth jazz"]
+patterns = ["jazz", "jazz fusion", "bebop", "fusion", "nu jazz", "smooth jazz", "blues"]
+
+[[rules]]
+parent = "Soundtrack"
+patterns = ["soundtrack", "video game music", "vgm", "game ost", "film score", "score", "anime"]
+
+[[rules]]
+parent = "Folk"
+patterns = ["folk", "indie folk", "acoustic", "country", "anatolian folk", "türkü", "turkish folk"]
 
 [[rules]]
 parent = "Classical"
-patterns = ["classical", "baroque", "orchestral", "symphony", "chamber music"]
+patterns = ["classical", "contemporary classical", "neoclassical", "baroque", "orchestral", "symphony", "chamber music"]
 "#;

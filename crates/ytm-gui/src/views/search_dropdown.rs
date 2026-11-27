@@ -13,6 +13,7 @@ use crate::theme::Palette;
 #[derive(Clone)]
 enum DropdownItem {
     Query(String),
+    MyLibrary(String),
     Track(ytm_core::Track),
     Browse(String),
 }
@@ -63,6 +64,12 @@ pub fn show_search_dropdown(ctx: &egui::Context, dd: SearchDropdownCtx<'_>) -> V
             ));
         }
     } else {
+        let trimmed = ctrl.query.trim().to_string();
+        entries.push((
+            "My Library".to_string(),
+            format!("Search personal playlists & saved albums: \"{trimmed}\""),
+            DropdownItem::MyLibrary(trimmed),
+        ));
         for s in ctrl.suggestions.iter().take(4) {
             entries.push((
                 tr(lang, Key::SearchSuggestions).to_string(),
@@ -177,6 +184,7 @@ pub fn show_search_dropdown(ctx: &egui::Context, dd: SearchDropdownCtx<'_>) -> V
                         let selected = ctrl.highlighted_idx == Some(idx);
                         let icon = match item {
                             DropdownItem::Query(_) => Icon::Search,
+                            DropdownItem::MyLibrary(_) => Icon::Search,
                             DropdownItem::Track(_) => Icon::Play,
                             DropdownItem::Browse(_) => Icon::ExternalLink,
                         };
@@ -221,6 +229,10 @@ pub fn show_search_dropdown(ctx: &egui::Context, dd: SearchDropdownCtx<'_>) -> V
             DropdownItem::Browse(bid) => {
                 *recent_persisted = ctrl.record_recent(&ctrl.query.clone());
                 actions.push(PlayAction::OpenBrowse(bid));
+            }
+            DropdownItem::MyLibrary(q) => {
+                *recent_persisted = ctrl.record_recent(&q);
+                actions.push(PlayAction::SearchMyLibrary(q));
             }
         }
         return actions;

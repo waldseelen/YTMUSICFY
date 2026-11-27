@@ -12,12 +12,13 @@ use crate::icons::{Icon, icon_button, icon_text_button};
 use crate::navigation::ToastState;
 use crate::play_queue::PlayQueue;
 use crate::playback_ops::PlayAction;
-use crate::state::{AsyncState, WorkerCmd};
+use crate::state::{AsyncState, BrowserKind, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
 use crate::views::async_banner;
 use crate::views::context_menu::{ContextMenuEnv, ContextTarget, attach_context_menu};
 use crate::views::home_cards::{
-    ShelfUiEnv, paint_art_box, render_continue_card, render_shelf_card, render_skeleton_shelves,
+    ShelfUiEnv, paint_art_box, paint_art_box_rounded, render_collapsible_subtitle,
+    render_continue_card, render_import_session_prompt, render_shelf_card, render_skeleton_shelves,
 };
 use crate::views::inspect_helpers::format_duration;
 
@@ -26,6 +27,9 @@ pub struct BrowseCtx<'a> {
     pub browse_target: &'a mut String,
     pub browse_state: &'a AsyncState<BrowsePage>,
     pub browse_from_cache: bool,
+    pub session_failed: bool,
+    pub auth_browser: BrowserKind,
+    pub open_auth: &'a mut bool,
     pub play_queue: &'a PlayQueue,
     pub playlists: &'a [PlaylistSummary],
     pub sync_queue: &'a mut SyncQueue,
@@ -41,6 +45,9 @@ pub fn show(ui: &mut egui::Ui, ctx: BrowseCtx<'_>) -> Vec<PlayAction> {
         browse_target,
         browse_state,
         browse_from_cache,
+        session_failed,
+        auth_browser,
+        open_auth,
         play_queue,
         playlists,
         sync_queue,
@@ -75,18 +82,6 @@ pub fn show(ui: &mut egui::Ui, ctx: BrowseCtx<'_>) -> Vec<PlayAction> {
             env.actions
                 .push(PlayAction::OpenBrowse(BROWSE_LIKED_ALBUMS.to_string()));
         }
-        ui.separator();
-        ui.label("Browse ID:");
-        let resp = ui.add(
-            egui::TextEdit::singleline(browse_target)
-                .desired_width(180.0)
-                .hint_text("FEmusic_home / UC... / MPREb_..."),
-        );
-        let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if (ui.button("Go").clicked() || enter) && !browse_target.trim().is_empty() {
-            env.actions
-                .push(PlayAction::OpenBrowse(browse_target.trim().to_string()));
-        }
         if let AsyncState::Ready(page) = browse_state
             && icon_text_button(ui, Icon::Refresh, "Refresh", 13.0, true).clicked()
         {
@@ -99,10 +94,16 @@ pub fn show(ui: &mut egui::Ui, ctx: BrowseCtx<'_>) -> Vec<PlayAction> {
     match browse_state {
         AsyncState::Idle => {
             render_continue_card(ui, play_queue, &mut env);
-            ui.label("Browse YouTube Music Home recommendations, Artist profiles, or Album pages.");
-            if ui.button("Load Home Recommendations").clicked() {
-                env.actions
-                    .push(PlayAction::OpenBrowse(BROWSE_HOME.to_string()));
+            if session_failed {
+                render_import_session_prompt(ui, auth_browser, open_auth, cmd_tx);
+            } else {
+                ui.label(
+                    "Browse YouTube Music Home recommendations, Artist profiles, or Album pages.",
+                );
+                if ui.button("Load Home Recommendations").clicked() {
+                    env.actions
+                        .push(PlayAction::OpenBrowse(BROWSE_HOME.to_string()));
+                }
             }
             return actions;
         }
@@ -113,7 +114,9 @@ pub fn show(ui: &mut egui::Ui, ctx: BrowseCtx<'_>) -> Vec<PlayAction> {
         }
         AsyncState::Failed(err) => {
             async_banner(ui, None, Some(err.as_str()));
-            if ui.button("Retry").clicked() && !browse_target.trim().is_empty() {
+            if session_failed {
+                render_import_session_prompt(ui, auth_browser, open_auth, cmd_tx);
+            } else if ui.button("Retry").clicked() && !browse_target.trim().is_empty() {
                 env.actions
                     .push(PlayAction::OpenBrowse(browse_target.trim().to_string()));
             }
@@ -186,9 +189,18 @@ pub fn show(ui: &mut egui::Ui, ctx: BrowseCtx<'_>) -> Vec<PlayAction> {
 fn render_header(ui: &mut egui::Ui, page: &BrowsePage, env: &mut ShelfUiEnv<'_>) {
     ui.horizontal(|ui| {
         if let Some(url) = &page.thumbnail_url {
-            paint_art_box(ui, url, egui::vec2(84.0, 84.0), env.artwork);
+            let (art_size, radius) = match page.kind {
+                BrowsePageKind::Artist => (egui::vec2(112.0, 112.0), 56.0),
+                BrowsePageKind::Album | BrowsePageKind::Playlist => {
+                    (egui::vec2(112.0, 112.0), 12.0)
+                }
+                _ => (egui::vec2(84.0, 84.0), 8.0),
+            };
+            paint_art_box_rounded(ui, url, art_size, radius, env.artwork);
+            ui.add_space(6.0);
         }
         ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width().min(660.0));
             ui.heading(&page.title);
             if !page.artists.is_empty() {
                 ui.horizontal_wrapped(|ui| {
@@ -213,9 +225,9 @@ fn render_header(ui: &mut egui::Ui, page: &BrowsePage, env: &mut ShelfUiEnv<'_>)
                 BrowsePageKind::Playlist => "Playlist",
                 BrowsePageKind::Unknown => "Browse",
             };
-            ui.small(format!("{kind_str} • {}", page.browse_id));
+            ui.small(kind_str);
             if let Some(sub) = &page.subtitle {
-                ui.label(sub);
+                render_collapsible_subtitle(ui, &page.browse_id, sub);
             }
             if !page.tracks.is_empty() {
                 ui.horizontal_wrapped(|ui| {

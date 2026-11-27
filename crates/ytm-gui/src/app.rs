@@ -218,6 +218,7 @@ impl eframe::App for YtmGuiApp {
                     lang,
                     palette: &palette,
                     session: &self.session,
+                    auth_browser: self.auth_browser,
                     active_tab: &mut self.active_tab,
                     selected_playlist_id: &mut self.selected_playlist_id,
                     nav_history: &mut self.nav_history,
@@ -278,6 +279,8 @@ impl eframe::App for YtmGuiApp {
                     right_drawer: self.right_drawer,
                     art_tex: current_art.as_ref(),
                     current_effects: &mut self.audio_effects,
+                    sync_queue: &mut self.sync_queue,
+                    toast: &mut self.toast,
                 },
             ));
         });

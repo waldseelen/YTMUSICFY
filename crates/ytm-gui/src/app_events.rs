@@ -1,6 +1,6 @@
 use crate::app::YtmGuiApp;
 use crate::i18n::{Key, tr};
-use crate::state::{AsyncState, DispatchEntryOutcome, GuiTab, WorkerCmd, WorkerEvent};
+use crate::state::{AsyncState, DispatchEntryOutcome, WorkerCmd, WorkerEvent};
 
 pub(crate) use crate::app_frame::finish_frame;
 
@@ -8,15 +8,11 @@ pub(crate) use crate::app_frame::finish_frame;
 pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
     match evt {
         WorkerEvent::SessionLoaded(res) => {
-            let failed = res.is_err();
-            if !failed {
+            if res.is_ok() {
                 app.offline_mode = false;
                 app.session_refresh.finish_ok();
             }
             app.session = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            if failed && app.library.data().is_none() && app.playlist_cache.is_empty() {
-                app.active_tab = GuiTab::Auth;
-            }
         }
         WorkerEvent::LibraryCacheHydrated(list) => {
             if !matches!(app.library, AsyncState::Ready(_)) && !list.is_empty() {

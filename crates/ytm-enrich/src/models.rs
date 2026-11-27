@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use ytm_core::Track;
 
@@ -64,6 +66,15 @@ pub struct GenreBucket {
     pub already_present_count: usize,
 }
 
+/// Diagnostic genre assignment record captured for each enriched track in a split plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackGenreInfo {
+    pub primary_genre: String,
+    pub raw_tags: Vec<String>,
+    pub source: EnrichmentSource,
+    pub release_year: Option<u16>,
+}
+
 /// Complete dry-run or execution plan for `ytm split-genre`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenreSplitPlan {
@@ -71,6 +82,10 @@ pub struct GenreSplitPlan {
     pub source_playlist_title: String,
     pub buckets: Vec<GenreBucket>,
     pub skipped_small_buckets: usize,
+    #[serde(default)]
+    pub skipped_buckets: Vec<GenreBucket>,
+    #[serde(default)]
+    pub track_details: HashMap<String, TrackGenreInfo>,
 }
 
 /// Runtime settings controlling external metadata enrichment providers.

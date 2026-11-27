@@ -9,8 +9,12 @@ BIN_DIR="${HOME}/.local/bin"
 mkdir -p "$APP_DIR" "$ICON_BASE/256x256/apps" "$ICON_BASE/scalable/apps" "$BIN_DIR"
 rm -f "$APP_DIR/ytm-architect.desktop"
 
-cp "$REPO_ROOT/assets/brand/dalga-icon-256.png" "$ICON_BASE/256x256/apps/dalga.png"
-cp "$REPO_ROOT/assets/brand/dalga-mark.svg" "$ICON_BASE/scalable/apps/dalga.svg"
+if command -v rsvg-convert >/dev/null 2>&1; then
+    rsvg-convert -w 256 -h 256 "$REPO_ROOT/assets/brand/dalga-launcher.svg" -o "$ICON_BASE/256x256/apps/dalga.png"
+else
+    cp "$REPO_ROOT/assets/brand/dalga-icon-256.png" "$ICON_BASE/256x256/apps/dalga.png"
+fi
+cp "$REPO_ROOT/assets/brand/dalga-launcher.svg" "$ICON_BASE/scalable/apps/dalga.svg"
 cp "$REPO_ROOT/assets/brand/dalga.desktop" "$APP_DIR/dalga.desktop"
 
 if [[ -x "$REPO_ROOT/target/release/ytm-gui" ]] && ! [[ "$REPO_ROOT/target/release/ytm-gui" -ef "$BIN_DIR/ytm-gui" ]]; then

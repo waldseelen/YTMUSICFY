@@ -1,5 +1,5 @@
 use crate::state::GuiTab;
-use eframe::egui::{self, Color32, Stroke};
+use eframe::egui::{self, Color32};
 
 /// Five primary workspaces replacing the legacy 11-tab flat strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,65 +128,32 @@ pub const fn tab_tooltip(tab: GuiTab) -> &'static str {
     }
 }
 
-/// Renders 5 Primary Workspaces + compact sub-view strip.
+/// Renders Apple-style contextual sub-tabs when the active workspace has multiple views.
 pub fn show_tab_bar(ui: &mut egui::Ui, active_tab: &mut GuiTab, sync_len: usize) {
     let active_ws = workspace_of(*active_tab);
+    let subs = active_ws.sub_tabs();
+    if subs.len() <= 1 {
+        return;
+    }
 
     ui.horizontal_wrapped(|ui| {
-        for (idx, ws) in Workspace::ALL.iter().copied().enumerate() {
-            let selected = ws == active_ws;
-            let fill = if selected {
-                ws.accent()
+        for &sub in subs {
+            let selected = *active_tab == sub;
+            let label = if sub == GuiTab::Sync && sync_len > 0 {
+                format!("Sync ({sync_len})")
             } else {
-                ws.idle_fill()
+                sub.label().to_string()
             };
-            let text_color = if selected {
-                Color32::from_rgb(16, 18, 22)
-            } else {
-                Color32::from_rgb(225, 230, 238)
-            };
-            let stroke = if selected {
-                Stroke::new(1.5_f32, Color32::WHITE)
-            } else {
-                Stroke::new(1.0_f32, ws.accent().gamma_multiply(0.45))
-            };
-            let btn = egui::Button::new(egui::RichText::new(ws.label()).color(text_color).strong())
-                .fill(fill)
-                .stroke(stroke)
-                .corner_radius(5.0);
-            let resp = ui
-                .add(btn)
-                .on_hover_text(format!("{} (Ctrl+{})", ws.label(), idx + 1));
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            if resp.clicked() && !selected {
-                *active_tab = ws.default_tab();
+            if ui
+                .selectable_label(selected, label)
+                .on_hover_text(tab_tooltip(sub))
+                .clicked()
+            {
+                *active_tab = sub;
             }
         }
     });
-
-    let subs = active_ws.sub_tabs();
-    if subs.len() > 1 {
-        ui.add_space(3.0);
-        ui.horizontal_wrapped(|ui| {
-            for &sub in subs {
-                let selected = *active_tab == sub;
-                let label = if sub == GuiTab::Sync && sync_len > 0 {
-                    format!("Sync ({sync_len})")
-                } else {
-                    sub.label().to_string()
-                };
-                if ui
-                    .selectable_label(selected, label)
-                    .on_hover_text(tab_tooltip(sub))
-                    .clicked()
-                {
-                    *active_tab = sub;
-                }
-            }
-        });
-    }
+    ui.separator();
 }
 
 #[cfg(test)]

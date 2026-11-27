@@ -9,7 +9,6 @@ use crate::views;
 pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
     let sync_len = app.sync_queue.len();
     show_tab_bar(ui, &mut app.active_tab, sync_len);
-    ui.separator();
 
     let sel_id = app.selected_playlist_id.as_deref();
     let draft_active = sel_id.and_then(|id| {
@@ -29,6 +28,7 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 });
             }
             let lang = app.lang();
+            let mut open_auth = false;
             pending_actions = views::browse::show(
                 ui,
                 views::browse::BrowseCtx {
@@ -36,6 +36,9 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                     browse_target: &mut app.browse_target,
                     browse_state: &app.browse_state,
                     browse_from_cache: app.browse_from_cache,
+                    session_failed: matches!(app.session, AsyncState::Failed(_)),
+                    auth_browser: app.auth_browser,
+                    open_auth: &mut open_auth,
                     play_queue: &app.play_queue,
                     playlists,
                     sync_queue: &mut app.sync_queue,
@@ -44,6 +47,9 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                     cmd_tx: &app.cmd_tx,
                 },
             );
+            if open_auth {
+                app.active_tab = GuiTab::Auth;
+            }
         }
         GuiTab::Search => {
             let lang = app.lang();
@@ -81,6 +87,7 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                     &mut app.selected_playlist_id,
                     &mut app.active_tab,
                     &mut app.drop_prompt,
+                    &mut app.pending_modal,
                     &mut app.toast,
                     &app.cmd_tx,
                 );
@@ -180,14 +187,19 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                 &app.cmd_tx,
             );
         }
-        GuiTab::GenreSplit => views::genres_snapshots::show_genre_split(
+        GuiTab::GenreSplit => views::genre_split::show_genre_split(
             ui,
-            sel_id,
-            &mut app.genre_form,
-            &mut app.genre_plan,
-            &mut app.sync_queue,
-            &mut app.toast,
-            &app.cmd_tx,
+            views::genre_split::GenreSplitViewCtx {
+                playlists,
+                selected_playlist_id: &mut app.selected_playlist_id,
+                form: &mut app.genre_form,
+                plan_state: &mut app.genre_plan,
+                batch_progress: app.batch_progress.as_ref(),
+                sync_queue: &mut app.sync_queue,
+                pending_modal: &mut app.pending_modal,
+                toast: &mut app.toast,
+                cmd_tx: &app.cmd_tx,
+            },
         ),
         GuiTab::Snapshots => views::genres_snapshots::show_snapshots(
             ui,

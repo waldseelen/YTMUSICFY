@@ -88,7 +88,7 @@ pub fn show_lightbox(
                 .corner_radius(10.0)
                 .inner_margin(16.0)
                 .show(ui, |ui| {
-                    ui.set_width(360.0);
+                    ui.set_width(432.0);
                     ui.horizontal(|ui| {
                         ui.strong(&title);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -109,9 +109,14 @@ pub fn show_lightbox(
                         ui.colored_label(palette.text_muted, &subtitle);
                     }
                     ui.add_space(10.0);
-                    let size = egui::vec2(328.0, 328.0);
-                    if let Some(tex) = artwork.texture_for(ctx, &image_url) {
-                        ui.add(egui::Image::new((tex.id(), size)).corner_radius(8.0));
+                    let size = egui::vec2(400.0, 400.0);
+                    if let Some(tex) = artwork.texture_for_hires(ctx, &image_url) {
+                        let uv = crate::artwork_hires::cover_crop_uv(tex.size_vec2(), size);
+                        ui.add(
+                            egui::Image::new((tex.id(), size))
+                                .uv(uv)
+                                .corner_radius(10.0),
+                        );
                     } else {
                         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                         ui.painter().rect_filled(rect, 8.0, palette.bg_elevated);

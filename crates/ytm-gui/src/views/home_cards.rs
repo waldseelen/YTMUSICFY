@@ -223,11 +223,70 @@ pub(crate) fn paint_art_box(
     size: egui::Vec2,
     artwork: &mut ArtworkCache,
 ) {
-    if let Some(tex) = artwork.texture_for(ui.ctx(), url) {
-        ui.add(egui::Image::new((tex.id(), size)).corner_radius(4.0));
+    paint_art_box_rounded(ui, url, size, 4.0, artwork);
+}
+
+pub(crate) fn paint_art_box_rounded(
+    ui: &mut egui::Ui,
+    url: &str,
+    size: egui::Vec2,
+    radius: f32,
+    artwork: &mut ArtworkCache,
+) {
+    let tex_opt = if size.x >= 96.0 || size.y >= 96.0 {
+        artwork.texture_for_hires(ui.ctx(), url)
+    } else {
+        artwork.texture_for(ui.ctx(), url)
+    };
+    if let Some(tex) = tex_opt {
+        let uv = crate::artwork_hires::cover_crop_uv(tex.size_vec2(), size);
+        ui.add(
+            egui::Image::new((tex.id(), size))
+                .uv(uv)
+                .corner_radius(radius),
+        );
     } else {
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
         ui.painter()
-            .rect_filled(rect, 4.0, egui::Color32::from_gray(35));
+            .rect_filled(rect, radius, egui::Color32::from_gray(35));
+    }
+}
+
+pub(crate) fn render_import_session_prompt(
+    ui: &mut egui::Ui,
+    auth_browser: crate::state::BrowserKind,
+    open_auth: &mut bool,
+    cmd_tx: &std::sync::mpsc::Sender<crate::state::WorkerCmd>,
+) {
+    ui.add_space(6.0);
+    ui.label("YouTube Music session is not signed in. Import your browser cookies in one click:");
+    ui.horizontal(|ui| {
+        if ui.button("Import Session").clicked() {
+            let _ = cmd_tx.send(crate::state::WorkerCmd::ImportBrowserAuth(auth_browser));
+        }
+        if ui.small_button("Auth Settings").clicked() {
+            *open_auth = true;
+        }
+    });
+}
+
+pub(crate) fn render_collapsible_subtitle(ui: &mut egui::Ui, browse_id: &str, text: &str) {
+    let bio_id = egui::Id::new(("dalga_bio_expanded", browse_id));
+    let expanded = ui
+        .ctx()
+        .data(|d| d.get_temp::<bool>(bio_id))
+        .unwrap_or(false);
+    let long = text.chars().count() > 220 || text.lines().count() > 3;
+    if long && !expanded {
+        let preview: String = text.chars().take(216).collect();
+        ui.label(format!("{}...", preview.trim_end()));
+        if ui.small_button("Show more").clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(bio_id, true));
+        }
+    } else {
+        ui.label(text);
+        if long && ui.small_button("Show less").clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(bio_id, false));
+        }
     }
 }

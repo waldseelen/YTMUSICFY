@@ -38,7 +38,7 @@ impl YtmGuiApp {
         Self {
             cmd_tx,
             evt_rx,
-            active_tab: GuiTab::Inspector,
+            active_tab: GuiTab::Browse,
             sidebar_filter: String::new(),
             sidebar_search_mode: SidebarSearchMode::default(),
             drag_mode: DragDropMode::default(),
@@ -104,7 +104,7 @@ impl YtmGuiApp {
             drop_prompt: None,
             batch_progress: None,
             toast: None,
-            nav_history: NavHistory::new(GuiTab::Inspector, None),
+            nav_history: NavHistory::new(GuiTab::Browse, None),
             ui_scale: 1.0,
             base_pixels_per_point: None,
             focus_search_once: false,

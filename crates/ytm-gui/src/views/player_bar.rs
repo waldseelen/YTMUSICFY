@@ -1,16 +1,20 @@
 use eframe::egui;
 use std::time::Duration;
-use ytm_core::{PlaylistAccess, PlaylistSummary, Track};
+use ytm_core::{PlaylistSummary, Track};
 
 use crate::audio_fx::AudioEffects;
 use crate::i18n::{Key, ResolvedLang, tr};
 use crate::icons::{Icon, icon_button};
+use crate::navigation::ToastState;
 use crate::play_queue::{PlayQueue, RepeatMode};
 use crate::playback_ops::PlayAction;
 use crate::player::{PlayerController, PlayerSnapshot, PlayerState};
 use crate::right_drawer::RightDrawerTab;
+use crate::sync_queue::SyncQueue;
 use crate::views::inspect_helpers::format_duration;
 
+#[path = "player_bar_left.rs"]
+mod left;
 #[path = "player_bar_right.rs"]
 mod right;
 
@@ -50,6 +54,8 @@ pub struct PlayerBarCtx<'a> {
     pub right_drawer: RightDrawerTab,
     pub art_tex: Option<&'a egui::TextureHandle>,
     pub current_effects: &'a mut AudioEffects,
+    pub sync_queue: &'a mut SyncQueue,
+    pub toast: &'a mut Option<ToastState>,
 }
 
 /// Render responsive 3-zone persistent bottom audio player bar (`mpv` IPC + `PlayQueue`).
@@ -64,6 +70,8 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
         right_drawer,
         art_tex,
         current_effects,
+        sync_queue,
+        toast,
     } = bar;
     let mut out = PlayerBarOutcome::default();
     let snap = player.snapshot();
@@ -87,8 +95,18 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                     egui::vec2(layout.side_width, ui.available_height()),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        render_left_track_info(
-                            ui, lang, current, queue, playlists, art_tex, &mut out,
+                        left::render_left_track_info(
+                            ui,
+                            left::LeftTrackCtx {
+                                lang,
+                                current,
+                                queue,
+                                playlists,
+                                art_tex,
+                                sync_queue,
+                                toast,
+                            },
+                            &mut out,
                         );
                     },
                 );
@@ -117,14 +135,28 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                 egui::vec2(layout.side_width, ui.available_height()),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
+                    ui.set_min_width(layout.side_width);
                     ui.set_max_width(layout.side_width);
-                    render_left_track_info(ui, lang, current, queue, playlists, art_tex, &mut out);
+                    left::render_left_track_info(
+                        ui,
+                        left::LeftTrackCtx {
+                            lang,
+                            current,
+                            queue,
+                            playlists,
+                            art_tex,
+                            sync_queue,
+                            toast,
+                        },
+                        &mut out,
+                    );
                 },
             );
             ui.allocate_ui_with_layout(
                 egui::vec2(layout.center_width, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Center),
                 |ui| {
+                    ui.set_min_width(layout.center_width);
                     ui.set_max_width(layout.center_width);
                     render_center_transport(ui, lang, queue, &snap, &mut out);
                 },
@@ -133,6 +165,8 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                 egui::vec2(layout.side_width, ui.available_height()),
                 egui::Layout::right_to_left(egui::Align::Center),
                 |ui| {
+                    ui.set_min_width(layout.side_width);
+                    ui.set_max_width(layout.side_width);
                     right::render_right_controls(
                         ui,
                         right::RightControlsCtx {
@@ -177,104 +211,6 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
     }
 
     out
-}
-
-fn render_left_track_info(
-    ui: &mut egui::Ui,
-    lang: ResolvedLang,
-    current: Option<&Track>,
-    queue: &PlayQueue,
-    playlists: &[PlaylistSummary],
-    art_tex: Option<&egui::TextureHandle>,
-    out: &mut PlayerBarOutcome,
-) {
-    let art_size = egui::vec2(42.0, 42.0);
-    if let Some(tex) = art_tex {
-        let resp = ui.add(
-            egui::Image::new((tex.id(), art_size))
-                .corner_radius(4.0)
-                .sense(egui::Sense::click()),
-        );
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if resp.on_hover_text(tr(lang, Key::PlayerOpenCover)).clicked() && current.is_some() {
-            out.open_lightbox = true;
-        }
-    } else {
-        let (rect, _) = ui.allocate_exact_size(art_size, egui::Sense::hover());
-        ui.painter()
-            .rect_filled(rect, 4.0, ui.visuals().widgets.inactive.bg_fill);
-        let icon_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(20.0, 20.0));
-        Icon::Music
-            .image(20.0, ui.visuals().weak_text_color())
-            .paint_at(ui, icon_rect);
-    }
-
-    let Some(track) = current else {
-        ui.vertical(|ui| {
-            ui.strong(tr(lang, Key::PlayerNotPlaying));
-            ui.small(tr(lang, Key::PlayerPlayHint));
-        });
-        return;
-    };
-
-    ui.vertical(|ui| {
-        ui.set_max_width(220.0);
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(egui::RichText::new(&track.title).strong()).truncate());
-            let liked = queue.is_liked(&track.video_id);
-            let color = if liked {
-                egui::Color32::from_rgb(235, 85, 115)
-            } else {
-                ui.visuals().weak_text_color()
-            };
-            if ui
-                .add(egui::Button::image(Icon::Heart.image(14.0, color)))
-                .on_hover_text(if liked {
-                    tr(lang, Key::PlayerUnlike)
-                } else {
-                    tr(lang, Key::PlayerLike)
-                })
-                .clicked()
-            {
-                out.actions.push(PlayAction::ToggleLike(track.clone()));
-            }
-            ui.menu_button("+", |ui| {
-                ui.label("Stage add to playlist:");
-                for pl in playlists
-                    .iter()
-                    .filter(|p| p.access() == PlaylistAccess::EditableOwned)
-                {
-                    if ui.button(&pl.title).clicked() {
-                        out.stage_add = Some((pl.id.clone(), pl.title.clone(), track.clone()));
-                        ui.close_menu();
-                    }
-                }
-            });
-        });
-        ui.horizontal(|ui| {
-            if let Some(artist) = track.artists.first() {
-                if let Some(bid) = &artist.browse_id {
-                    if ui.link(&artist.name).clicked() {
-                        out.actions.push(PlayAction::OpenBrowse(bid.clone()));
-                    }
-                } else {
-                    ui.small(&artist.name);
-                }
-            }
-            if let Some(album) = &track.album {
-                ui.small("•");
-                if let Some(bid) = &album.browse_id {
-                    if ui.link(&album.name).clicked() {
-                        out.actions.push(PlayAction::OpenBrowse(bid.clone()));
-                    }
-                } else {
-                    ui.small(&album.name);
-                }
-            }
-        });
-    });
 }
 
 fn render_center_transport(

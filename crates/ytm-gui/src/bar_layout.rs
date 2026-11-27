@@ -2,9 +2,10 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TopBarLayout {
     pub show_brand_title: bool,
-    pub show_accent_text: bool,
+    pub center_search: bool,
     pub show_ribbon: bool,
     pub search_width: f32,
+    pub side_width: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,16 +26,24 @@ impl TopBarLayout {
         let eff = effective_width(available_width, font_scale);
         let search_width = if eff >= 960.0 {
             (available_width * 0.28).clamp(200.0, 320.0)
-        } else if eff >= 720.0 {
-            (available_width * 0.24).clamp(140.0, 220.0)
+        } else if eff >= 760.0 {
+            (available_width * 0.24).clamp(150.0, 240.0)
         } else {
-            (available_width * 0.25).clamp(110.0, 175.0)
+            (available_width * 0.28).clamp(120.0, 200.0)
+        };
+        let center_search = eff >= 760.0;
+        let center_slot = search_width + 26.0;
+        let side_width = if center_search {
+            ((available_width - center_slot - 16.0) * 0.5).max(160.0)
+        } else {
+            (available_width * 0.34).max(110.0)
         };
         Self {
             show_brand_title: eff >= 720.0,
-            show_accent_text: eff >= 960.0,
-            show_ribbon: eff >= 680.0,
+            center_search,
+            show_ribbon: eff >= 820.0,
             search_width,
+            side_width,
         }
     }
 }
@@ -114,13 +123,14 @@ mod tests {
     #[test]
     fn top_bar_layout_collapses_progressively_without_overlap() {
         let wide = TopBarLayout::from_width(1200.0, 1.0);
-        assert!(wide.show_brand_title && wide.show_accent_text && wide.show_ribbon);
+        assert!(wide.show_brand_title && wide.center_search && wide.show_ribbon);
+        assert!(wide.side_width * 2.0 + wide.search_width <= 1200.0);
 
-        let med = TopBarLayout::from_width(820.0, 1.0);
-        assert!(med.show_brand_title && !med.show_accent_text && med.show_ribbon);
+        let med = TopBarLayout::from_width(780.0, 1.0);
+        assert!(med.show_brand_title && med.center_search && !med.show_ribbon);
 
         let narrow = TopBarLayout::from_width(600.0, 1.0);
-        assert!(!narrow.show_brand_title && !narrow.show_accent_text && !narrow.show_ribbon);
+        assert!(!narrow.show_brand_title && !narrow.center_search && !narrow.show_ribbon);
     }
 
     #[test]

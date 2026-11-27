@@ -4,17 +4,34 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ---
 
-## Current Gate Status (2026-11-27 — `v0.4.0` Published)
+## Current Gate Status (2026-11-27 — `v0.4.1` Release Ready)
 
-- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.4.0` Tasks `19`–`25` complete; next phase `v0.5.0`).
+- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.4.0` + `v0.4.1` UI/Genre/Library UX updates verified; next phase `v0.5.0` / `Phase 7b`).
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
-- `cargo test --workspace --locked`: **PASS** exit 0 (`205/205` tests: `ytm-cli` 6, `ytm-core` 42, `ytm-enrich` 14, `ytm-gui` 109, `ytm-ops` 17, `ytm-store` 17)
-- `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0 (local release build + Linux desktop/icon installation verified)
+- `cargo test --workspace --locked`: **PASS** exit 0 (`214/214` tests: `ytm-cli` 6, `ytm-core` 42, `ytm-enrich` 17, `ytm-gui` 115, `ytm-ops` 17, `ytm-store` 17)
+- `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0 (local release build verified)
 - `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs`)
-- `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`
-- **Latest Published Release:** `v0.4.0` (Linux & Windows CI run **success**; `SHA256SUMS.txt` published).
+- `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`, `player_bar_left.rs`
+- **Latest Tagged Release:** `v0.4.1` (workspace version `0.4.1`, changelog & local release build updated).
+
+---
+
+## 2026-11-27 — `v0.4.1` (Apple/Linear UI Polish, Direct Genre Split & Full Library Search -> Playlist)
+
+- **Apple/Linear UI & Omarchy Desktop Identity (`ytm-gui`, `assets/brand/dalga-launcher.svg`, `scripts/install-desktop-linux.sh`):**
+  - Unified 4-item sidebar navigation replacing duplicate top workspace tabs and fake `Library` header; contextual segmented sub-tabs per workspace.
+  - Strictly centered Top Bar Search (`1fr | search | 1fr`) + direct top-bar `Import Session` quick action when unauthenticated + Home & Explore default startup.
+  - Strictly centered wide Player Bar + compact 2-row fallback (`< 780px`), removed `Stop` button and top-bar `Accent` pill, and wired `ContextTarget::Track` right-click menu to bottom player bar track info & artwork.
+  - Upgraded artwork pipeline (`artwork_hires.rs`, `cover_crop_uv`, `=s1024`, `hqdefault`, `<= 800px` Lanczos3 decode), `112x112` circular Artist avatar + `<= 660px` collapsible bio, hidden raw `browse_id`s, and `#14181F` high-contrast Dalga squircle launcher icon.
+- **Genre Infrastructure & Direct Split (`ytm-enrich`, `worker_jobs.rs`, `worker_plans.rs`, `views/genre_split.rs`, `views/genre_split_ops.rs`):**
+  - Expanded built-in `DEFAULT_GENRES_TOML` & `config/genres.example.toml` (`cyberpunk`, `darksynth`, `retrowave`, `vaporwave`, `industrial`, `lo-fi`, `R&B`, `Soundtrack`, `Folk`).
+  - Prevented 30d empty-tag `"Other"` cache stalls (capped at 24h retry) and added Deezer `artist + album` fallback query; moved `PlanGenreSplit` to cancellable `tokio::spawn` with per-track progress.
+  - Rebuilt Genre Split UI with playlist picker, preset min counts (`1 | 3 | 5`), expandable bucket/track/tag breakdown, track/bucket exclusions, Copy vs. Split/Move mode, and one-click `Split & Apply Now...` (pre-sync snapshot + confirmation modal).
+- **Full Personal Library Search & Direct Playlist Creation (`worker_index.rs`, `views/repertoire_tree.rs`, `views/repertoire_target.rs`, `views/repertoire_batch.rs`, `views/search_dropdown.rs`, `views/search.rs`):**
+  - Extended `Index Missing` to scan saved albums (`FEmusic_liked_albums` / `MPRE...`) alongside all playlists and Liked Songs (`LM`).
+  - Added top-bar dropdown + Search-tab `"Search in My Library"` shortcuts, field scope (`All | Song | Artist | Album`), `Group by Album`, `Select All` / `Select Group` buttons, and inline `Create & Add Track(s) Now...` playlist creation.
 
 ---
 
@@ -53,6 +70,8 @@ Sole authority for dates, release status, and gate verification outputs.
   - Release notes automation: added [CHANGELOG.md](CHANGELOG.md) (`[v0.4.0]`–`[v0.1.0]`) and updated `.github/workflows/release.yml` to extract `## [${TAG}]` into `release-notes.md` (with `git log` fallback) so GitHub Releases include full features, changes, and bug fixes.
   - Module size cleanup (`<= 400` lines): split `views/player_bar_right.rs`, `worker_exec_artist_tests.rs`, `playback_ops_tests.rs`, `ytm-store/src/play_history.rs`, `ytm-store/src/schema.sql`, `ytm-store/tests/play_history_test.rs`, `worker_jobs::spawn_execute_mutation`, and `worker_sync_ops::execute_set_like_status_batch`.
   - Responsive bar redesign & Omarchy/Dalga desktop polish (`bar_layout.rs`, `top_bar.rs`, `player_bar.rs`, `player_bar_right.rs`, `theme.rs`, `navigation.rs`, `lib.rs`, `tray_linux.rs`, `scripts/install-desktop-linux.sh`): `effective_width` breakpoints, 2-row compact Player Bar (`< 780px`), centered 3-column wide Player Bar, wheel/touchpad seek & volume scrubbing, non-compounding Apple/Linear typography & spacing, `with_app_id("dalga")` + `StartupWMClass=dalga` + `ytm-architect.desktop` cleanup.
+  - Local Apple/Linear UI & UX polish (`artwork_hires.rs`, `artwork.rs`, `lightbox.rs`, `home_cards.rs`, `browse.rs`, `sidebar.rs`, `studio_menu.rs`, `tab_bar.rs`, `top_bar.rs`, `player_bar.rs`, `player_bar_left.rs`, `player_bar_right.rs`, `app_init.rs`, `app_events.rs`): unified 4-item sidebar nav (removed duplicate top 5-tab workspace strip & fake `Library` header), centered Top Bar Search (`1fr | search | 1fr`) + direct one-click `Import Session`, removed Accent button from Top Bar & Stop button from Player Bar, strict `set_min_width`/`set_max_width` centered Player Bar + track/cover right-click context menu, aspect-preserved `cover_crop_uv` & `<= 800px` Lanczos3 hires Lightbox (`=s1024`), un-squished `112x112` Artist avatar + `<= 660px` collapsible bio, hidden raw `browse_id`, and startup default on Home & Explore.
+  - Local Genre Infrastructure + Direct Split & Full Library Search Workflows (`ytm-enrich`, `worker_index.rs`, `worker_jobs.rs`, `worker_plans.rs`, `worker_sync.rs`, `views/genre_split.rs`, `views/genre_split_ops.rs`, `views/repertoire_batch.rs`, `views/repertoire_target.rs`, `views/repertoire_tree.rs`, `views/search_dropdown.rs`): expanded `DEFAULT_GENRES_TOML` & `config/genres.example.toml` (`cyberpunk`, `darksynth`, `Soundtrack`, `R&B`, `Folk`, etc.), capped empty-tag `"Other"` negative cache retry at 24h + Deezer `artist + album` fallback, moved `PlanGenreSplit` onto cancellable `tokio::spawn` with per-track progress, added direct Genre Split source picker + track/tag breakdown + Copy vs Move + one-click `Split & Apply Now...` (pre-snapshot + confirm), extended repertoire indexing to saved albums (`FEmusic_liked_albums` / `MPRE...`), added Top Bar & Search tab `"Search in My Library"` shortcut, field scope + album grouping, one-click `Select All` / `Select Group`, and inline `Create & Add Tracks Now...` new playlist creation.
 
 ---
 

@@ -40,16 +40,6 @@ pub(super) fn render_right_controls(
         playlists,
         current_effects,
     } = ctx;
-    if ui
-        .add_enabled(
-            snap.state.is_active(),
-            egui::Button::image(Icon::Stop.image(14.0, ui.visuals().text_color())),
-        )
-        .on_hover_text(tr(lang, Key::PlayerStop))
-        .clicked()
-    {
-        out.stop = true;
-    }
     let mut vol = snap.volume as f32;
     let slider = egui::Slider::new(&mut vol, 0.0..=100.0)
         .show_value(false)

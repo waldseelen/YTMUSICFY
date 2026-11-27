@@ -67,23 +67,25 @@ where
         let ttl_secs =
             i64::try_from(self.config.cache_ttl_days.saturating_mul(86_400)).unwrap_or(i64::MAX);
 
-        if let Some(cached) = self.cache.get_track_enrichment(&cache_key).await?
-            && now_ts.saturating_sub(cached.updated_at) <= ttl_secs
-        {
-            let primary_genre = if cached.tags.is_empty() {
-                cached.primary_genre
+        if let Some(cached) = self.cache.get_track_enrichment(&cache_key).await? {
+            let effective_ttl = if cached.tags.is_empty() {
+                ttl_secs.min(86_400)
             } else {
-                self.matcher.classify(&cached.tags)
+                ttl_secs
             };
-            debug!(cache_key, primary_genre, "enrichment track cache hit");
-            return Ok(EnrichedTrackMetadata {
-                cache_key,
-                raw_tags: cached.tags,
-                primary_genre,
-                release_year: cached.release_year.or(track.release_year),
-                bpm: cached.bpm,
-                source: EnrichmentSource::Cache,
-            });
+            if now_ts.saturating_sub(cached.updated_at) <= effective_ttl && !cached.tags.is_empty()
+            {
+                let primary_genre = self.matcher.classify(&cached.tags);
+                debug!(cache_key, primary_genre, "enrichment track cache hit");
+                return Ok(EnrichedTrackMetadata {
+                    cache_key,
+                    raw_tags: cached.tags,
+                    primary_genre,
+                    release_year: cached.release_year.or(track.release_year),
+                    bpm: cached.bpm,
+                    source: EnrichmentSource::Cache,
+                });
+            }
         }
 
         let artist_cached = if artist_norm.is_empty() {
@@ -143,8 +145,15 @@ where
             source = EnrichmentSource::Cache;
         }
 
-        self.apply_secondary_fallbacks(&artist_display, &title_display, &mut payload, &mut source)
-            .await;
+        let album_hint = track.album.as_ref().map(|a| a.name.as_str());
+        self.apply_secondary_fallbacks(
+            &artist_display,
+            &title_display,
+            album_hint,
+            &mut payload,
+            &mut source,
+        )
+        .await;
 
         let save_track = !mb_degraded || !payload.raw_tags.is_empty();
         self.finish_and_cache(
@@ -231,6 +240,7 @@ where
         &self,
         artist: &str,
         title: &str,
+        album_hint: Option<&str>,
         payload: &mut ProviderPayload,
         source: &mut EnrichmentSource,
     ) {
@@ -251,7 +261,7 @@ where
         }
 
         if payload.raw_tags.is_empty() && self.config.enable_deezer_fallback {
-            match self.query_deezer(artist, title).await {
+            match self.query_deezer(artist, title, album_hint).await {
                 Ok(dz) if !dz.raw_tags.is_empty() => {
                     payload.raw_tags = dz.raw_tags;
                     payload.release_year = payload.release_year.or(dz.release_year);
@@ -339,31 +349,38 @@ where
         &self,
         artist: &str,
         title: &str,
+        album_hint: Option<&str>,
     ) -> Result<ProviderPayload, EnrichError> {
-        let query = if artist.is_empty() {
-            title.to_string()
-        } else {
-            format!("{artist} {title}")
-        };
-        let search_url = format!("https://api.deezer.com/search?q={}", percent_encode(&query));
-        let Some(body) = self.fetch_optional_json("deezer", &search_url).await? else {
-            return Ok(ProviderPayload::default());
-        };
-        if let Some(album_id) = body
-            .get("data")
-            .and_then(|d| d.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|item| item.get("album"))
-            .and_then(|al| al.get("id"))
-            .and_then(Value::as_u64)
-            && let Some(al_body) = self
-                .fetch_optional_json(
-                    "deezer",
-                    &format!("https://api.deezer.com/album/{album_id}"),
-                )
-                .await?
-        {
-            return Ok(parse_deezer_album_response(&al_body));
+        let mut terms = vec![title];
+        if let Some(album) = album_hint.map(str::trim).filter(|a| !a.is_empty()) {
+            terms.push(album);
+        }
+        for term in terms {
+            let query = if artist.is_empty() {
+                term.to_string()
+            } else {
+                format!("{artist} {term}")
+            };
+            let search_url = format!("https://api.deezer.com/search?q={}", percent_encode(&query));
+            let Some(body) = self.fetch_optional_json("deezer", &search_url).await? else {
+                continue;
+            };
+            if let Some(album_id) = body
+                .get("data")
+                .and_then(|d| d.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("album"))
+                .and_then(|al| al.get("id"))
+                .and_then(Value::as_u64)
+                && let Some(al_body) = self
+                    .fetch_optional_json(
+                        "deezer",
+                        &format!("https://api.deezer.com/album/{album_id}"),
+                    )
+                    .await?
+            {
+                return Ok(parse_deezer_album_response(&al_body));
+            }
         }
         Ok(ProviderPayload::default())
     }

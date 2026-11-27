@@ -51,6 +51,14 @@ pub fn show(
         if (ui.button("Search").clicked() || enter) && !query.trim().is_empty() {
             run_search = true;
         }
+        if !query.trim().is_empty()
+            && ui
+                .button("Search My Library")
+                .on_hover_text("Search across your personal playlists and saved albums")
+                .clicked()
+        {
+            actions.push(PlayAction::SearchMyLibrary(query.trim().to_string()));
+        }
     });
 
     ui.horizontal_wrapped(|ui| {

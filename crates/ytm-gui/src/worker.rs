@@ -21,7 +21,8 @@ use crate::worker_exec::{
     cache_fetched_playlist, hydrate_gui_startup_state, load_config, load_playlist_with_manifest,
     load_saved_client, persist_staged_entries,
 };
-use crate::worker_media::{handle_interactive_cmd, spawn_backup_job, spawn_index_all_job};
+use crate::worker_index::spawn_index_all_job;
+use crate::worker_media::{handle_interactive_cmd, spawn_backup_job};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
