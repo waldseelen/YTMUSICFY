@@ -79,32 +79,32 @@ Pre-built archives and checksums are published on [**GitHub Releases**](https://
 
 | Platform | Target | Archive | Binaries Included |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
-| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.2.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.3.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
+| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.3.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
-### Verify Checksums (`SHA256SUMS.txt` — `v0.2.0`)
+### Verify Checksums (`SHA256SUMS.txt` — `v0.3.0`)
 
 | Artifact | SHA-256 |
 | :--- | :--- |
-| `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `bcf1a81cb64475115417f96ff63211274ccbae2cb84e7a284636464c3e04c458` |
-| `ytm` (Linux x86_64) | `b6b3c106273c4b029073925dcc2adb6a0e701491808de3a1ae1ec1d515335249` |
-| `ytm-gui` (Linux x86_64) | `44dcc3b04c9a80c54809f563922f2dc1f543b50bc8ba3a3f4b905789ec501f6d` |
-| `ytm-architect-v0.2.0-windows-x86_64.zip` | `3fc9d59012e7e06ede8424bf9ec7aa0010a7d48da4899dfdeaa24b80c6eb53a5` |
-| `ytm.exe` (Windows x86_64) | `8385c1a0115c36fbbf36b9f7c1cb83363cb04909d8fe52538d083162fad06758` |
-| `ytm-gui.exe` (Windows x86_64) | `6f6ad025fff8510b05c8f0812c0e8e3604942c27a02e4d3fffb413ca47b51643` |
+| `ytm-architect-v0.3.0-linux-x86_64.tar.gz` | `0997d6b66d8a1e7a3d1fced79a43feaa61cbd2abceddfb5c02466953d0a12100` |
+| `ytm` (Linux x86_64) | `fab6cb46d66a016f662f23fe88dcf3cd71cfb97155d41e7973f32b449c080a56` |
+| `ytm-gui` (Linux x86_64) | `2379190af9d0f48e35790c06a3dab0de479e253640124dacfb1a342b8a352b54` |
+| `ytm-architect-v0.3.0-windows-x86_64.zip` | `2c9d92ad7374213c1a976e1b6ff24a79249b9ac106de3d8fde6f387df759dfb8` |
+| `ytm.exe` (Windows x86_64) | `4e81395521f5a47e4ac358824bd50763f2574fdeecdca8fbbe059497bb231331` |
+| `ytm-gui.exe` (Windows x86_64) | `11ce0a990c27ade371a7aedc48581f7417f3415c3619830bf11f00306b287d90` |
 
 #### Linux
 ```bash
-tar -xzf ytm-architect-v0.2.0-linux-x86_64.tar.gz
+tar -xzf ytm-architect-v0.3.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-./ytm-architect-v0.2.0-linux-x86_64/ytm-gui
+./ytm-architect-v0.3.0-linux-x86_64/ytm-gui
 ```
 
 #### Windows (PowerShell)
 ```powershell
-Expand-Archive .\ytm-architect-v0.2.0-windows-x86_64.zip -DestinationPath .\dalga
-Get-FileHash .\dalga\ytm-architect-v0.2.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
-.\dalga\ytm-architect-v0.2.0-windows-x86_64\ytm-gui.exe
+Expand-Archive .\ytm-architect-v0.3.0-windows-x86_64.zip -DestinationPath .\dalga
+Get-FileHash .\dalga\ytm-architect-v0.3.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
+.\dalga\ytm-architect-v0.3.0-windows-x86_64\ytm-gui.exe
 ```
 
 > **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. Library inspection, offline browsing, search, dedupe, sorting, set algebra, exports, and verified sync work standalone without external binaries.

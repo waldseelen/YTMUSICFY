@@ -231,9 +231,9 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 - [x] **18.1 Gates & docs**
   - [x] G1 gates; update README features + screenshots (Mini Player, tray); `PROGRESS.md`
   - [x] verify: all G1 commands exit 0
-- [ ] **18.2 Publish**
-  - [ ] Bump `0.3.0`, tag, CI Linux + Windows, `SHA256SUMS.txt` in README
-  - [ ] verify: `gh release view v0.3.0 --json assets`
+- [x] **18.2 Publish**
+  - [x] Bump `0.3.0`, tag, CI Linux + Windows, `SHA256SUMS.txt` in README
+  - [x] verify: `gh release view v0.3.0 --json assets`
 
 ---
 

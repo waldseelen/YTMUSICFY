@@ -4,9 +4,9 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ---
 
-## Current Gate Status (2026-11-27 — `v0.3.0` Ready for Tag/Publish)
+## Current Gate Status (2026-11-27 — `v0.3.0` Published)
 
-- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.3.0` Tasks `13`–`18.1` complete locally; `18.2` tag/CI publish ready upon owner commit/push).
+- **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.3.0` Tasks `13`–`18.2` complete; next phase `v0.4.0`).
 - `cargo fmt --all -- --check`: **PASS** exit 0
 - `cargo check --workspace --all-targets`: **PASS** exit 0, 0 warnings
 - `cargo clippy --workspace --all-targets -- -D warnings`: **PASS** exit 0, 0 warnings
@@ -14,11 +14,19 @@ Sole authority for dates, release status, and gate verification outputs.
 - `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0
 - `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs` & `crates/ytm-gui/src/views/player_bar.rs`)
 - `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`
-- **Latest Published Release:** `v0.2.0` (`c0d9a70`, Linux & Windows CI run `45983802647` **success**; local working tree holds `v0.3.0` implementation and version bump ready for owner commit/tag/push).
+- **Latest Published Release:** `v0.3.0` (`a444ab1`, Linux & Windows CI run `45994855203` **success**; `SHA256SUMS.txt` published).
 
 ---
 
 ## 2026-11-27 — `v0.3.0` (Tray, Mini Player, Home Shelves, Unified Context Menu, Shortcuts)
+
+- **Verified `SHA256SUMS.txt` (`v0.3.0`, CI run `45994855203`):**
+  - `ytm-architect-v0.3.0-linux-x86_64.tar.gz`: `0997d6b66d8a1e7a3d1fced79a43feaa61cbd2abceddfb5c02466953d0a12100`
+  - `ytm` (Linux): `fab6cb46d66a016f662f23fe88dcf3cd71cfb97155d41e7973f32b449c080a56`
+  - `ytm-gui` (Linux): `2379190af9d0f48e35790c06a3dab0de479e253640124dacfb1a342b8a352b54`
+  - `ytm-architect-v0.3.0-windows-x86_64.zip`: `2c9d92ad7374213c1a976e1b6ff24a79249b9ac106de3d8fde6f387df759dfb8`
+  - `ytm.exe` (Windows): `4e81395521f5a47e4ac358824bd50763f2574fdeecdca8fbbe059497bb231331`
+  - `ytm-gui.exe` (Windows): `11ce0a990c27ade371a7aedc48581f7417f3415c3619830bf11f00306b287d90`
 
 - **Task 13 — Window Lifecycle & System Tray (`tray.rs`, `tray_linux.rs`, `tray_windows.rs`, `window_lifecycle.rs`):**
   - Implemented `TrayBackend` trait with `LinuxKsniTray` (`ksni` StatusNotifierItem, isolated Tokio thread, no GTK), `WindowsTray` (`tray-icon` + `muda` Win32 backend), `NoopTrayBackend` fallback, theme-aware monochrome Dalga icon (`build_tray_rgba`), and tray menu (`Show/Hide`, `Play/Pause`, `Previous`, `Next`, `Mini Player`, `Quit`).
