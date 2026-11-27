@@ -345,6 +345,7 @@ impl eframe::App for YtmGuiApp {
                     &mut self.split_state,
                     &mut self.set_form,
                     &mut self.active_tab,
+                    &mut self.sync_drawer_open,
                     &mut self.drop_prompt,
                     &mut self.meta_modal,
                     &mut self.pending_modal,

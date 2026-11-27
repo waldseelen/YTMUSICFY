@@ -1,8 +1,12 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
 
-use ytm_core::{InnerTubeClientTrait, MoveAction, MutationBatchReport, Playlist, Track};
+use ytm_core::{
+    ChunkOutcome, InnerTubeClientTrait, MoveAction, MutationBatchReport, Playlist, Track,
+};
 
-use crate::state::DispatchEntryOutcome;
+use crate::state::{DispatchEntryOutcome, WorkerEvent};
 
 pub(super) async fn execute_move_tracks<C: InnerTubeClientTrait>(
     client: &C,
@@ -218,6 +222,121 @@ pub(super) fn report_result(
                 .to_string(),
         ))
     }
+}
+
+/// Collect playable video IDs for `AddTracks`, omitting duplicates already in `live`
+/// or repeated earlier in `tracks` when `allow_duplicates` is false.
+pub(in crate::worker_exec) fn collect_add_ids(
+    tracks: &[Track],
+    live: &Playlist,
+    allow_duplicates: bool,
+) -> Vec<String> {
+    let mut existing: HashSet<&str> = if allow_duplicates {
+        HashSet::new()
+    } else {
+        live.tracks.iter().map(|t| t.video_id.as_str()).collect()
+    };
+    let mut ids = Vec::with_capacity(tracks.len());
+    for t in tracks {
+        if t.video_id.is_empty() || !t.availability.is_available() {
+            continue;
+        }
+        if !allow_duplicates && !existing.insert(t.video_id.as_str()) {
+            continue;
+        }
+        ids.push(t.video_id.clone());
+    }
+    ids
+}
+
+/// Add tracks to a playlist; if a large chunk hits `STATUS_FAILED`, retry once and bisect
+/// the remaining tail so one unaddable/restricted video cannot abort the entire copy.
+pub(super) async fn add_tracks_resilient<C: InnerTubeClientTrait>(
+    client: &C,
+    playlist_id: &str,
+    ids: &[String],
+    allow_duplicates: bool,
+    tx: &Sender<WorkerEvent>,
+) -> Result<(usize, usize), (usize, usize, String)> {
+    if ids.is_empty() {
+        return Ok((0, 0));
+    }
+    let report = client
+        .add_playlist_items_report(playlist_id, ids, allow_duplicates)
+        .await
+        .map_err(|e| (0, 1, e.to_string()))?;
+    if report.is_complete_success() {
+        return Ok((report.succeeded_chunks(), report.added_items().len()));
+    }
+
+    let first_err = report
+        .first_error()
+        .unwrap_or("browse/edit_playlist returned STATUS_FAILED")
+        .to_string();
+    let done_tracks: usize = report
+        .outcomes
+        .iter()
+        .filter_map(|o| match o {
+            ChunkOutcome::Succeeded { action_count, .. } => Some(*action_count),
+            ChunkOutcome::Failed { .. } => None,
+        })
+        .sum();
+    let mut total_chunks = report.total_chunks.max(1);
+    let mut ok_chunks = report.succeeded_chunks();
+    let mut ok_items = report.added_items().len();
+    let tail = &ids[done_tracks.min(ids.len())..];
+
+    // If `ids` fits in 1 chunk and there's only 1 item, don't recurse further.
+    if tail.is_empty() || (tail.len() == 1 && ok_items == 0) {
+        return Err((ok_chunks, total_chunks, first_err));
+    }
+
+    // Brief cooldown before bisecting the failed tail (handles post-100 rate bursts too).
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let mut queue: VecDeque<&[String]> = tail.chunks(10).collect();
+    let mut rejected: Vec<String> = Vec::new();
+    while let Some(slice) = queue.pop_front() {
+        total_chunks += 1;
+        match client
+            .add_playlist_items_report(playlist_id, slice, allow_duplicates)
+            .await
+        {
+            Ok(sub) if sub.is_complete_success() => {
+                ok_chunks += sub.succeeded_chunks().max(1);
+                ok_items += sub.added_items().len().max(slice.len());
+            }
+            _ if slice.len() > 1 => {
+                let mid = slice.len() / 2;
+                let (left, right) = slice.split_at(mid);
+                queue.push_front(right);
+                queue.push_front(left);
+                tokio::time::sleep(Duration::from_millis(350)).await;
+            }
+            _ => {
+                rejected.push(slice[0].clone());
+            }
+        }
+    }
+
+    if ok_items == 0 {
+        return Err((ok_chunks, total_chunks, first_err));
+    }
+    if !rejected.is_empty() {
+        let preview = rejected
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = tx.send(WorkerEvent::StatusToast {
+            ok: false,
+            message: format!(
+                "Added {ok_items} track(s); skipped {} unaddable video(s): {preview}",
+                rejected.len()
+            ),
+        });
+    }
+    Ok((ok_chunks, ok_items))
 }
 
 pub(super) fn failed_outcome(

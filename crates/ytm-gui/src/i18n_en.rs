@@ -69,7 +69,7 @@ pub(super) const fn lookup(key: Key) -> &'static str {
         Key::SidebarFilterHint => "Filter playlists...",
         Key::SidebarTrackFilterHint => "Search artist/song across all lists...",
         Key::SidebarNewPlaylistHint => "New playlist title...",
-        Key::SidebarStageCreate => "Stage",
+        Key::SidebarStageCreate => "Create",
         Key::SidebarStudioTools => "Studio Tools",
         Key::SidebarHomeExplore => "Home & Explore",
         Key::SidebarCatalogSearch => "Search",

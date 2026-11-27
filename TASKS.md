@@ -169,10 +169,10 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
   - [x] verify: files referenced by README exist (`rg -o "assets/[^)\" ]+" README.md | sort -u | xargs ls`)
 - [x] **12.2 README rewrite (English)**
   - [x] Hero `<picture>` logo, badges, features table, install + SHA-256 verification, usage, "Why Dalga"
-  - [ ] verify: GitHub renders light/dark logos (check after push); links resolve
-- [ ] **12.3 Phase gate & release**
-  - [ ] Bump to `0.2.0`; run G1 gates; tag `v0.2.0`; CI builds Linux + Windows; publish with `SHA256SUMS.txt`; write hashes into README + `PROGRESS.md`
-  - [ ] verify: `gh run view` success for both jobs; `gh release view v0.2.0 --json assets`
+  - [x] verify: GitHub renders light/dark logos (check after push); links resolve
+- [x] **12.3 Phase gate & release**
+  - [x] Bump to `0.2.0`; run G1 gates; tag `v0.2.0`; CI builds Linux + Windows; publish with `SHA256SUMS.txt`; write hashes into README + `PROGRESS.md`
+  - [x] verify: `gh run view` success for both jobs; `gh release view v0.2.0 --json assets`
 
 ---
 

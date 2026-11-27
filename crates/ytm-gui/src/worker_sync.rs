@@ -15,7 +15,7 @@ use crate::worker_exec::{
 };
 
 #[path = "worker_sync_ops.rs"]
-mod ops;
+pub(super) mod ops;
 
 pub(crate) async fn execute_sync_queue<C: InnerTubeClientTrait>(
     client: &C,
@@ -160,6 +160,7 @@ async fn execute_single_entry<C: InnerTubeClientTrait>(
         &live_by_id,
         touched_ids,
         created_any,
+        tx,
     )
     .await;
     let (chunks_sent, confirmed_items) = match exec_res {
@@ -216,6 +217,7 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
     live_by_id: &HashMap<String, PlaylistFetchResult>,
     touched_ids: &mut Vec<String>,
     created_any: &mut bool,
+    tx: &Sender<WorkerEvent>,
 ) -> Result<(usize, usize), DispatchStop> {
     match op {
         StagedOp::Reorder {
@@ -250,21 +252,11 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
             allow_duplicates,
             ..
         } => {
-            let ids: Vec<String> = tracks
-                .iter()
-                .filter(|t| !t.video_id.is_empty())
-                .map(|t| t.video_id.clone())
-                .collect();
-            if ids.is_empty() {
-                Ok((0, 0))
-            } else {
-                ops::report_result(
-                    client
-                        .add_playlist_items_report(playlist_id, &ids, *allow_duplicates)
-                        .await,
-                )
+            let ids =
+                ops::collect_add_ids(tracks, &live_by_id[playlist_id].playlist, *allow_duplicates);
+            ops::add_tracks_resilient(client, playlist_id, &ids, *allow_duplicates, tx)
+                .await
                 .map_err(|(c, t, e)| DispatchStop::Fail(c, t, e))
-            }
         }
         StagedOp::RemoveTracks {
             playlist_id,

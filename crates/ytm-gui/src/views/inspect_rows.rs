@@ -152,7 +152,7 @@ pub fn render_inspect_rows(
             let pos_resp = ui.add(
                 egui::Label::new((t.position + 1).to_string()).sense(egui::Sense::click()),
             );
-            if scroll_target_row == Some(idx) || is_focused {
+            if scroll_target_row == Some(idx) {
                 pos_resp.scroll_to_me(Some(egui::Align::Center));
             }
         });

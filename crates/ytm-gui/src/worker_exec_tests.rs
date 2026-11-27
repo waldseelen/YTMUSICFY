@@ -274,3 +274,32 @@ async fn move_tracks_aborts_source_removal_if_add_returns_empty_and_upgrade_pres
     let calls = client.calls.lock().unwrap().clone();
     assert_eq!(calls, vec!["add:PL1:1", "move:PL1:1", "remove:PL1:1"]);
 }
+
+#[test]
+fn collect_add_ids_skips_existing_duplicates_and_unavailable_tracks() {
+    use ytm_core::TrackAvailability;
+    let live = mk_playlist("PL1", vec![mk_track("V_LIVE", None, 0)]);
+    let mut dead = mk_track("V_DEAD", None, 3);
+    dead.availability = TrackAvailability::Deleted;
+    let input = vec![
+        mk_track("V_LIVE", None, 0),
+        mk_track("V_OK_1", None, 1),
+        mk_track("V_OK_1", None, 2),
+        dead,
+        mk_track("", None, 4),
+        mk_track("V_OK_2", None, 5),
+    ];
+    assert_eq!(
+        worker_sync::ops::collect_add_ids(&input, &live, false),
+        vec!["V_OK_1".to_string(), "V_OK_2".to_string()]
+    );
+    assert_eq!(
+        worker_sync::ops::collect_add_ids(&input, &live, true),
+        vec![
+            "V_LIVE".to_string(),
+            "V_OK_1".to_string(),
+            "V_OK_1".to_string(),
+            "V_OK_2".to_string()
+        ]
+    );
+}

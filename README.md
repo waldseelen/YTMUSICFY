@@ -76,12 +76,12 @@ Pre-built archives and checksums are published on [**GitHub Releases**](https://
 
 | Artifact | SHA-256 |
 | :--- | :--- |
-| `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `pending-ci-release` |
-| `ytm` (Linux x86_64) | `pending-ci-release` |
-| `ytm-gui` (Linux x86_64) | `pending-ci-release` |
-| `ytm-architect-v0.2.0-windows-x86_64.zip` | `pending-ci-release` |
-| `ytm.exe` (Windows x86_64) | `pending-ci-release` |
-| `ytm-gui.exe` (Windows x86_64) | `pending-ci-release` |
+| `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `bcf1a81cb64475115417f96ff63211274ccbae2cb84e7a284636464c3e04c458` |
+| `ytm` (Linux x86_64) | `b6b3c106273c4b029073925dcc2adb6a0e701491808de3a1ae1ec1d515335249` |
+| `ytm-gui` (Linux x86_64) | `44dcc3b04c9a80c54809f563922f2dc1f543b50bc8ba3a3f4b905789ec501f6d` |
+| `ytm-architect-v0.2.0-windows-x86_64.zip` | `3fc9d59012e7e06ede8424bf9ec7aa0010a7d48da4899dfdeaa24b80c6eb53a5` |
+| `ytm.exe` (Windows x86_64) | `8385c1a0115c36fbbf36b9f7c1cb83363cb04909d8fe52538d083162fad06758` |
+| `ytm-gui.exe` (Windows x86_64) | `6f6ad025fff8510b05c8f0812c0e8e3604942c27a02e4d3fffb413ca47b51643` |
 
 #### Linux
 ```bash

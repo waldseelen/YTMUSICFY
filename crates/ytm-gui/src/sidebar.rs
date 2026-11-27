@@ -34,6 +34,7 @@ pub fn show(
     split_state: &mut SplitPaneState,
     set_form: &mut SetOpsForm,
     active_tab: &mut GuiTab,
+    sync_drawer_open: &mut bool,
     drop_prompt: &mut Option<DropPrompt>,
     meta_modal: &mut Option<PlaylistMetaModal>,
     pending_modal: &mut Option<PendingMutation>,
@@ -103,20 +104,20 @@ pub fn show(
         });
     }
     ui.horizontal(|ui| {
+        let stage_lbl = format!("+ {}", tr(lang, Key::SidebarStageCreate));
+        let input_w = (ui.available_width() - 82.0).clamp(110.0, 175.0);
         let new_resp = ui.add(
             egui::TextEdit::singleline(new_playlist_title)
                 .hint_text(tr(lang, Key::SidebarNewPlaylistHint))
-                .desired_width(145.0),
+                .desired_width(input_w),
         );
         let enter_create = new_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let btn_clicked = ui
+            .button(&stage_lbl)
+            .on_hover_text(tr(lang, Key::SidebarNewPlaylistHint))
+            .clicked();
         let title = new_playlist_title.trim().to_string();
-        let stage_lbl = format!("+ {}", tr(lang, Key::SidebarStageCreate));
-        if !title.is_empty()
-            && (enter_create
-                || ui
-                    .add_enabled(true, egui::Button::new(&stage_lbl))
-                    .clicked())
-        {
+        if !title.is_empty() && (enter_create || btn_clicked) {
             let eid = sync_queue.push(StagedOp::CreatePlaylist {
                 title: title.clone(),
                 description: "Created by Dalga".to_string(),
@@ -127,9 +128,10 @@ pub fn show(
                 format!("Staged new playlist '{title}' in Sync."),
                 Some(eid),
             ));
+            *sync_drawer_open = true;
             new_playlist_title.clear();
-        } else if title.is_empty() {
-            ui.add_enabled(false, egui::Button::new(&stage_lbl));
+        } else if btn_clicked && title.is_empty() {
+            new_resp.request_focus();
         }
     });
     ui.separator();
@@ -180,6 +182,7 @@ pub fn show(
     let sidebar_active = ui.rect_contains_pointer(ui.max_rect())
         || *active_tab != GuiTab::Inspector
         || selected_playlist_id.is_none();
+    let mut kb_moved = false;
     if sidebar_active && !ui.ctx().wants_keyboard_input() && !filtered.is_empty() {
         let (up, down, enter) = ui.input(|i| {
             (
@@ -190,8 +193,10 @@ pub fn show(
         });
         if down {
             *focused_idx = Some(focused_idx.map_or(0, |idx| (idx + 1).min(filtered.len() - 1)));
+            kb_moved = true;
         } else if up {
             *focused_idx = Some(focused_idx.map_or(0, |idx| idx.saturating_sub(1)));
+            kb_moved = true;
         }
         if enter
             && let Some(idx) = *focused_idx
@@ -208,7 +213,10 @@ pub fn show(
     }
 
     let pointer_pos = ui.input(|i| i.pointer.hover_pos()).unwrap_or_default();
-    let scroll_out = egui::ScrollArea::vertical().show(ui, |ui| {
+    egui::ScrollArea::vertical()
+        .id_salt("sidebar_playlists_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
         for (vis_idx, pl) in filtered.iter().enumerate() {
             let selected = selected_playlist_id.as_deref() == Some(pl.id.as_str());
             let kb_focused = *focused_idx == Some(vis_idx);
@@ -233,7 +241,9 @@ pub fn show(
                     .frame(selected || kb_focused)
                     .truncate(),
             );
-            if kb_focused {
+            // Scroll only on the frame keyboard arrows moved selection; calling scroll_to_me
+            // every frame fights mouse scrolling by snapping the clicked item back into view.
+            if kb_focused && kb_moved {
                 resp.scroll_to_me(Some(egui::Align::Center));
             }
             if resp.dnd_hover_payload::<DragTrackPayload>().is_some() {
@@ -299,13 +309,8 @@ pub fn show(
                 }
                 if ui.button("Open in Split Pane B (Diff)").clicked() {
                     split_state.enabled = true;
-                    split_state.playlist_b_id = Some(pl.id.clone());
+                    select_playlist(pl.id.clone(), &mut split_state.playlist_b_id, playlist_cache, loading_playlists, cmd_tx);
                     *active_tab = GuiTab::Inspector;
-                    if !playlist_cache.contains_key(&pl.id)
-                        && loading_playlists.insert(pl.id.clone())
-                    {
-                        let _ = cmd_tx.send(WorkerCmd::LoadPlaylist(pl.id.clone()));
-                    }
                     ui.close_menu();
                 }
                 if ui.button("Set as Diff A").clicked() {
@@ -376,7 +381,6 @@ pub fn show(
         }
         auto_scroll_on_drag(ui, ui.clip_rect());
     });
-    let _ = scroll_out;
 }
 
 fn select_playlist(
