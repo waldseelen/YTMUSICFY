@@ -6,6 +6,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::{FetchManifest, Playlist, PlaylistAccess};
 use ytm_ops::{DedupeConfig, DedupePlan, KeeperStrategy};
 
+use crate::icons::{Icon, icon_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, DedupeForm, WorkerCmd};
@@ -210,11 +211,7 @@ pub fn show(
                     }
                 });
                 row.col(|ui| {
-                    if ui
-                        .small_button("▶")
-                        .on_hover_text("Audition track")
-                        .clicked()
-                    {
+                    if icon_button(ui, Icon::Play, 12.0, true, "Audition track").clicked() {
                         actions.push(PlayAction::PlayFromList {
                             tracks: vec![(*track).clone()],
                             start_idx: 0,

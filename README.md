@@ -1,83 +1,103 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/dalga-dark.png" width="160">
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/dalga-light.png" width="160">
-    <img alt="Dalga" src="assets/brand/dalga-dark.png" width="160">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/dalga-wordmark-dark.svg" width="420">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/dalga-wordmark-light.svg" width="420">
+    <img alt="Dalga" src="assets/brand/dalga-wordmark-dark.svg" width="420">
   </picture>
 </p>
 
-<h1 align="center">Dalga</h1>
-
 <p align="center">
-  Local-first, pure-Rust <strong>YouTube Music desktop studio (<code>ytm-gui</code>) + CLI/TUI (<code>ytm</code>)</strong> for <strong>Linux &amp; Windows</strong>.
+  <strong>Dalga</strong> — Local-first, pure-Rust YouTube Music desktop player &amp; playlist studio (<code>ytm-gui</code> + <code>ytm</code>) for Linux &amp; Windows.
 </p>
 
-Instead of wrapping YouTube Music in Electron or a heavy WebView, **Dalga** speaks YouTube Music's own **InnerTube HTTP API** directly using your local browser session (`SAPISIDHASH` + `Cookie`), backs audio playback with an ultra-light **headless `mpv` IPC player**, and enforces a strict **`Configure -> Preview -> Verified POST`** mutation lock so nothing alters your remote library without explicit inspection and snapshot protection.
+<p align="center">
+  <a href="https://github.com/waldseelen/YTMUSICFY/releases"><img alt="Release v0.2.0" src="https://img.shields.io/badge/release-v0.2.0-4CAF80?style=flat-square"></a>
+  <a href="LICENSE-MIT"><img alt="License MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
+  <img alt="Platforms Linux & Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-222834?style=flat-square">
+  <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square">
+</p>
+
+Instead of wrapping YouTube Music in Electron or a heavy browser process, **Dalga** speaks YouTube Music's own **InnerTube HTTP API** directly using your local browser session (`SAPISIDHASH` + `Cookie`), streams audio through a lightweight **headless `mpv` IPC backend**, and locks every remote edit behind a strict **`Configure -> Preview -> Verified POST`** pipeline with automatic SQLite snapshots.
+
+---
+
+<p align="center">
+  <img src="assets/screenshots/home.png" alt="Dalga Home View in Ultra-Dark Mode" width="100%">
+</p>
 
 ---
 
 ## Why Dalga?
 
-- **Zero Electron / WebView Bloat:** Native `eframe`/`egui` desktop studio + `ratatui` TUI + `clap` CLI compiled to native binaries.
-- **No Cloud Relay, No OAuth Headache:** Uses your existing signed-in Chromium/Brave/Firefox/Edge session locally (plus optional Brand Account `X-Goog-PageId` & multi-account `X-Goog-AuthUser` support).
-- **Strict Mutation Governance (`Configure -> Preview -> Verified POST`):**
-  - Every playlist edit (`AddTracks`, `RemoveTracks`, `MoveTracks`, `Reorder`, `UpdatePlaylistMeta`, `CreatePlaylist`, `DeletePlaylist`, `UpgradeTracks`, `RestoreSnapshot`) stages locally in SQLite-persisted `SyncQueue` before sending any POST request.
-  - `FetchManifest` proofs compare YouTube Music's declared playlist track count against actually fetched/dropped items (`Complete`, `PartialHidden`, `Truncated`, `Degraded`) and lock unsafe writes on truncated reads.
-  - Every plan is bound to a `PlanFingerprint` `(playlist_id, draft_revision, form_hash)` to block stale dispatches, and every remote batch auto-saves a SQLite pre-mutation snapshot (`Snapshots`) before execution.
-  - `♥` Like actions default to `StrictLock` (staged in Sync) with an optional `QuickLike` setting in **Settings & Auth** (optimistic rollback + `LM` cache sync).
-- **Daily-Driver Music Player:** Gapless-ready `mpv` JSON IPC (Unix domain sockets on Linux, Named Pipes on Windows), 15s pre-EOF track prefetch, persistent `PlayQueue`, `Radio` seeding, synced/plain `Lyrics`, MPRIS2 (Linux) & SMTC (Windows) media keys (`souvlaki`), live codec/bitrate telemetry, and `Ctrl+K` Command Palette.
+- **Zero Electron / WebView Overhead:** Native `eframe`/`egui` desktop studio (`ytm-gui`), terminal dashboard (`ytm tui`), and scriptable CLI (`ytm`).
+- **Offline-First Resilience:** SQLite-backed library, playlists, and lyrics cache (`schema v3`) hydrate instantly on launch and remain browsable even when your network or session goes offline.
+- **No Unattended Background Scraping:** Uses your existing YouTube Music browser cookies explicitly on demand—plus a one-click **Refresh Session** flow that opens YouTube Music and imports the renewed session once ready.
+- **Safety-Locked Playlist Engineering:** `FetchManifest` completeness checks, `PlanFingerprint` staleness guards, chunked verified writes, SQLite pre-mutation snapshots with restore diffs, and `StrictLock` / `QuickLike` controls.
 
 ---
 
-## Desktop Studio (`ytm-gui`) Workspaces
+## What's Inside Dalga (`v0.2.0`)
 
-| Workspace | Shortcut | What It Includes |
-| :--- | :--- | :--- |
-| **Home & Explore** | `Ctrl+1` | Home shelves, Explore, History, Library Albums, Full Catalog Search (Songs/Videos/Albums/Artists/Playlists), Play Queue & Synced Lyrics |
-| **Library & Playlist** | `Ctrl+2` | Virtualized Repertoire Search, Track Inspector (`MM:SS`), inline Playback, Split-Diff comparison, Metadata editor, Drag & Drop staging |
-| **Studio Tools** | `Ctrl+3` | Exact/Fuzzy **Dedupe**, `O(N log N)` LIS minimal-move **Sort**, **Set Algebra** (`A \ B`, `A ∩ B`, `A ∪ B`), **Health Scanner** (`UGC -> Official ATV` upgrade), **Genre Split** |
-| **Safety & History** | `Ctrl+4` | SQLite pre-mutation **Snapshots** with visual line-by-line restore diff (`plan_restore_diff`), full-page **Sync** review & dispatch |
-| **Settings & Auth** | `Ctrl+5` | `config.toml` Governance (`StrictLock` / `QuickLike`, opt-in browser cookie refresh, InnerTube pacing, `artist_cache_first`), Cookie Import, Stream Quality |
+| Area | Highlights |
+| :--- | :--- |
+| **Brand & Vector Iconography** | 53 crisp monochrome Lucide SVG icons rendered cleanly on all HiDPI scales; zero emoji/glyph drift across buttons and drawers. |
+| **Adaptive Theme Engine** | **Ultra-Dark** and **Apple-style Light** themes following OS preference (`System` / `Dark` / `Light`), paired with **Emerald**, **Gold**, and **YTM Pink** accents plus optional off-thread **Dynamic Album Art Accent** (`WCAG AA >= 4.5:1` verified). |
+| **Bilingual UI (EN & TR)** | Instant Turkish/English interface (`System` locale detection or explicit `EN`/`TR` switcher) across bars, drawers, playback, and settings. |
+| **Unified Chrome & Status Ribbon** | Top bar with Back/Forward history, centered search, interactive **Status Ribbon** ticker (error/staged/hint/greeting priority + 50-item history popup + click-to-undo/Sync), and collapsible **Studio Tools** sidebar. |
+| **Typeahead Instant Search** | Debounced InnerTube autocomplete + live categorized dropdown (`Top Match`, `Songs`, `Artist`, `Album`) with full keyboard navigation (`Up`/`Down`/`Enter`/`Esc`) and 12-item recent history. |
+| **Playback, Drawers & Lightbox** | Headless `mpv` IPC with 15s prefetch, MPRIS2/SMTC OS media controls, independent right-hand **Queue** & **Lyrics** drawers, and click-to-zoom **Album Artwork Lightbox**. |
+| **Playlist Studio (`ytm` + GUI)** | Exact/fuzzy **Dedupe**, `O(N log N)` LIS minimal-move **Sort**, **Set Algebra** (`diff`, `intersect`, `merge`), **Health** (`UGC -> Official ATV` upgrade), **Genre Split**, and **Snapshots**. |
 
-- **Global Shortcuts:** `Ctrl+K` Command Palette · `Ctrl+Shift+S` Toggle Sync Staging Drawer · `Ctrl+Z` / `Ctrl+Shift+Z` Undo/Redo staged op · `Ctrl+Enter` Execute Sync · `Space` Play/Pause · `M` Mute · `Ctrl+F` Focus search · `Alt+Left/Right` Back/Forward history.
+### Instant Search & Album Lightbox
+
+| Top-Bar Typeahead Dropdown | Album Artwork Lightbox |
+| :---: | :---: |
+| <img src="assets/screenshots/search.png" alt="Instant Search Dropdown" width="100%"> | <img src="assets/screenshots/lightbox.png" alt="Album Artwork Lightbox" width="100%"> |
+
+### Ultra-Dark vs. Light Theme
+
+| Ultra-Dark (`ThemeMode::Dark`) | Light (`ThemeMode::Light` + Lyrics Drawer) |
+| :---: | :---: |
+| <img src="assets/screenshots/theme-dark.png" alt="Ultra-Dark Theme" width="100%"> | <img src="assets/screenshots/theme-light.png" alt="Light Theme with Lyrics Drawer" width="100%"> |
 
 ---
 
 ## Download Pre-Built Releases (Linux & Windows)
 
-Pre-built binaries and verified checksums are published on [**GitHub Releases**](https://github.com/waldseelen/YTMUSICFY/releases).
+Pre-built archives and checksums are published on [**GitHub Releases**](https://github.com/waldseelen/YTMUSICFY/releases).  
+*(Release archive and crate identifiers preserve `ytm-architect` / `ytm` / `ytm-gui` for seamless `v0.1.x` config compatibility.)*
 
 | Platform | Target | Archive | Binaries Included |
 | :--- | :--- | :--- | :--- |
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.1.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
-| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.1.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `ytm-gui`, `ytm` |
+| **Windows (x86_64)** | `x86_64-pc-windows-msvc` | `ytm-architect-v0.2.0-windows-x86_64.zip` | `ytm-gui.exe`, `ytm.exe` |
 
-### Verify Downloads (`SHA256SUMS.txt` — Release `v0.1.0`)
+### Verify Checksums (`SHA256SUMS.txt` — `v0.2.0`)
 
 | Artifact | SHA-256 |
 | :--- | :--- |
-| `ytm-architect-v0.1.0-linux-x86_64.tar.gz` | `eaa6c5c1a59131d7496b2119420a167ba0f7e468081e49bb56f5b801548005c6` |
-| `ytm` (Linux x86_64 CLI/TUI) | `808e48ce74c4fff8cfcb1e4c319afcc85e4e0c5a632c18c33b4d870a03e9f062` |
-| `ytm-gui` (Linux x86_64 GUI) | `57c7b1d27fc2a5e237cb89e05057b17974e670499aa0f6fc8cae4b02134f4fa7` |
-| `ytm-architect-v0.1.0-windows-x86_64.zip` | `189606203cab13101962b4a88dcb9e4cb5a75101cb90e5bb9b5922f470273a71` |
-| `ytm.exe` (Windows x86_64 CLI/TUI) | `f4d226542dc286a7fa15ac93352e0d2bee52870a5f75b4ec0053e149d6b332a7` |
-| `ytm-gui.exe` (Windows x86_64 GUI) | `b7f484e5319e81d91f589c661c666ae98982ab840043eef0e758bc8521403d9f` |
+| `ytm-architect-v0.2.0-linux-x86_64.tar.gz` | `pending-ci-release` |
+| `ytm` (Linux x86_64) | `pending-ci-release` |
+| `ytm-gui` (Linux x86_64) | `pending-ci-release` |
+| `ytm-architect-v0.2.0-windows-x86_64.zip` | `pending-ci-release` |
+| `ytm.exe` (Windows x86_64) | `pending-ci-release` |
+| `ytm-gui.exe` (Windows x86_64) | `pending-ci-release` |
 
 #### Linux
 ```bash
-tar -xzf ytm-architect-v0.1.0-linux-x86_64.tar.gz
+tar -xzf ytm-architect-v0.2.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-./ytm-architect-v0.1.0-linux-x86_64/ytm-gui
+./ytm-architect-v0.2.0-linux-x86_64/ytm-gui
 ```
 
 #### Windows (PowerShell)
 ```powershell
-Expand-Archive .\ytm-architect-v0.1.0-windows-x86_64.zip -DestinationPath .\ytm-architect
-Get-FileHash .\ytm-architect\ytm-architect-v0.1.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
-.\ytm-architect\ytm-architect-v0.1.0-windows-x86_64\ytm-gui.exe
+Expand-Archive .\ytm-architect-v0.2.0-windows-x86_64.zip -DestinationPath .\dalga
+Get-FileHash .\dalga\ytm-architect-v0.2.0-windows-x86_64\ytm-gui.exe -Algorithm SHA256
+.\dalga\ytm-architect-v0.2.0-windows-x86_64\ytm-gui.exe
 ```
 
-> **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. All library inspection, staging, dedupe, sorting, set algebra, export, and sync features work standalone without external binaries.
+> **Audio Playback Prerequisites:** Install [`mpv`](https://mpv.io/) and [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for audio streaming in `ytm-gui`. Library inspection, offline browsing, search, dedupe, sorting, set algebra, exports, and verified sync work standalone without external binaries.
 
 ---
 
@@ -87,7 +107,7 @@ Requires **Rust 1.85+** (Edition 2024).
 
 ### Linux
 ```bash
-# Arch / Omarchy / Debian / Ubuntu build deps (dbus + xkbcommon + gtk3 + openssl)
+# Arch / Omarchy / Debian / Ubuntu build deps: dbus, xkbcommon, gtk3, openssl, sqlite
 cargo build --release --locked --bin ytm-gui --bin ytm
 ./target/release/ytm-gui
 ```
@@ -100,12 +120,26 @@ cargo build --release --locked --bin ytm-gui --bin ytm
 
 ---
 
-## Authentication Setup
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+| :--- | :--- |
+| `Ctrl+1` .. `Ctrl+5` | Switch primary workspaces (`Home`, `Library`, `Studio`, `Safety`, `Settings`) |
+| `Ctrl+F` | Focus top-bar instant search |
+| `Ctrl+K` | Open Command Palette |
+| `Ctrl+Shift+S` | Toggle Sync Staging Drawer |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo staged playlist mutation |
+| `Ctrl+Enter` | Execute staged mutations (verified POST + snapshot) |
+| `Ctrl+O` / `Ctrl+Shift+O` | Open current track on YouTube Music (at start / current second) |
+| `Space` / `M` | Play/Pause / Mute |
+| `Alt+Left` / `Alt+Right` | Navigate Back / Forward history |
+
+---
+
+## Authentication & Session Refresh
 
 1. Sign in to `https://music.youtube.com` in Chrome, Brave, Edge, or Firefox.
-2. Either:
-   - Use **Settings & Auth -> Auth -> Import from Browser (`yt-dlp`)** explicitly inside `ytm-gui` (opt-in; silent startup cookie scraping is disabled by default), **OR**
-   - Open DevTools (`F12`) -> **Network** -> filter `/youtubei/v1/browse` -> right-click an authenticated POST request -> **Copy Request Headers**, then import via GUI paste/file or CLI:
+2. When an existing session expires, click **Refresh Session** on the warning banner or in **Settings & Auth** to launch YouTube Music in your browser and re-import automatically, **or** paste DevTools request headers manually / via CLI:
 
 ```bash
 # Linux
@@ -119,17 +153,16 @@ Get-Content headers.txt -Raw | .\ytm.exe auth import
 .\ytm.exe auth status
 ```
 
-**Storage Security:** On Linux, credentials save to OS Secret Service (`secret-tool`) when available plus a `0600` fallback in `auth.json`, and temporary `mpv` cookie jars live in `$XDG_RUNTIME_DIR/ytm-architect/` (`0700`/`0600` tmpfs).
-
 ---
 
 ## Configuration & Storage Paths
 
-Standard OS paths via `ProjectDirs("io", "ytm-architect", "ytm-architect")`:
+Standard OS paths remain anchored at `ProjectDirs("io", "ytm-architect", "ytm-architect")` so existing configs and caches upgrade in place cleanly:
 
 - **Linux:**
   - Config: `~/.config/ytm-architect/{auth.json, config.toml, genres.toml}`
   - Data / Cache / Snapshots: `~/.local/share/ytm-architect/{ytm.sqlite, snapshots/}`
+  - Runtime cookies (`0700`/`0600` tmpfs): `$XDG_RUNTIME_DIR/ytm-architect/`
 - **Windows:**
   - Config: `%APPDATA%\ytm-architect\ytm-architect\config\`
   - Data / Cache / Snapshots: `%LOCALAPPDATA%\ytm-architect\ytm-architect\data\`
@@ -140,10 +173,9 @@ Starter templates live in [`config/config.example.toml`](config/config.example.t
 
 ## CLI Command Reference (`ytm`)
 
-Mutating CLI commands run in **dry-run preview** mode unless `--execute` is passed, and automatically save a local snapshot before touching remote playlists.
+Mutating CLI commands run in **dry-run preview** mode unless `--execute` is passed, and automatically save a SQLite pre-mutation snapshot before touching remote playlists.
 
 ```bash
-# Inspect library & export backups
 ytm list
 ytm inspect LM
 ytm backup all --format csv --out ./backups
@@ -151,24 +183,11 @@ ytm snapshots list
 ytm snapshots show <SNAPSHOT_ID>
 ytm snapshots restore <SNAPSHOT_ID> --execute
 
-# Dedupe (preview first, then execute)
-ytm dedupe <PLAYLIST_ID> --threshold 0.90 --duration-tol 15 --keep quality
-ytm dedupe <PLAYLIST_ID> --execute
-
-# O(N log N) LIS minimal-move sort & seeded artist-spread shuffle
-ytm sort <PLAYLIST_ID> --by artist:asc,year:asc,title:asc
-ytm sort <PLAYLIST_ID> --by shuffle --seed 42 --execute
-
-# Set algebra (diff, intersect, merge)
+ytm dedupe <PLAYLIST_ID> --threshold 0.90 --duration-tol 15 --keep quality --execute
+ytm sort <PLAYLIST_ID> --by artist:asc,year:asc,title:asc --execute
 ytm set diff LM <PLAYLIST_ID> --fuzzy --into <TARGET_ID> --execute
-
-# Health scan & UGC -> Official ATV upgrade
 ytm health <PLAYLIST_ID> --find-official --prune-unavailable --upgrade --execute
-
-# Genre enrichment & idempotent split
 ytm split-genre <PLAYLIST_ID> --min-tracks 5 --execute
-
-# Terminal 5-tab dashboard
 ytm tui
 ```
 
@@ -178,12 +197,12 @@ ytm tui
 
 ```
 crates/
-├── ytm-core    # InnerTube HTTP client, SAPISIDHASH signing, FetchManifest, Search/Browse/Lyrics parsers, chunked POST verification
-├── ytm-store   # SQLite cache (manifest_json, staged_ops, playback_session), snapshots, JSON/CSV/M3U8 exports, OS paths
+├── ytm-core    # InnerTube HTTP client, SAPISIDHASH signing, FetchManifest, Search/Suggestions/Browse/Lyrics
+├── ytm-store   # SQLite offline cache (v3: library_cache, lyrics_cache, staged_ops, snapshots), JSON/CSV/M3U8 exports
 ├── ytm-ops     # Pure playlist engines: Dedupe, O(N log N) LIS Sort, Set Algebra, Health, Restore Diff
 ├── ytm-enrich  # Normalized SQLite enrichment cache + MusicBrainz / Deezer / Last.fm / ListenBrainz genre pipeline
 ├── ytm-cli     # `ytm` CLI binary + 5-tab Ratatui TUI
-└── ytm-gui     # `ytm-gui` 5-Workspace eframe/egui Studio, 3-lane Tokio worker, mpv IPC player, MPRIS2/SMTC bridge
+└── ytm-gui     # `ytm-gui` Dalga desktop studio: theme engine, Lucide SVGs, EN/TR i18n, Status Ribbon, mpv IPC player
 ```
 
 For architectural contracts and domain terms, see [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SPEC.md`](SPEC.md), and [`GLOSSARY.md`](GLOSSARY.md).

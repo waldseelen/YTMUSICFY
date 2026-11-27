@@ -194,14 +194,16 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
             &mut app.toast,
         ),
         GuiTab::Auth => {
+            let lang = app.lang();
             let snap = app.player.snapshot();
             let pending_quality = snap
                 .state
                 .is_active()
                 .then_some(snap.pending_configure)
                 .flatten();
-            if views::auth::show(
+            let (apply_now, trigger_refresh) = views::auth::show(
                 ui,
+                lang,
                 &app.session,
                 &mut app.auth_raw_input,
                 &mut app.auth_browser,
@@ -209,14 +211,20 @@ pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
                     quality: &mut app.audio_quality,
                     cookie_bridge_active: app.cookie_bridge_active,
                     pending_quality,
+                    refresh_state: &app.session_refresh,
                 },
                 &app.cmd_tx,
-            ) {
+            );
+            if apply_now {
                 app.player.apply_pending_configure();
+            }
+            if trigger_refresh {
+                app.trigger_session_refresh();
             }
         }
         GuiTab::Settings => {
-            views::settings::show(ui, &mut app.gui_config, &app.cmd_tx);
+            let lang = app.lang();
+            views::settings::show(ui, lang, &mut app.gui_config, &app.cmd_tx);
             app.mutation_policy = app.gui_config.mutation_policy;
         }
     }

@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
-use ytm_core::{Playlist, PlaylistSummary};
+use ytm_core::{Playlist, PlaylistSummary, Track};
+use ytm_store::ExportFormat;
 
 use crate::state::{GuiTab, WorkerCmd};
 
@@ -29,6 +31,10 @@ pub fn show_command_palette(
     sync_drawer_open: &mut bool,
     loading_playlists: &mut HashSet<String>,
     playlist_cache: &HashMap<String, Playlist>,
+    export_fmt: ExportFormat,
+    export_dir: &str,
+    current_track: Option<(&Track, u64)>,
+    preferred_browser: Option<&str>,
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     if !*open {
@@ -124,6 +130,79 @@ pub fn show_command_palette(
                     {
                         let _ = cmd_tx.send(WorkerCmd::RefreshLibrary);
                         close_now = true;
+                    }
+                    if (needle.is_empty()
+                        || "backup all export playlists snapshots".contains(&needle))
+                        && ui
+                            .selectable_label(false, "Action: Backup All Playlists")
+                            .clicked()
+                    {
+                        let _ = cmd_tx.send(WorkerCmd::BackupPlaylist {
+                            target: "all".to_string(),
+                            format: export_fmt,
+                            out_dir: PathBuf::from(export_dir.trim()),
+                        });
+                        close_now = true;
+                    }
+                    if let Some((track, pos_sec)) = current_track {
+                        if (needle.is_empty() || "open youtube music ctrl+o".contains(&needle))
+                            && ui
+                                .selectable_label(false, "Action: Open in YouTube Music (Ctrl+O)")
+                                .clicked()
+                        {
+                            let url = crate::youtube_links::ytm_track_url(&track.video_id, None);
+                            let _ = crate::browser_launch::open_url_in_browser(
+                                &url,
+                                preferred_browser,
+                            );
+                            close_now = true;
+                        }
+                        if (needle.is_empty()
+                            || "open youtube music current second timestamp ctrl+shift+o"
+                                .contains(&needle))
+                            && ui
+                                .selectable_label(
+                                    false,
+                                    "Action: Open in YouTube Music at current second (Ctrl+Shift+O)",
+                                )
+                                .clicked()
+                        {
+                            let url = crate::youtube_links::ytm_track_url(
+                                &track.video_id,
+                                Some(pos_sec),
+                            );
+                            let _ = crate::browser_launch::open_url_in_browser(
+                                &url,
+                                preferred_browser,
+                            );
+                            close_now = true;
+                        }
+                        if (needle.is_empty() || "search on youtube".contains(&needle))
+                            && ui
+                                .selectable_label(false, "Action: Search Current Track on YouTube")
+                                .clicked()
+                        {
+                            let q = format!(
+                                "{} {}",
+                                track.primary_artist_name().unwrap_or(""),
+                                track.title
+                            );
+                            let url = crate::youtube_links::youtube_search_url(&q);
+                            let _ = crate::browser_launch::open_url_in_browser(
+                                &url,
+                                preferred_browser,
+                            );
+                            close_now = true;
+                        }
+                        if (needle.is_empty() || "copy link url".contains(&needle))
+                            && ui
+                                .selectable_label(false, "Action: Copy YouTube Music Link")
+                                .clicked()
+                        {
+                            let url = crate::youtube_links::ytm_track_url(&track.video_id, None);
+                            ctx.copy_text(url);
+                            close_now = true;
+                        }
                     }
 
                     if !playlists.is_empty() {

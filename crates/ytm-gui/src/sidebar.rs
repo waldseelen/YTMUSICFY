@@ -5,6 +5,7 @@ use eframe::egui;
 use ytm_core::{Playlist, PlaylistPrivacy, PlaylistSummary};
 
 use crate::draft_cache::DraftCache;
+use crate::i18n::{Key, ResolvedLang, tr};
 use crate::interaction::{auto_scroll_on_drag, search_box_with_clear};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
@@ -19,6 +20,7 @@ use crate::views::repertoire_tree::collect_repertoire_matches;
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    lang: ResolvedLang,
     library: &AsyncState<Vec<PlaylistSummary>>,
     sidebar_filter: &mut String,
     search_mode: &mut SidebarSearchMode,
@@ -41,20 +43,28 @@ pub fn show(
     cmd_tx: &Sender<WorkerCmd>,
 ) {
     ui.horizontal(|ui| {
-        ui.strong("Library");
-        ui.selectable_value(search_mode, SidebarSearchMode::Playlists, "Lists")
-            .on_hover_text("Filter sidebar playlist titles");
+        ui.strong(tr(lang, Key::SidebarLibrary));
+        ui.selectable_value(
+            search_mode,
+            SidebarSearchMode::Playlists,
+            tr(lang, Key::SidebarLists),
+        )
+        .on_hover_text(tr(lang, Key::SidebarFilterHint));
         if ui
-            .selectable_value(search_mode, SidebarSearchMode::AllTracks, "All Tracks")
-            .on_hover_text("Search artist/title across ALL playlists and open File-Tree view")
+            .selectable_value(
+                search_mode,
+                SidebarSearchMode::AllTracks,
+                tr(lang, Key::SidebarAllTracks),
+            )
+            .on_hover_text(tr(lang, Key::SidebarTrackFilterHint))
             .clicked()
         {
             *active_tab = GuiTab::Inspector;
         }
     });
     let hint = match *search_mode {
-        SidebarSearchMode::Playlists => "Filter playlists...",
-        SidebarSearchMode::AllTracks => "Search artist/song across all lists...",
+        SidebarSearchMode::Playlists => tr(lang, Key::SidebarFilterHint),
+        SidebarSearchMode::AllTracks => tr(lang, Key::SidebarTrackFilterHint),
     };
     let prev_filter = sidebar_filter.clone();
     let box_w = (ui.available_width() - 42.0).clamp(140.0, 220.0);
@@ -95,17 +105,21 @@ pub fn show(
     ui.horizontal(|ui| {
         let new_resp = ui.add(
             egui::TextEdit::singleline(new_playlist_title)
-                .hint_text("New playlist title...")
+                .hint_text(tr(lang, Key::SidebarNewPlaylistHint))
                 .desired_width(145.0),
         );
         let enter_create = new_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let title = new_playlist_title.trim().to_string();
+        let stage_lbl = format!("+ {}", tr(lang, Key::SidebarStageCreate));
         if !title.is_empty()
-            && (enter_create || ui.add_enabled(true, egui::Button::new("+ Stage")).clicked())
+            && (enter_create
+                || ui
+                    .add_enabled(true, egui::Button::new(&stage_lbl))
+                    .clicked())
         {
             let eid = sync_queue.push(StagedOp::CreatePlaylist {
                 title: title.clone(),
-                description: "Created by ytm-gui".to_string(),
+                description: "Created by Dalga".to_string(),
                 privacy: PlaylistPrivacy::Private,
                 tracks: Vec::new(),
             });
@@ -115,9 +129,11 @@ pub fn show(
             ));
             new_playlist_title.clear();
         } else if title.is_empty() {
-            ui.add_enabled(false, egui::Button::new("+ Stage"));
+            ui.add_enabled(false, egui::Button::new(&stage_lbl));
         }
     });
+    ui.separator();
+    crate::studio_menu::show_studio_tools_menu(ui, lang, active_tab, sync_queue.len());
     ui.separator();
 
     if let AsyncState::Loading(m) = library {
@@ -208,7 +224,7 @@ pub fn show(
             };
             let hit_mark = track_hit_counts
                 .get(&pl.id)
-                .map_or_else(String::new, |h| format!(" [{h}★]"));
+                .map_or_else(String::new, |h| format!(" [{h} hits]"));
             let label = format!("{dirty_mark}{} ({count}){hit_mark}{loading_mark}", pl.title);
 
             let resp = ui.add(

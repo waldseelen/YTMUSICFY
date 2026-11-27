@@ -23,11 +23,19 @@ impl RepeatMode {
     }
 
     #[must_use]
-    pub const fn icon(self) -> &'static str {
+    pub const fn short_label(self) -> &'static str {
         match self {
-            Self::Off => "🔁 Off",
-            Self::All => "🔁 All",
-            Self::One => "🔂 1",
+            Self::Off => "Off",
+            Self::All => "All",
+            Self::One => "1",
+        }
+    }
+
+    #[must_use]
+    pub const fn icon_kind(self) -> crate::icons::Icon {
+        match self {
+            Self::Off | Self::All => crate::icons::Icon::Repeat,
+            Self::One => crate::icons::Icon::RepeatOne,
         }
     }
 }

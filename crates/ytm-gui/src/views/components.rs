@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use eframe::egui;
 use ytm_core::{FetchCompleteness, FetchManifest};
 
+use crate::icons::Icon;
 use crate::state::{DraftRevision, PlanFingerprint};
 use crate::sync_queue::StagedOp;
 
@@ -63,11 +64,12 @@ pub fn show_fetch_badge(ui: &mut egui::Ui, manifest: Option<&FetchManifest>) {
         return;
     };
     let age = format_relative_age(m.fetched_at);
-    let (label, color) = match &m.completeness {
+    let (icon, label, color) = match &m.completeness {
         FetchCompleteness::Complete => {
             let decl = m.declared_track_count.unwrap_or(m.fetched_tracks);
             (
-                format!("✓ {}/{} Complete · {age}", m.fetched_tracks, decl),
+                Icon::Check,
+                format!("{}/{} Complete · {age}", m.fetched_tracks, decl),
                 egui::Color32::from_rgb(90, 200, 120),
             )
         }
@@ -76,26 +78,29 @@ pub fn show_fetch_badge(ui: &mut egui::Ui, manifest: Option<&FetchManifest>) {
             fetched,
             hidden_estimate,
         } => (
-            format!("⚠ {fetched}/{declared} ({hidden_estimate} hidden) · {age}"),
+            Icon::Warn,
+            format!("{fetched}/{declared} ({hidden_estimate} hidden) · {age}"),
             egui::Color32::from_rgb(235, 180, 70),
         ),
         FetchCompleteness::Truncated {
             pages_fetched,
             max_pages,
         } => (
-            format!("🔒 Truncated ({pages_fetched}/{max_pages} pages) — Refresh"),
+            Icon::Lock,
+            format!("Truncated ({pages_fetched}/{max_pages} pages) — Refresh"),
             egui::Color32::from_rgb(235, 95, 95),
         ),
         FetchCompleteness::Degraded { dropped_renderers } => (
-            format!(
-                "🔒 Degraded ({} dropped) — Refresh",
-                dropped_renderers.len()
-            ),
+            Icon::Lock,
+            format!("Degraded ({} dropped) — Refresh", dropped_renderers.len()),
             egui::Color32::from_rgb(235, 95, 95),
         ),
     };
 
-    let btn = egui::Button::new(egui::RichText::new(label).color(color).small());
+    let btn = egui::Button::image_and_text(
+        icon.image(13.0, color),
+        egui::RichText::new(label).color(color).small(),
+    );
     let resp = ui.add(btn).on_hover_text("Click to inspect FetchManifest");
     let popup_id = ui.make_persistent_id(("fetch_manifest_popup", m.fetched_at.timestamp()));
     if resp.clicked() {

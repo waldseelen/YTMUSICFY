@@ -12,6 +12,7 @@ use ytm_ops::{
 use ytm_store::{ExportFormat, Snapshot, SnapshotMetadata};
 
 use crate::auth_store::AudioQuality;
+use crate::browser_launch::SessionRefreshState;
 use crate::state::{ConfirmedMutation, DispatchEntryOutcome, GuiAppConfig, JobId, MutationPolicy};
 use crate::sync_queue::StagedEntry;
 use crate::worker_auth::BrowserKind;
@@ -23,9 +24,22 @@ pub enum WorkerCmd {
     RefreshLibrary,
     ImportAuth(String),
     ImportBrowserAuth(BrowserKind),
+    RefreshSessionGuided {
+        browser: BrowserKind,
+        external_browser: Option<String>,
+        video_id: Option<String>,
+    },
     ImportClipboardAuth,
     LoadPlaylist(String),
     SearchTracks(String),
+    FetchSearchSuggestions {
+        req_id: u64,
+        query: String,
+    },
+    SearchInstantLive {
+        req_id: u64,
+        query: String,
+    },
     SearchCatalog {
         query: String,
         filter: SearchFilter,
@@ -114,6 +128,16 @@ pub enum WorkerEvent {
         result: Result<Playlist, String>,
     },
     SearchResults(Result<Vec<Track>, String>),
+    SearchSuggestionsLoaded {
+        req_id: u64,
+        result: Result<Vec<String>, String>,
+    },
+    InstantLiveLoaded {
+        req_id: u64,
+        result: Result<SearchPage, String>,
+    },
+    SessionRefreshProgress(SessionRefreshState),
+    LibraryCacheHydrated(Vec<PlaylistSummary>),
     CatalogSearchResults {
         query: String,
         filter: SearchFilter,
@@ -186,6 +210,7 @@ pub enum WorkerEvent {
     MutationPolicyLoaded(MutationPolicy),
     PlaybackSessionLoaded(String),
     GuiConfigLoaded(GuiAppConfig),
+    SystemThemeChanged(bool),
 }
 
 // Keep unused-import-free compilation cleanly if KeeperStrategy isn't directly named here.

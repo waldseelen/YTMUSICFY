@@ -1,6 +1,7 @@
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistSummary, Track};
 
+use crate::icons::{Icon, icon_text_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::views::inspect_rows::RowRenderOutcome;
@@ -24,29 +25,29 @@ pub fn attach_row_context_menu(
     toast: &mut Option<ToastState>,
 ) {
     resp.context_menu(|ui| {
-        if ui.button("▶ Play Now").clicked() {
+        if icon_text_button(ui, Icon::Play, "Play Now", 13.0, true).clicked() {
             out.play_actions.push(PlayAction::PlayFromList {
                 tracks: ctx.visible.iter().copied().cloned().collect(),
                 start_idx: ctx.row_idx,
             });
             ui.close_menu();
         }
-        if ui.button("⏭ Play Next").clicked() {
+        if icon_text_button(ui, Icon::Next, "Play Next", 13.0, true).clicked() {
             out.play_actions
                 .push(PlayAction::PlayNext(ctx.track.clone()));
             ui.close_menu();
         }
-        if ui.button("+ Add to Queue").clicked() {
+        if icon_text_button(ui, Icon::Plus, "Add to Queue", 13.0, true).clicked() {
             out.play_actions
                 .push(PlayAction::AppendQueue(ctx.track.clone()));
             ui.close_menu();
         }
-        if ui.button("📻 Start Radio").clicked() {
+        if icon_text_button(ui, Icon::Radio, "Start Radio", 13.0, true).clicked() {
             out.play_actions
                 .push(PlayAction::StartRadio(ctx.track.clone()));
             ui.close_menu();
         }
-        if ui.button("♥ Toggle Like").clicked() {
+        if icon_text_button(ui, Icon::Heart, "Toggle Like", 13.0, true).clicked() {
             out.play_actions
                 .push(PlayAction::ToggleLike(ctx.track.clone()));
             ui.close_menu();
@@ -78,14 +79,27 @@ pub fn attach_row_context_menu(
             ui.close_menu();
         }
 
-        let url = format!("https://music.youtube.com/watch?v={}", ctx.track.video_id);
-        if ui.button("Copy YTM Watch URL").clicked() {
-            ui.ctx().copy_text(url.clone());
-            *toast = Some(ToastState::info(true, "Copied track URL to clipboard."));
+        let url = crate::youtube_links::ytm_track_url(&ctx.track.video_id, None);
+        let search_q = format!(
+            "{} {}",
+            ctx.track.primary_artist_name().unwrap_or(""),
+            ctx.track.title
+        );
+        let yt_search = crate::youtube_links::youtube_search_url(&search_q);
+        if ui.button("Open in YouTube Music").clicked() {
+            let _ = crate::browser_launch::open_url_in_browser(&url, None);
             ui.close_menu();
         }
-        if ui.button("Open in Browser").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        if ui.button("Search on YouTube").clicked() {
+            let _ = crate::browser_launch::open_url_in_browser(&yt_search, None);
+            ui.close_menu();
+        }
+        if ui.button("Copy link").clicked() {
+            ui.ctx().copy_text(url.clone());
+            *toast = Some(ToastState::info(
+                true,
+                "Copied YouTube Music link to clipboard.",
+            ));
             ui.close_menu();
         }
 

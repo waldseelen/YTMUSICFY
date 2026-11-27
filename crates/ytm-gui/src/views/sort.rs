@@ -6,6 +6,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::{FetchManifest, Playlist, PlaylistAccess};
 use ytm_ops::{SortDirection, SortField, SortKey, SortPlan};
 
+use crate::icons::{Icon, icon_button};
 use crate::navigation::ToastState;
 use crate::state::{AsyncState, SortForm, WorkerCmd};
 use crate::sync_queue::SyncQueue;
@@ -59,21 +60,21 @@ pub fn show(
                     ui.selectable_value(&mut key.direction, SortDirection::Asc, "Asc");
                     ui.selectable_value(&mut key.direction, SortDirection::Desc, "Desc");
                 });
-            if ui
-                .add_enabled(idx > 0, egui::Button::new("↑"))
-                .on_hover_text("Higher sort priority")
-                .clicked()
-            {
+            if icon_button(ui, Icon::ArrowUp, 12.0, idx > 0, "Higher sort priority").clicked() {
                 swap_pair = Some((idx, idx - 1));
             }
-            if ui
-                .add_enabled(idx + 1 < key_count, egui::Button::new("↓"))
-                .on_hover_text("Lower sort priority")
-                .clicked()
+            if icon_button(
+                ui,
+                Icon::ArrowDown,
+                12.0,
+                idx + 1 < key_count,
+                "Lower sort priority",
+            )
+            .clicked()
             {
                 swap_pair = Some((idx, idx + 1));
             }
-            if key_count > 1 && ui.button("✕").clicked() {
+            if key_count > 1 && icon_button(ui, Icon::Close, 12.0, true, "Remove key").clicked() {
                 remove_idx = Some(idx);
             }
         });

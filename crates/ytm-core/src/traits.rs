@@ -204,4 +204,9 @@ pub trait InnerTubeClientTrait: Send + Sync {
             .await?
             .map(LyricsPayload::Plain))
     }
+
+    /// Fetch autocomplete search suggestions (`POST music/get_search_suggestions`).
+    async fn get_search_suggestions(&self, _query: &str) -> Result<Vec<String>, CoreError> {
+        Ok(Vec::new())
+    }
 }

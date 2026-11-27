@@ -2,6 +2,7 @@ pub mod db;
 pub mod error;
 pub mod export;
 pub mod models;
+pub mod offline_cache;
 pub mod paths;
 pub mod playback_session;
 pub mod playlist_cache;

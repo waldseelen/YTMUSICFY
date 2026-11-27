@@ -137,9 +137,11 @@
    - Per-entry `DispatchEntryOutcome` (`Succeeded`, `AbortedDrift`, `Failed`) and selective `SyncQueue` pruning so completed entries are never re-executed after a partial failure.
    - Post-mutation read-back `get_playlist_with_manifest` updating `playlist_cache` and emitting `DispatchReport` count verification.
 
-### Session Governance
+### Session Governance & Dalga UI Contracts
 - `SessionState` (`Unauthenticated`, `Verifying`, `Authenticated(SessionStatus)`, `Expired { reason, last_known }`) tracks authentication without parallel loading booleans.
 - `auto_refresh_browser_cookies` defaults to `false`; startup never executes silent `yt-dlp --cookies-from-browser` extraction without explicit opt-in or user action.
+- `GuiAppConfig` persists `theme_mode: ThemeMode` (`System | Dark | Light`), `accent_palette: AccentPalette` (`Emerald | Gold | YtmPink`), `dynamic_accent: bool` (default `true`), `ui_lang: UiLang` (`System | En | Tr`), `greetings_enabled: bool` (default `true`), `ticker_speed: f32` (default `48.0`), `reduced_motion: bool`, `preferred_external_browser: Option<String>`, and `recent_searches: Vec<String>` with `#[serde(default)]` backward compatibility for `v0.1.x` `config.toml`.
+- `StatusMessage` and `StatusPriority` (`ErrorWarning > ActionResult > ContextualHint > Greeting`) drive the Status Ribbon message bus and 50-entry history ring.
 
 ---
 

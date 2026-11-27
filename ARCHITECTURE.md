@@ -69,7 +69,7 @@ ytm-cli (Clap CLI + Ratatui TUI)                               ──┼──> 
 
 ### `crates/ytm-gui/src/`
 - **App Shell & Navigation:** `main.rs`, `lib.rs` (Wayland `vsync` guard + window icon), `app.rs` (`YtmGuiApp`), `app_events.rs` (`apply_worker_event`, `finish_frame` background repaint throttling), `tab_bar.rs`, `tab_router.rs`, `overlays.rs`, `navigation.rs`, `interaction.rs`, `command_palette.rs`, `sidebar.rs`.
-- **Brand, Theme & Icons:** `brand.rs` (centralized `Dalga` strings & embedded Concept A logos), `theme.rs`, `icons.rs`.
+- **Brand, Theme & Icons:** `brand.rs` (centralized `Dalga` strings & embedded Concept A logos), `contracts.rs` (`ThemeMode`, `AccentPalette`, `UiLang`, `StatusPriority`, `StatusMessage`), `theme.rs`, `icons.rs`.
 - **Credentials & Config:** `auth_store.rs` (`0600` `auth.json` primary, `YTM_USE_SECRET_SERVICE=1` opt-in, `$XDG_RUNTIME_DIR` tmpfs `mpv` cookie jar).
 - **Playback & OS Media:** `player.rs`, `player_actor.rs`, `player_process.rs`, `player_ipc.rs`, `play_queue.rs`, `playback_ops.rs`, `media_controls.rs` (`souvlaki` MPRIS2 / Win32 `HWND` SMTC), `artwork.rs` (bounded HTTP + 50 MiB disk LRU).
 - **State & Sync:** `state.rs`, `state_forms.rs`, `sync_queue.rs`, `sync_ops.rs`, `sync_draft.rs`, `draft_cache.rs`, `playlist_meta_modal.rs`.

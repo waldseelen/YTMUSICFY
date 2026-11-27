@@ -7,6 +7,7 @@ use ytm_core::{
 };
 
 use crate::artwork::ArtworkCache;
+use crate::icons::{Icon, icon_button, icon_text_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, WorkerCmd};
@@ -53,7 +54,7 @@ pub fn show(
             actions.push(PlayAction::OpenBrowse(browse_target.trim().to_string()));
         }
         if let AsyncState::Ready(page) = browse_state
-            && ui.button("↻ Refresh").clicked()
+            && icon_text_button(ui, Icon::Refresh, "Refresh", 13.0, true).clicked()
         {
             actions.push(PlayAction::OpenBrowse(page.browse_id.clone()));
         }
@@ -157,7 +158,7 @@ fn render_header(
             }
             if !page.tracks.is_empty() {
                 ui.horizontal(|ui| {
-                    if ui.button("▶ Play All").clicked() {
+                    if icon_text_button(ui, Icon::Play, "Play All", 13.0, true).clicked() {
                         actions.push(PlayAction::PlayFromList {
                             tracks: page.tracks.clone(),
                             start_idx: 0,
@@ -213,7 +214,7 @@ fn render_card(
                             availability: ytm_core::TrackAvailability::Available,
                             thumbnail_url: card.thumbnail_url.clone(),
                         };
-                        if ui.small_button("▶").on_hover_text("Play track").clicked() {
+                        if icon_button(ui, Icon::Play, 12.0, true, "Play track").clicked() {
                             actions.push(PlayAction::PlayFromList {
                                 tracks: vec![track.clone()],
                                 start_idx: 0,
@@ -249,7 +250,7 @@ fn render_track_row(
     actions: &mut Vec<PlayAction>,
 ) {
     ui.horizontal(|ui| {
-        if ui.small_button("▶").clicked() {
+        if icon_button(ui, Icon::Play, 12.0, true, "Play track").clicked() {
             actions.push(PlayAction::PlayFromList {
                 tracks: list.to_vec(),
                 start_idx: idx,
@@ -282,7 +283,7 @@ fn render_track_row(
         if let Some(dur) = track.duration_sec {
             ui.small(format_duration(u64::from(dur)));
         }
-        if ui.small_button("⏭ Next").clicked() {
+        if icon_text_button(ui, Icon::Next, "Next", 12.0, true).clicked() {
             actions.push(PlayAction::PlayNext(track.clone()));
         }
         if ui
@@ -292,7 +293,7 @@ fn render_track_row(
         {
             actions.push(PlayAction::AppendQueue(track.clone()));
         }
-        if ui.small_button("📻").on_hover_text("Start Radio").clicked() {
+        if icon_button(ui, Icon::Radio, 12.0, true, "Start Radio").clicked() {
             actions.push(PlayAction::StartRadio(track.clone()));
         }
         let has_editable = playlists

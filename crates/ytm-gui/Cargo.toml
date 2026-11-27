@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+screenshot-harness = []
+
 [[bin]]
 name = "ytm-gui"
 path = "src/main.rs"

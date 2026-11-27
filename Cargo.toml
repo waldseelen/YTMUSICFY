@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/waldseelen/YTMUSICFY"
@@ -26,7 +26,7 @@ crossterm = "0.28"
 csv = "1.3"
 directories = "5"
 eframe = "0.31"
-egui_extras = "0.31"
+egui_extras = { version = "0.31", features = ["svg"] }
 hex = "0.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 indicatif = "0.17"

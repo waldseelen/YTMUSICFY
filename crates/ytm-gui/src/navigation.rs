@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::interaction::{poll_global_input, status_badge};
+use crate::interaction::poll_global_input;
 use crate::state::{ConfirmedMutation, GuiTab, PendingMutation};
 use crate::sync_queue::SyncQueue;
 
@@ -122,74 +122,26 @@ impl NavHistory {
     }
 }
 
-/// Bottom status bar displaying progress, Cancel job button, expiring notifications, Undo, and Sync shortcut.
+/// Render active background job progress bar + Cancel button when a job is running.
 pub fn show_status_bar(
     ui: &mut egui::Ui,
     batch_progress: Option<&(usize, usize, String)>,
     active_job_id: Option<crate::state::JobId>,
-    toast: &mut Option<ToastState>,
-    sync_queue: &mut SyncQueue,
-    active_tab: &mut GuiTab,
     cmd_tx: &std::sync::mpsc::Sender<crate::state::WorkerCmd>,
 ) {
-    let now = Instant::now();
-    if toast.as_ref().is_some_and(|t| t.is_expired(now)) {
-        *toast = None;
-    }
+    let Some((done, total, msg)) = batch_progress else {
+        return;
+    };
     ui.horizontal(|ui| {
-        ui.label(
-            "Ctrl+1..5 Workspaces | Ctrl+K Palette | Ctrl+F Search | Ctrl+Z Undo | Ctrl+Enter Sync",
-        );
-        if let Some((done, total, msg)) = batch_progress {
-            ui.separator();
-            let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
-            ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(200.0));
-            if let Some(jid) = active_job_id
-                && ui
-                    .small_button("Cancel")
-                    .on_hover_text("Cancel running background job")
-                    .clicked()
-            {
-                let _ = cmd_tx.send(crate::state::WorkerCmd::CancelJob(jid));
-            }
-        }
-        let mut clear_toast = false;
-        let mut undo_id = None;
-        let mut jump_sync = false;
-        if let Some(t) = toast {
-            ui.separator();
-            let color = if t.ok {
-                egui::Color32::from_rgb(90, 200, 120)
-            } else {
-                egui::Color32::from_rgb(235, 95, 95)
-            };
-            ui.colored_label(color, status_badge(t.ok, &t.message));
-            if let Some(eid) = t.undo_entry_id
-                && ui.small_button("Undo").clicked()
-            {
-                undo_id = Some(eid);
-                clear_toast = true;
-            }
-            if t.offer_sync_link
-                && *active_tab != GuiTab::Sync
-                && ui.small_button("Sync →").clicked()
-            {
-                jump_sync = true;
-            }
-            if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
-                clear_toast = true;
-            }
-        }
-        if let Some(eid) = undo_id {
-            sync_queue.remove_entry(eid);
-            *toast = Some(ToastState::info(true, "Undid last staged action."));
-            clear_toast = false;
-        }
-        if jump_sync {
-            *active_tab = GuiTab::Sync;
-        }
-        if clear_toast {
-            *toast = None;
+        let frac = (*done as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
+        ui.add(egui::ProgressBar::new(frac).text(msg).desired_width(260.0));
+        if let Some(jid) = active_job_id
+            && ui
+                .small_button("Cancel")
+                .on_hover_text("Cancel running background job")
+                .clicked()
+        {
+            let _ = cmd_tx.send(crate::state::WorkerCmd::CancelJob(jid));
         }
     });
 }
@@ -202,6 +154,8 @@ pub struct GlobalInputOutcome {
     pub toggle_sync_drawer: bool,
     pub toggle_play_pause: bool,
     pub toggle_mute: bool,
+    pub open_ytm: bool,
+    pub open_ytm_at_time: bool,
 }
 
 /// Applies global keyboard shortcuts, zoom, Sync shortcut, Undo/Redo, and Back/Forward navigation.
@@ -225,6 +179,8 @@ pub fn apply_global_input(
         toggle_sync_drawer: g.toggle_sync_drawer,
         toggle_play_pause: g.toggle_play_pause,
         toggle_mute: g.toggle_mute,
+        open_ytm: g.open_ytm,
+        open_ytm_at_time: g.open_ytm_at_time,
     };
     if g.undo_last && sync_queue.undo_last().is_some() {
         *toast = Some(ToastState::info(true, "Undid last staged action (Ctrl+Z)."));

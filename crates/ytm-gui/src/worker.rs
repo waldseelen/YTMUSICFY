@@ -18,10 +18,10 @@ use crate::worker_auth::{
     handle_bootstrap, import_auth_inner, import_browser_auth_inner, import_clipboard_auth_inner,
 };
 use crate::worker_exec::{
-    backup_inner, cache_fetched_playlist, hydrate_gui_startup_state, load_config,
-    load_playlist_with_manifest, load_saved_client, persist_staged_entries, run_confirmed_mutation,
+    cache_fetched_playlist, hydrate_gui_startup_state, load_config, load_playlist_with_manifest,
+    load_saved_client, persist_staged_entries, run_confirmed_mutation,
 };
-use crate::worker_media::{handle_interactive_cmd, spawn_index_all_job};
+use crate::worker_media::{handle_interactive_cmd, spawn_backup_job, spawn_index_all_job};
 
 pub fn spawn_worker(ctx: egui::Context) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
@@ -102,6 +102,9 @@ async fn finish_auth_import(
                 .get_library_playlists()
                 .await
                 .map_err(|e| e.to_string());
+            if let Ok(list) = &libs {
+                let _ = state.store.save_library_summaries(list);
+            }
             let _ = tx.send(WorkerEvent::LibraryLoaded(libs));
         }
         Err(e) => {
@@ -129,6 +132,7 @@ async fn worker_loop(
         }
     };
     let _ = paths.ensure_dirs();
+    crate::theme_detect::spawn_theme_watcher(evt_tx.clone(), egui_ctx.clone());
     let config = load_config(&paths);
     let store = match SqliteStore::open(&paths.db_file(), Some(paths.snapshots_dir())) {
         Ok(s) => Arc::new(s),
@@ -268,6 +272,7 @@ async fn handle_cmd(
                     .await
                     .map_err(|e| e.to_string());
                 if let Ok(list) = &libs {
+                    let _ = store.save_library_summaries(list);
                     let keep: Vec<String> = list.iter().map(|s| s.id.clone()).collect();
                     let _ = store.prune_missing_cached_playlists(&keep);
                 }
@@ -314,44 +319,7 @@ async fn handle_cmd(
             format,
             out_dir,
         } => {
-            let Some(client) = state.client.as_ref().map(Arc::clone) else {
-                return;
-            };
-            let (job_id, _cancel) = state.allocate_job();
-            let store = Arc::clone(&state.store);
-            let tx = tx.clone();
-            let ctx = ctx.clone();
-            let _ = tx.send(WorkerEvent::JobStarted {
-                job_id,
-                label: format!("Backup {target}"),
-            });
-            tokio::spawn(async move {
-                let msg = backup_inner(
-                    client.as_ref(),
-                    &store,
-                    &target,
-                    format,
-                    &out_dir,
-                    &tx,
-                    &ctx,
-                )
-                .await;
-                let _ = tx.send(match msg {
-                    Ok(m) => WorkerEvent::StatusToast {
-                        ok: true,
-                        message: m,
-                    },
-                    Err(e) => WorkerEvent::StatusToast {
-                        ok: false,
-                        message: e.to_string(),
-                    },
-                });
-                if let Ok(snaps) = store.list_snapshots(None).await {
-                    let _ = tx.send(WorkerEvent::SnapshotsLoaded(Ok(snaps)));
-                }
-                let _ = tx.send(WorkerEvent::JobEnded(job_id));
-                ctx.request_repaint();
-            });
+            spawn_backup_job(state, target, format, out_dir, tx, ctx);
         }
         // --- Lane 3: Serialized Remote Mutations ---
         WorkerCmd::ExecuteMutation(mutation) => {

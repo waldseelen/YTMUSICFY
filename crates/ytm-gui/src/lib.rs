@@ -1,12 +1,18 @@
 pub mod app;
 pub mod app_events;
+pub mod app_frame;
 pub mod artwork;
 pub mod auth_store;
 pub mod brand;
+pub mod browser_launch;
 pub mod command_palette;
+pub mod contracts;
 pub mod draft_cache;
+pub mod greetings;
+pub mod i18n;
 pub mod icons;
 pub mod interaction;
+pub mod lightbox;
 pub mod media_controls;
 pub mod navigation;
 pub mod overlays;
@@ -15,12 +21,22 @@ pub mod playback_ops;
 pub mod player;
 pub mod player_ipc;
 pub mod playlist_meta_modal;
+pub mod right_drawer;
+#[cfg(feature = "screenshot-harness")]
+pub mod screenshot_seed;
+pub mod search_controller;
 pub mod sidebar;
 pub mod state;
+pub mod status_bus;
+pub mod status_ribbon;
+pub mod studio_menu;
 pub mod sync_queue;
 pub mod tab_bar;
 pub mod tab_router;
 pub mod theme;
+pub mod theme_accent;
+pub mod theme_detect;
+pub mod top_bar;
 pub mod views;
 pub mod worker;
 pub mod worker_auth;
@@ -28,6 +44,7 @@ pub mod worker_exec;
 pub mod worker_media;
 pub mod worker_msgs;
 pub mod worker_plans;
+pub mod youtube_links;
 
 use std::ffi::OsStr;
 use std::sync::Arc;
@@ -69,8 +86,17 @@ pub fn run() -> Result<()> {
         brand::WINDOW_TITLE,
         options,
         Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::apply_theme(&cc.egui_ctx);
-            Ok(Box::new(YtmGuiApp::new(cc)))
+            #[cfg(feature = "screenshot-harness")]
+            let app = {
+                let mut a = YtmGuiApp::new(cc);
+                screenshot_seed::apply_preview_scene(&mut a);
+                a
+            };
+            #[cfg(not(feature = "screenshot-harness"))]
+            let app = YtmGuiApp::new(cc);
+            Ok(Box::new(app))
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe launch failed: {e}"))?;

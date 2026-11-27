@@ -35,7 +35,10 @@ fn worker_events_transition_app_states_cleanly() {
         .expect("send mutation finished");
     app.drain_events();
     assert!(app.loading_playlists.contains("PL1"));
-    assert_eq!(app.toast.as_ref().map(|t| t.message.as_str()), Some("done"));
+    assert_eq!(
+        app.status_bus.history().back().map(|m| m.text.as_str()),
+        Some("done")
+    );
 }
 
 #[test]
@@ -140,4 +143,39 @@ fn failed_playlist_reload_invalidates_draft_cache_when_base_cache_is_missing() {
         app.playlist_errors.get("PL_REF").map(String::as_str),
         Some("offline")
     );
+}
+
+#[test]
+fn offline_cache_hydrates_library_and_survives_network_failure() {
+    let (cmd_tx, _cmd_rx) = mpsc::channel();
+    let (evt_tx, evt_rx) = mpsc::channel();
+    let mut app = YtmGuiApp::init_with_channels(cmd_tx, evt_rx, "./backups".to_string(), None);
+
+    evt_tx
+        .send(WorkerEvent::LibraryCacheHydrated(vec![
+            ytm_core::PlaylistSummary {
+                id: "PL_CACHE".to_string(),
+                title: "Cached Mix".to_string(),
+                track_count: Some(12),
+                is_liked_music: false,
+                owned: true,
+            },
+        ]))
+        .unwrap();
+    evt_tx
+        .send(WorkerEvent::LibraryLoaded(Err(
+            "network unreachable".to_string()
+        )))
+        .unwrap();
+    evt_tx
+        .send(WorkerEvent::SessionLoaded(Err("offline".to_string())))
+        .unwrap();
+    app.drain_events();
+
+    assert!(app.offline_mode);
+    let cached = app.library.data().expect("cached library preserved");
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0].id, "PL_CACHE");
+    // Does not hijack active workspace when cached library exists.
+    assert_eq!(app.active_tab, GuiTab::Inspector);
 }

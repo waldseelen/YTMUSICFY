@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistSummary, Track};
 
+use crate::icons::{Icon, icon_button, icon_text_button};
 use crate::interaction::{paint_drag_ghost, search_box_with_clear};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
@@ -70,11 +71,11 @@ pub fn show(
 
     if let Some(p) = egui::DragAndDrop::payload::<DragTrackPayload>(ui.ctx()) {
         let lbl = if p.tracks.len() > 1 {
-            format!("♪ {} tracks", p.tracks.len())
+            format!("{} tracks", p.tracks.len())
         } else {
             p.tracks
                 .first()
-                .map_or_else(|| "♪ Track".into(), |f| format!("♪ {}", f.title))
+                .map_or_else(|| "Track".into(), |f| f.title.clone())
         };
         paint_drag_ghost(ui.ctx(), &lbl);
     }
@@ -111,7 +112,7 @@ pub fn show(
             ui.selectable_value(drag_mode, mode, mode.label());
         }
         ui.separator();
-        if ui.button("✕ Exit Track Search").clicked() {
+        if icon_text_button(ui, Icon::Close, "Exit Track Search", 13.0, true).clicked() {
             *search_mode = SidebarSearchMode::Playlists;
         }
     });
@@ -304,7 +305,7 @@ fn render_track_row(
         } else if drag_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
-        if ui.small_button("▶").clicked() {
+        if icon_button(ui, Icon::Play, 12.0, true, "Play track").clicked() {
             action = Some(PlayAction::PlayFromList {
                 tracks: group.tracks.clone(),
                 start_idx: track_idx,

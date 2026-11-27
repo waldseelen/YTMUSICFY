@@ -208,3 +208,30 @@ async fn browse_watch_next_and_lyrics_parse_correctly() {
     let lyrics = client.get_lyrics("MPLYt_abc").await.expect("lyrics");
     assert_eq!(lyrics.as_deref(), Some("Line 1\nLine 2"));
 }
+
+#[tokio::test]
+async fn get_search_suggestions_parses_fixture_and_sends_input() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/search_suggestions.json"
+    ))
+    .expect("parse fixture");
+    let transport = MockTransport::with_responses(vec![Ok(fixture)]);
+    let client = InnerTubeClient::new(transport, test_creds(), fast_config());
+
+    let suggestions = client
+        .get_search_suggestions("daft")
+        .await
+        .expect("suggestions");
+    assert_eq!(
+        suggestions,
+        vec![
+            "daft punk",
+            "daft punk around the world",
+            "daft punk discovery",
+        ]
+    );
+    let reqs = client.transport().recorded_requests();
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(reqs[0].endpoint, "music/get_search_suggestions");
+    assert_eq!(reqs[0].body["input"], "daft");
+}

@@ -168,7 +168,7 @@ fn diff_table(
         .column(Column::initial(140.0).clip(true))
         .column(Column::remainder().clip(true))
         .header(20.0, |mut h| {
-            for col in ["", "✓", "Diff", "Title", "Artist"] {
+            for col in ["", "Sel", "Diff", "Title", "Artist"] {
                 h.col(|ui| {
                     ui.strong(col);
                 });

@@ -4,6 +4,7 @@ use ytm_core::{ClientConfig, SessionStatus, Track};
 use ytm_enrich::EnrichmentConfig;
 
 use crate::auth_store::AudioQuality;
+pub use crate::contracts::{AccentPalette, StatusMessage, StatusPriority, ThemeMode, UiLang};
 use crate::sync_queue::StagedEntry;
 
 #[path = "state_forms.rs"]
@@ -244,8 +245,16 @@ pub struct DropPrompt {
     pub tracks: Vec<Track>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_ticker_speed() -> f32 {
+    48.0
+}
+
 /// Persisted TOML application settings loaded from `config.toml`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GuiAppConfig {
     pub innertube: ClientConfig,
@@ -256,6 +265,46 @@ pub struct GuiAppConfig {
     pub mutation_policy: MutationPolicy,
     #[serde(default)]
     pub auto_refresh_browser_cookies: bool,
+    #[serde(default)]
+    pub theme_mode: ThemeMode,
+    #[serde(default)]
+    pub accent_palette: AccentPalette,
+    #[serde(default = "default_true")]
+    pub dynamic_accent: bool,
+    #[serde(default)]
+    pub ui_lang: UiLang,
+    #[serde(default = "default_true")]
+    pub greetings_enabled: bool,
+    #[serde(default = "default_ticker_speed")]
+    pub ticker_speed: f32,
+    #[serde(default)]
+    pub reduced_motion: bool,
+    #[serde(default)]
+    pub preferred_external_browser: Option<String>,
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
+}
+
+impl Default for GuiAppConfig {
+    fn default() -> Self {
+        Self {
+            innertube: ClientConfig::default(),
+            enrichment: EnrichmentConfig::default(),
+            preferred_browser: None,
+            audio_quality: AudioQuality::default(),
+            mutation_policy: MutationPolicy::default(),
+            auto_refresh_browser_cookies: false,
+            theme_mode: ThemeMode::default(),
+            accent_palette: AccentPalette::default(),
+            dynamic_accent: true,
+            ui_lang: UiLang::default(),
+            greetings_enabled: true,
+            ticker_speed: default_ticker_speed(),
+            reduced_motion: false,
+            preferred_external_browser: None,
+            recent_searches: Vec::new(),
+        }
+    }
 }
 
 /// Confirmed immediate actions gated behind modal confirmation.
@@ -293,6 +342,31 @@ mod tests {
         let cfg: GuiAppConfig = toml::from_str("").expect("deserialize empty config");
         assert_eq!(cfg.mutation_policy, MutationPolicy::StrictLock);
         assert!(!cfg.auto_refresh_browser_cookies);
+        assert_eq!(cfg.theme_mode, ThemeMode::System);
+        assert_eq!(cfg.accent_palette, AccentPalette::Emerald);
+        assert!(cfg.dynamic_accent);
+        assert_eq!(cfg.ui_lang, UiLang::System);
+        assert!(cfg.greetings_enabled);
+        assert!((cfg.ticker_speed - 48.0).abs() < f32::EPSILON);
+        assert!(!cfg.reduced_motion);
+        assert!(cfg.preferred_external_browser.is_none());
+        assert!(cfg.recent_searches.is_empty());
+    }
+
+    #[test]
+    fn v0_1_1_config_toml_fixture_loads_with_dalga_defaults() {
+        let legacy_toml = include_str!("../../../config/config.example.toml");
+        let cfg: GuiAppConfig = toml::from_str(legacy_toml).expect("deserialize v0.1.1 fixture");
+        assert_eq!(cfg.innertube.hl, "en");
+        assert_eq!(cfg.innertube.gl, "US");
+        assert_eq!(cfg.innertube.mutation_chunk_size, 50);
+        assert_eq!(cfg.theme_mode, ThemeMode::System);
+        assert_eq!(cfg.accent_palette, AccentPalette::Emerald);
+        assert!(cfg.dynamic_accent);
+        assert_eq!(cfg.ui_lang, UiLang::System);
+        assert!(cfg.greetings_enabled);
+        assert!((cfg.ticker_speed - 48.0).abs() < f32::EPSILON);
+        assert!(!cfg.reduced_motion);
     }
 
     #[test]

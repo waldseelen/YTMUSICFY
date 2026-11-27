@@ -4,6 +4,9 @@ use eframe::egui;
 use ytm_core::SessionStatus;
 
 use crate::auth_store::AudioQuality;
+use crate::browser_launch::SessionRefreshState;
+use crate::i18n::{Key, ResolvedLang, tr};
+use crate::icons::{Icon, icon_text_button};
 use crate::state::{AsyncState, BrowserKind, WorkerCmd};
 use crate::views::async_banner;
 
@@ -11,17 +14,20 @@ pub struct AuthAudioConfig<'a> {
     pub quality: &'a mut AudioQuality,
     pub cookie_bridge_active: bool,
     pub pending_quality: Option<AudioQuality>,
+    pub refresh_state: &'a SessionRefreshState,
 }
 
 pub fn show(
     ui: &mut egui::Ui,
+    lang: ResolvedLang,
     session: &AsyncState<SessionStatus>,
     raw_input: &mut String,
     browser: &mut BrowserKind,
     audio: AuthAudioConfig<'_>,
     cmd_tx: &Sender<WorkerCmd>,
-) -> bool {
-    ui.heading("InnerTube Authentication");
+) -> (bool, bool) {
+    let mut trigger_refresh = false;
+    ui.heading(tr(lang, Key::AuthTitle));
     match session {
         AsyncState::Ready(s) => {
             ui.colored_label(
@@ -50,14 +56,43 @@ pub fn show(
                     ui.selectable_value(browser, kind, kind.label());
                 }
             });
-        if ui.button("Import Session from Browser").clicked() {
+        if ui.button(tr(lang, Key::AuthImportBrowser)).clicked() {
             let _ = cmd_tx.send(WorkerCmd::ImportBrowserAuth(*browser));
         }
+        if icon_text_button(
+            ui,
+            Icon::Refresh,
+            tr(lang, Key::AuthRefreshSession),
+            13.0,
+            !audio.refresh_state.is_busy(),
+        )
+        .clicked()
+        {
+            trigger_refresh = true;
+        }
     });
+    match audio.refresh_state {
+        SessionRefreshState::WaitingToImport { .. } | SessionRefreshState::Opening => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(tr(lang, Key::AuthRefreshingWait));
+            });
+        }
+        SessionRefreshState::Importing => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Importing cookies...");
+            });
+        }
+        SessionRefreshState::Failed(err) => {
+            ui.colored_label(egui::Color32::from_rgb(235, 95, 95), err);
+        }
+        _ => {}
+    }
 
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.strong("Audio Stream Quality:");
+        ui.strong(tr(lang, Key::AuthAudioQuality));
         let prev_quality = *audio.quality;
         egui::ComboBox::from_id_salt("audio_quality_combo")
             .selected_text(audio.quality.label())
@@ -111,7 +146,7 @@ pub fn show(
     let err_id = egui::Id::new("auth_file_err");
     ui.horizontal_wrapped(|ui| {
         if ui
-            .button("Import from Clipboard (Wayland-safe)")
+            .button(tr(lang, Key::AuthImportClipboard))
             .on_hover_text("Reads system clipboard off the UI thread via wl-paste/xclip/PowerShell without freezing Wayland.")
             .clicked()
         {
@@ -121,18 +156,18 @@ pub fn show(
         if ui
             .add_enabled(
                 !raw_input.trim().is_empty(),
-                egui::Button::new("Verify & Save Credentials"),
+                egui::Button::new(tr(lang, Key::AuthVerifySave)),
             )
             .clicked()
         {
             ui.ctx().memory_mut(|m| m.data.remove::<String>(err_id));
             let _ = cmd_tx.send(WorkerCmd::ImportAuth(raw_input.clone()));
         }
-        if ui.button("Clear").clicked() {
+        if ui.button(tr(lang, Key::AuthClear)).clicked() {
             raw_input.clear();
             ui.ctx().memory_mut(|m| m.data.remove::<String>(err_id));
         }
-        if ui.button("Import from File...").clicked() {
+        if ui.button(tr(lang, Key::AuthImportFile)).clicked() {
             let trimmed = raw_input.trim();
             if trimmed.is_empty() {
                 ui.ctx().memory_mut(|m| {
@@ -163,5 +198,5 @@ pub fn show(
         ui.colored_label(egui::Color32::from_rgb(235, 90, 90), file_err);
     }
     ui.small("Tip: To avoid clipboard freezes on Wayland, you can also paste a file path (e.g. /tmp/headers.txt) above and click 'Import from File...'.");
-    apply_now
+    (apply_now, trigger_refresh)
 }

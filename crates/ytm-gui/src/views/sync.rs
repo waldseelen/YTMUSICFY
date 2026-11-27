@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use crate::icons::{Icon, icon_button, paint_icon};
 use crate::navigation::ToastState;
 use crate::state::{ConfirmedMutation, PendingMutation};
 use crate::sync_queue::{StagedEntry, StagedOp, SyncQueue};
@@ -146,24 +147,33 @@ fn render_staged_card(
                 *toggle_id = Some(entry.id);
             }
             ui.monospace(format!("#{}", idx + 1));
-            ui.colored_label(color, format!("{icon} {}", entry.op.kind_label()));
+            paint_icon(ui, icon, 14.0, color);
+            ui.colored_label(color, entry.op.kind_label());
             ui.strong(entry.op.target_label());
             ui.weak(format!("· {endpoint} ({chunks} chunk(s))"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("Discard").clicked() {
                     *remove_id = Some(entry.id);
                 }
-                if ui
-                    .add_enabled(idx + 1 < total, egui::Button::new("↓").small())
-                    .on_hover_text("Move down in execution order")
-                    .clicked()
+                if icon_button(
+                    ui,
+                    Icon::ArrowDown,
+                    12.0,
+                    idx + 1 < total,
+                    "Move down in execution order",
+                )
+                .clicked()
                 {
                     *move_op = Some((entry.id, 1));
                 }
-                if ui
-                    .add_enabled(idx > 0, egui::Button::new("↑").small())
-                    .on_hover_text("Move up in execution order")
-                    .clicked()
+                if icon_button(
+                    ui,
+                    Icon::ArrowUp,
+                    12.0,
+                    idx > 0,
+                    "Move up in execution order",
+                )
+                .clicked()
                 {
                     *move_op = Some((entry.id, -1));
                 }
@@ -258,7 +268,7 @@ fn render_op_diff_details(ui: &mut egui::Ui, op: &StagedOp) {
                 ui.colored_label(
                     egui::Color32::from_rgb(95, 180, 240),
                     format!(
-                        "⇄ {} — {} [{}]",
+                        "-> {} — {} [{}]",
                         t.title,
                         t.primary_artist_name().unwrap_or("-"),
                         t.video_id
@@ -324,7 +334,7 @@ fn render_op_diff_details(ui: &mut egui::Ui, op: &StagedOp) {
             for (old, atv) in upgrades.iter().take(MAX_PREVIEW_ROWS) {
                 ui.colored_label(
                     egui::Color32::from_rgb(95, 180, 240),
-                    format!("⇄ {} ({}) -> {} (ATV)", old.title, old.video_id, atv.title),
+                    format!("{} ({}) -> {} (ATV)", old.title, old.video_id, atv.title),
                 );
             }
         }
@@ -350,22 +360,19 @@ fn render_op_diff_details(ui: &mut egui::Ui, op: &StagedOp) {
     }
 }
 
-fn op_badge(op: &StagedOp) -> (&'static str, egui::Color32) {
+fn op_badge(op: &StagedOp) -> (Icon, egui::Color32) {
     match op {
         StagedOp::AddTracks { .. } | StagedOp::CreatePlaylist { .. } => {
-            ("+", egui::Color32::from_rgb(90, 200, 120))
+            (Icon::Plus, egui::Color32::from_rgb(90, 200, 120))
         }
         StagedOp::RemoveTracks { .. } | StagedOp::DeletePlaylist { .. } => {
-            ("-", egui::Color32::from_rgb(235, 100, 100))
+            (Icon::Minus, egui::Color32::from_rgb(235, 100, 100))
         }
         StagedOp::Reorder { .. }
         | StagedOp::UpgradeTracks { .. }
         | StagedOp::MoveTracks { .. }
-        | StagedOp::RestoreSnapshot { .. } => ("⇄", egui::Color32::from_rgb(95, 180, 240)),
-        StagedOp::UpdatePlaylistMeta { .. } => ("✎", egui::Color32::from_rgb(235, 190, 80)),
-        StagedOp::SetLikeStatus { liked, .. } => (
-            if *liked { "♥" } else { "♡" },
-            egui::Color32::from_rgb(235, 120, 160),
-        ),
+        | StagedOp::RestoreSnapshot { .. } => (Icon::Sync, egui::Color32::from_rgb(95, 180, 240)),
+        StagedOp::UpdatePlaylistMeta { .. } => (Icon::Edit, egui::Color32::from_rgb(235, 190, 80)),
+        StagedOp::SetLikeStatus { .. } => (Icon::Heart, egui::Color32::from_rgb(235, 120, 160)),
     }
 }

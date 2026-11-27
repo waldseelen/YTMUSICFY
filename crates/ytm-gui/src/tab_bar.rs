@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Stroke};
 
-use crate::icons;
+use crate::icons::Icon;
 use crate::state::GuiTab;
 
 /// Five primary workspaces replacing the legacy 11-tab flat strip.
@@ -174,9 +174,9 @@ pub fn show_tab_bar(
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let drawer_label = if sync_len > 0 {
-                format!("{} Sync Drawer ({sync_len})", icons::SYNC)
+                format!("Sync Drawer ({sync_len})")
             } else {
-                format!("{} Sync Drawer", icons::SYNC)
+                "Sync Drawer".to_string()
             };
             let fill = if *sync_drawer_open {
                 Color32::from_rgb(82, 118, 210)
@@ -185,10 +185,10 @@ pub fn show_tab_bar(
             } else {
                 Color32::from_rgb(34, 38, 46)
             };
-            let btn = egui::Button::new(
-                egui::RichText::new(drawer_label)
-                    .color(Color32::from_rgb(240, 244, 250))
-                    .strong(),
+            let text_col = Color32::from_rgb(240, 244, 250);
+            let btn = egui::Button::image_and_text(
+                Icon::Sync.image(14.0, text_col),
+                egui::RichText::new(drawer_label).color(text_col).strong(),
             )
             .fill(fill)
             .corner_radius(5.0);

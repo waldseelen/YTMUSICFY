@@ -123,6 +123,7 @@ impl SqliteStore {
         self.with_conn(|conn| {
             conn.execute_batch(SCHEMA_SQL)?;
             ensure_column_exists(conn, "playlist_cache", "manifest_json", "TEXT")?;
+            crate::offline_cache::migrate_offline_cache(conn)?;
             Ok(())
         })
     }

@@ -6,6 +6,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::{FetchManifest, PlaylistAccess, PlaylistPrivacy, PlaylistSummary};
 use ytm_ops::{DiffPlan, MatchMode, SetAlgebraOp};
 
+use crate::icons::{Icon, icon_button, paint_icon};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, DragTrackPayload, SetOpsForm, WorkerCmd};
@@ -269,7 +270,14 @@ pub fn show(
                                 source_playlist_id: "__SET_OP__".to_string(),
                                 tracks: vec![t.clone()],
                             },
-                            |ui| ui.small("⋮⋮"),
+                            |ui| {
+                                paint_icon(
+                                    ui,
+                                    Icon::DragHandle,
+                                    12.0,
+                                    ui.visuals().weak_text_color(),
+                                );
+                            },
                         )
                         .response;
                     if drag.hovered() {
@@ -277,7 +285,7 @@ pub fn show(
                     }
                 });
                 row.col(|ui| {
-                    if ui.small_button("▶").on_hover_text("Play track").clicked() {
+                    if icon_button(ui, Icon::Play, 12.0, true, "Play track").clicked() {
                         actions.push(PlayAction::PlayFromList {
                             tracks: plan.result_tracks.clone(),
                             start_idx: idx,

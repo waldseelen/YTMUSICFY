@@ -5,6 +5,7 @@ use eframe::egui;
 use ytm_core::{Playlist, Track};
 use ytm_ops::compute_minimal_moves;
 
+use crate::icons::{Icon, icon_button, paint_icon};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, DraftRevision, DragTrackPayload, InspectColumn, InspectSortState};
@@ -196,7 +197,7 @@ pub fn show_quick_search_results(
         return actions;
     }
     ui.group(|ui| {
-        ui.strong("Quick Search Results (▶ Play, drag ⋮⋮ to playlist, or + Stage Add):");
+        ui.strong("Quick Search Results (Play, drag to playlist, or + Stage Add):");
         for (idx, t) in found.iter().take(5).enumerate() {
             ui.horizontal(|ui| {
                 let drag = ui
@@ -206,13 +207,15 @@ pub fn show_quick_search_results(
                             source_playlist_id: "__SEARCH__".to_string(),
                             tracks: vec![t.clone()],
                         },
-                        |ui| ui.small("⋮⋮"),
+                        |ui| {
+                            paint_icon(ui, Icon::DragHandle, 12.0, ui.visuals().weak_text_color());
+                        },
                     )
                     .response;
                 if drag.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                 }
-                if ui.small_button("▶").on_hover_text("Play now").clicked() {
+                if icon_button(ui, Icon::Play, 12.0, true, "Play now").clicked() {
                     actions.push(PlayAction::PlayFromList {
                         tracks: vec![t.clone()],
                         start_idx: 0,

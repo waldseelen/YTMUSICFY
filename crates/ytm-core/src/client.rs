@@ -74,8 +74,8 @@ impl<T: HttpTransport> InnerTubeClient<T> {
             "client": {
                 "clientName": "WEB_REMIX",
                 "clientVersion": self.config.client_version,
-                "hl": self.config.hl,
-                "gl": self.config.gl,
+                "hl": self.config.normalized_hl(),
+                "gl": self.config.normalized_gl(),
             },
             "user": Value::Object(user),
         })
@@ -364,5 +364,9 @@ impl<T: HttpTransport> InnerTubeClientTrait for InnerTubeClient<T> {
         lyrics_browse_id: &str,
     ) -> Result<Option<LyricsPayload>, CoreError> {
         self.get_lyrics_payload_impl(lyrics_browse_id).await
+    }
+
+    async fn get_search_suggestions(&self, query: &str) -> Result<Vec<String>, CoreError> {
+        self.get_search_suggestions_impl(query).await
     }
 }

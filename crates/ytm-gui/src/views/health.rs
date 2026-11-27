@@ -6,6 +6,7 @@ use egui_extras::{Column, TableBuilder};
 use ytm_core::{FetchManifest, Playlist, PlaylistAccess};
 use ytm_ops::{HealthIssueKind, HealthReport};
 
+use crate::icons::{Icon, icon_text_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, HealthForm, WorkerCmd};
@@ -269,8 +270,7 @@ pub fn show(
                     });
                     row.col(|ui| {
                         ui.horizontal(|ui| {
-                            if ui
-                                .small_button("▶1")
+                            if icon_text_button(ui, Icon::Play, "1", 11.0, true)
                                 .on_hover_text("Play source UGC/OMV")
                                 .clicked()
                             {
@@ -279,8 +279,7 @@ pub fn show(
                                     start_idx: 0,
                                 });
                             }
-                            if ui
-                                .small_button("▶2")
+                            if icon_text_button(ui, Icon::Play, "2", 11.0, true)
                                 .on_hover_text("Play Official ATV")
                                 .clicked()
                             {

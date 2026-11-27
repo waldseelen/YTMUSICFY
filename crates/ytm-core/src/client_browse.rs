@@ -6,10 +6,24 @@ use crate::error::CoreError;
 use crate::http::RetryPolicy;
 use crate::parser::{
     check_innertube_error, parse_browse_continuation, parse_lyrics_payload, parse_search_page,
+    parse_search_suggestions,
 };
 use crate::traits::HttpTransport;
 
 impl<T: HttpTransport> InnerTubeClient<T> {
+    pub(crate) async fn get_search_suggestions_impl(
+        &self,
+        query: &str,
+    ) -> Result<Vec<String>, CoreError> {
+        let resp = self
+            .post_authed_with_policy(
+                "music/get_search_suggestions",
+                json!({ "input": query }),
+                RetryPolicy::IdempotentRead,
+            )
+            .await?;
+        parse_search_suggestions(&resp)
+    }
     pub(crate) async fn search_catalog_impl(
         &self,
         query: &str,

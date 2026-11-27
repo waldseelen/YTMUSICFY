@@ -5,6 +5,7 @@ use egui_extras::TableBody;
 use ytm_core::{Playlist, PlaylistSummary, Track, TrackAvailability};
 
 use crate::artwork::ArtworkCache;
+use crate::icons::{Icon, paint_icon};
 use crate::interaction::{apply_range_select, auto_scroll_on_drag, paint_drag_ghost};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
@@ -55,11 +56,11 @@ pub fn render_inspect_rows(
 
     if let Some(payload) = egui::DragAndDrop::payload::<DragTrackPayload>(body.ui_mut().ctx()) {
         let label = if payload.tracks.len() > 1 {
-            format!("♪ {} tracks", payload.tracks.len())
+            format!("{} tracks", payload.tracks.len())
         } else if let Some(first) = payload.tracks.first() {
-            format!("♪ {}", first.title)
+            first.title.clone()
         } else {
-            "♪ Track".to_string()
+            "Track".to_string()
         };
         paint_drag_ghost(body.ui_mut().ctx(), &label);
     }
@@ -91,11 +92,12 @@ pub fn render_inspect_rows(
                     egui::Id::new(("insp_row", &pl.id, t.position)),
                     payload.clone(),
                     |ui| {
-                        if can_drag_reorder {
-                            ui.small("⋮⋮");
+                        let tint = if can_drag_reorder {
+                            ui.visuals().text_color()
                         } else {
-                            ui.colored_label(egui::Color32::DARK_GRAY, "⋮⋮");
-                        }
+                            ui.visuals().weak_text_color()
+                        };
+                        paint_icon(ui, Icon::DragHandle, 12.0, tint);
                     },
                 )
                 .response;
@@ -284,24 +286,33 @@ pub fn render_inspect_rows(
         row.col(|ui| {
             let (icon, color, text) = match &t.availability {
                 TrackAvailability::Available => {
-                    ("✓", egui::Color32::from_rgb(90, 200, 120), "OK")
+                    (Icon::Check, egui::Color32::from_rgb(90, 200, 120), "OK")
                 }
-                TrackAvailability::Deleted => {
-                    ("✕", egui::Color32::from_rgb(235, 100, 100), "Deleted")
-                }
-                TrackAvailability::Private => {
-                    ("⚠", egui::Color32::from_rgb(235, 100, 100), "Private")
-                }
+                TrackAvailability::Deleted => (
+                    Icon::Close,
+                    egui::Color32::from_rgb(235, 100, 100),
+                    "Deleted",
+                ),
+                TrackAvailability::Private => (
+                    Icon::Warn,
+                    egui::Color32::from_rgb(235, 100, 100),
+                    "Private",
+                ),
                 TrackAvailability::RegionBlocked => (
-                    "⚠",
+                    Icon::Warn,
                     egui::Color32::from_rgb(235, 100, 100),
                     "RegionBlocked",
                 ),
-                TrackAvailability::Unplayable(r) => {
-                    ("✕", egui::Color32::from_rgb(235, 100, 100), r.as_str())
-                }
+                TrackAvailability::Unplayable(r) => (
+                    Icon::Close,
+                    egui::Color32::from_rgb(235, 100, 100),
+                    r.as_str(),
+                ),
             };
-            ui.colored_label(color, format!("{icon} {text}"));
+            ui.horizontal(|ui| {
+                paint_icon(ui, icon, 12.0, color);
+                ui.colored_label(color, text);
+            });
         });
     });
 

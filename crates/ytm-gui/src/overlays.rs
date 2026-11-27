@@ -1,112 +1,14 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
-use ytm_core::{Playlist, PlaylistSummary, SessionStatus, Track};
-use ytm_store::ExportFormat;
+use ytm_core::{Playlist, PlaylistSummary, Track};
 
-use crate::interaction::status_badge;
-use crate::navigation::{NavHistory, ToastState};
+use crate::navigation::ToastState;
 use crate::state::{
-    AsyncState, ConfirmedMutation, DragDropMode, DropPrompt, GuiTab, PendingMutation, WorkerCmd,
+    AsyncState, ConfirmedMutation, DragDropMode, DropPrompt, PendingMutation, WorkerCmd,
 };
 use crate::sync_queue::{StagedOp, SyncQueue};
-
-#[allow(clippy::too_many_arguments)]
-pub fn show_top_bar(
-    ui: &mut egui::Ui,
-    session: &AsyncState<SessionStatus>,
-    library: &mut AsyncState<Vec<PlaylistSummary>>,
-    active_tab: &mut GuiTab,
-    selected_playlist_id: &mut Option<String>,
-    nav_history: &mut NavHistory,
-    ui_scale: &mut f32,
-    export_fmt: ExportFormat,
-    export_dir: &str,
-    cmd_tx: &Sender<WorkerCmd>,
-) {
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(nav_history.can_back(), egui::Button::new("◀"))
-            .on_hover_text("Back (Alt+Left / Mouse Back)")
-            .clicked()
-            && let Some(entry) = nav_history.go_back()
-        {
-            *active_tab = entry.tab;
-            *selected_playlist_id = entry.playlist_id;
-        }
-        if ui
-            .add_enabled(nav_history.can_forward(), egui::Button::new("▶"))
-            .on_hover_text("Forward (Alt+Right / Mouse Forward)")
-            .clicked()
-            && let Some(entry) = nav_history.go_forward()
-        {
-            *active_tab = entry.tab;
-            *selected_playlist_id = entry.playlist_id;
-        }
-        if let Some(tex) = crate::brand::logo_texture(ui.ctx()) {
-            ui.add(egui::Image::new((tex.id(), egui::vec2(20.0, 20.0))).corner_radius(4.0));
-        }
-        ui.strong(crate::brand::APP_NAME);
-        ui.separator();
-        match session {
-            AsyncState::Ready(s) => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(90, 200, 120),
-                    status_badge(
-                        true,
-                        &format!(
-                            "{} ({})",
-                            s.account_name.as_deref().unwrap_or("Signed in"),
-                            s.channel_handle.as_deref().unwrap_or("-")
-                        ),
-                    ),
-                );
-            }
-            AsyncState::Loading(m) => {
-                ui.spinner();
-                ui.label(m);
-            }
-            AsyncState::Failed(_) => {
-                ui.colored_label(egui::Color32::from_rgb(235, 160, 60), "⚠ Not authenticated");
-                if ui.small_button("Go to Auth →").clicked() {
-                    *active_tab = GuiTab::Auth;
-                }
-            }
-            AsyncState::Idle => {}
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button("Backup All")
-                .on_hover_text("Export all playlists + SQLite snapshots")
-                .clicked()
-            {
-                let _ = cmd_tx.send(WorkerCmd::BackupPlaylist {
-                    target: "all".to_string(),
-                    format: export_fmt,
-                    out_dir: PathBuf::from(export_dir.trim()),
-                });
-            }
-            if ui
-                .button("Refresh Library")
-                .on_hover_text("Reload your YouTube Music playlists list")
-                .clicked()
-            {
-                *library = AsyncState::Loading("Refreshing library...".to_string());
-                let _ = cmd_tx.send(WorkerCmd::RefreshLibrary);
-            }
-            if (*ui_scale - 1.0).abs() > 0.01
-                && ui
-                    .small_button(format!("{}%", (*ui_scale * 100.0).round()))
-                    .on_hover_text("Reset UI zoom (Ctrl+0)")
-                    .clicked()
-            {
-                *ui_scale = 1.0;
-            }
-        });
-    });
-}
 
 fn check_drop_permissions(
     source_id: &str,

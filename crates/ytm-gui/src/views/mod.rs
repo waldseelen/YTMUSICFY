@@ -17,6 +17,7 @@ pub mod repertoire_batch;
 pub mod repertoire_target;
 pub mod repertoire_tree;
 pub mod search;
+pub mod search_dropdown;
 pub mod set_ops;
 pub mod settings;
 pub mod sort;

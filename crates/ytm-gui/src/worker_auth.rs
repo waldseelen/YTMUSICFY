@@ -195,6 +195,11 @@ pub(crate) async fn handle_bootstrap(
         remove_mpv_cookie_jar_at(&mpv_cookie_jar_path(&state.paths));
     }
 
+    if let Ok(Some(summaries)) = state.store.load_library_summaries()
+        && !summaries.is_empty()
+    {
+        let _ = tx.send(crate::state::WorkerEvent::LibraryCacheHydrated(summaries));
+    }
     if let Ok(records) = state.store.load_all_cached_playlist_records()
         && !records.is_empty()
     {
@@ -223,6 +228,9 @@ pub(crate) async fn handle_bootstrap(
                     .get_library_playlists()
                     .await
                     .map_err(|e| e.to_string());
+                if let Ok(list) = &libs {
+                    let _ = state.store.save_library_summaries(list);
+                }
                 let _ = tx.send(crate::state::WorkerEvent::LibraryLoaded(libs));
                 return;
             }
@@ -244,6 +252,9 @@ pub(crate) async fn handle_bootstrap(
                     .get_library_playlists()
                     .await
                     .map_err(|e| e.to_string());
+                if let Ok(list) = &libs {
+                    let _ = state.store.save_library_summaries(list);
+                }
                 state.client = Some(std::sync::Arc::new(client));
                 let _ = tx.send(crate::state::WorkerEvent::AudioConfigUpdated {
                     cookie_jar: crate::auth_store::active_cookie_jar_path(&state.paths),

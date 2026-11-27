@@ -5,6 +5,7 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistSummary, Track};
 
+use crate::icons::{Icon, icon_text_button};
 use crate::navigation::ToastState;
 use crate::state::{AsyncState, DiffFilter, DraftRevision, DropPrompt, SplitPaneState, WorkerCmd};
 use crate::sync_queue::{StagedOp, SyncQueue};
@@ -135,8 +136,7 @@ pub fn show(
                 }
             });
         if let Some(b_id) = split.playlist_b_id.clone()
-            && ui
-                .button("⇄ Swap A/B")
+            && icon_text_button(ui, Icon::Sync, "Swap A/B", 13.0, true)
                 .on_hover_text("Swap Left and Right playlists")
                 .clicked()
         {

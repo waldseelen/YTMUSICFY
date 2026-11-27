@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use ytm_core::{Playlist, PlaylistSummary, Track};
 
+use crate::icons::{Icon, icon_button};
 use crate::navigation::ToastState;
 use crate::overlays::handle_cross_playlist_drop;
 use crate::playback_ops::PlayAction;
@@ -172,7 +173,7 @@ pub(crate) fn render_target_pane(
                             if drag_resp.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             }
-                            if ui.small_button("▶").on_hover_text("Play now").clicked() {
+                            if icon_button(ui, Icon::Play, 12.0, true, "Play now").clicked() {
                                 actions.push(PlayAction::PlayFromList {
                                     tracks: target_pl.tracks.clone(),
                                     start_idx: idx,

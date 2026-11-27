@@ -1,6 +1,6 @@
 # GLOSSARY.md
 
-Canonical domain terminology registry for `ytm-architect`. All crates, UI copy, logs, and specifications MUST use these locked terms and reject competing synonyms.
+Canonical domain terminology registry for **Dalga** (workspace `ytm-architect`). All crates, UI copy, logs, and specifications MUST use these locked terms and reject competing synonyms.
 
 ---
 
@@ -20,6 +20,11 @@ Canonical domain terminology registry for `ytm-architect`. All crates, UI copy, 
 | **`DispatchReport`** | `ytm-gui` | Post-sync verification summary aggregating per-entry `DispatchEntryOutcome` (`Succeeded`, `AbortedDrift`, `Failed`) and read-back `FetchManifest` results. |
 | **`WorkerLane`** | `ytm-gui` | Async execution lane (`Interactive`, `BackgroundJob`, `MutationSerial`) isolating UI reads, cancellable batch jobs, and serialized remote mutations. |
 | **`SessionState`** | `ytm-gui` | Explicit authentication finite-state machine (`Unauthenticated`, `Verifying`, `Authenticated`, `Expired`) replacing parallel boolean session flags. |
+| **`ThemeMode`** | `ytm-gui` | Surface theme preference (`System`, `Dark`, `Light`) resolved against OS light/dark signals when set to `System`. |
+| **`AccentPalette`** | `ytm-gui` | Selectable static accent preset (`Emerald`, `Gold`, `YtmPink`) used directly or as fallback when dynamic album accent is unavailable. |
+| **`UiLang`** | `ytm-gui` | Localization preference (`System`, `En`, `Tr`) mapping UI string keys to static Turkish/English tables without restart. |
+| **`StatusPriority`** | `ytm-gui` | Ordered priority levels (`Greeting < ContextualHint < ActionResult < ErrorWarning`) governing Status Ribbon preemption. |
+| **`StatusMessage`** | `ytm-gui` | Structured notification payload carrying `id`, `priority`, `text`, `sticky`, `ttl_ms`, `created_at_ms`, and optional undo/sync links. |
 
 ---
 

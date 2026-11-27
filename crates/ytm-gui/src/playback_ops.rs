@@ -180,8 +180,34 @@ pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
     {
         start_playing_track(&nxt, app);
     }
-    if out.open_queue_lyrics {
-        app.active_tab = GuiTab::QueueLyrics;
+    if out.toggle_queue_drawer {
+        app.right_drawer.toggle_queue();
+    }
+    if out.toggle_lyrics_drawer {
+        app.right_drawer.toggle_lyrics();
+    }
+    if out.open_lightbox
+        && let Some(track) = app.play_queue.current_track()
+        && let Some(url) = track.effective_thumbnail_url()
+    {
+        let sub = track.primary_artist_name().unwrap_or_default().to_string();
+        app.lightbox.open(track.title.clone(), sub, url);
+    }
+    if let Some(url) = out.open_ytm_url {
+        let browser = app.gui_config.preferred_external_browser.as_deref();
+        if let Err(err) = crate::browser_launch::open_url_in_browser(&url, browser) {
+            app.toast = Some(ToastState::info(
+                false,
+                format!("Open browser failed: {err}"),
+            ));
+        }
+    }
+    if let Some(url) = out.copy_ytm_url {
+        app.pending_copy_url = Some(url);
+        app.toast = Some(ToastState::info(
+            true,
+            crate::i18n::tr(app.lang(), crate::i18n::Key::LinkCopiedToast),
+        ));
     }
     if out.apply_pending_configure {
         app.player.apply_pending_configure();

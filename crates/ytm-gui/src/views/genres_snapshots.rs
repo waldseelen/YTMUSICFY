@@ -287,7 +287,7 @@ pub fn show_snapshots(
                     format!("-Remove: {}", diff.removed_tracks.len()),
                 );
                 ui.label(format!(
-                    "⇄ Target Order: {} tracks",
+                    "Target Order: {} tracks",
                     diff.target_video_order.len()
                 ));
             });

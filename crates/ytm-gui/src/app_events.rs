@@ -1,19 +1,31 @@
 use crate::app::YtmGuiApp;
-use crate::navigation::ToastState;
+use crate::i18n::{Key, tr};
 use crate::state::{AsyncState, DispatchEntryOutcome, GuiTab, WorkerCmd, WorkerEvent};
+
+pub(crate) use crate::app_frame::finish_frame;
 
 /// Apply a single background worker event onto `YtmGuiApp` state.
 pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
     match evt {
         WorkerEvent::SessionLoaded(res) => {
             let failed = res.is_err();
+            if !failed {
+                app.offline_mode = false;
+                app.session_refresh.finish_ok();
+            }
             app.session = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
-            if failed {
+            if failed && app.library.data().is_none() && app.playlist_cache.is_empty() {
                 app.active_tab = GuiTab::Auth;
+            }
+        }
+        WorkerEvent::LibraryCacheHydrated(list) => {
+            if !matches!(app.library, AsyncState::Ready(_)) && !list.is_empty() {
+                app.library = AsyncState::Ready(list);
             }
         }
         WorkerEvent::LibraryLoaded(res) => {
             if let Ok(mut list) = res {
+                app.offline_mode = false;
                 for s in &mut list {
                     if s.track_count.is_none()
                         && let Some(cached) = app.playlist_cache.get(&s.id)
@@ -29,7 +41,14 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 }
                 app.library = AsyncState::Ready(list);
             } else if let Err(e) = res {
-                app.library = AsyncState::Failed(e);
+                if app.library.data().is_some() {
+                    app.offline_mode = true;
+                    let now = app.now_ms();
+                    let msg = tr(app.lang(), Key::OfflineUsingCache).to_string();
+                    app.status_bus.push_hint(msg, now);
+                } else {
+                    app.library = AsyncState::Failed(e);
+                }
             }
         }
         WorkerEvent::PlaylistLoaded {
@@ -61,6 +80,20 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         }
         WorkerEvent::SearchResults(res) => {
             app.search_results = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
+        }
+        WorkerEvent::SearchSuggestionsLoaded { req_id, result } => {
+            if let Ok(items) = result {
+                let now = app.now_ms();
+                app.search_controller.apply_suggestions(req_id, items, now);
+            }
+        }
+        WorkerEvent::InstantLiveLoaded { req_id, result } => {
+            if let Ok(page) = result {
+                app.search_controller.apply_live_results(req_id, page);
+            }
+        }
+        WorkerEvent::SessionRefreshProgress(st) => {
+            app.session_refresh = st;
         }
         WorkerEvent::Progress {
             done,
@@ -99,7 +132,11 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         }
         WorkerEvent::StatusToast { ok, message } => {
             app.batch_progress = None;
-            app.toast = Some(ToastState::info(ok, message));
+            if !ok && app.session_refresh.is_busy() {
+                app.session_refresh.finish_err(&message);
+            }
+            let now = app.now_ms();
+            app.status_bus.push_info(ok, message, now);
         }
         WorkerEvent::SyncEntryFinished { entry_id, outcome } => {
             if matches!(outcome, DispatchEntryOutcome::Succeeded { .. }) {
@@ -127,14 +164,14 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 } else {
                     "Removed track from Liked Songs."
                 };
-                app.toast = Some(ToastState::info(true, msg));
+                let now = app.now_ms();
+                app.status_bus.push_info(true, msg, now);
             }
             Err(err) => {
                 app.play_queue.set_liked(&video_id, !liked);
-                app.toast = Some(ToastState::info(
-                    false,
-                    format!("Like update failed: {err}"),
-                ));
+                let now = app.now_ms();
+                app.status_bus
+                    .push_info(false, format!("Like update failed: {err}"), now);
             }
         },
         WorkerEvent::MutationFinished {
@@ -143,7 +180,8 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             reload_ids,
         } => {
             app.batch_progress = None;
-            app.toast = Some(ToastState::info(ok, message));
+            let now = app.now_ms();
+            app.status_bus.push_info(ok, message, now);
             if ok {
                 for id in reload_ids {
                     if id == "__LIBRARY__" {
@@ -171,16 +209,20 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 if seed_radio && !wn.tracks.is_empty() {
                     let cnt = wn.tracks.len();
                     app.play_queue.replace_upcoming(wn.tracks);
-                    app.toast = Some(ToastState::info(
+                    let now = app.now_ms();
+                    app.status_bus.push_info(
                         true,
                         format!("Radio seeded with {cnt} track(s)."),
-                    ));
+                        now,
+                    );
                 }
                 // Lyrics are fetched lazily by `views::queue_lyrics` when visible (no wasted POSTs).
                 app.lyrics_video_id = None;
                 app.lyrics_payload = AsyncState::Idle;
             } else if seed_radio && let Err(err) = result {
-                app.toast = Some(ToastState::info(false, format!("Radio load failed: {err}")));
+                let now = app.now_ms();
+                app.status_bus
+                    .push_info(false, format!("Radio load failed: {err}"), now);
             }
         }
         WorkerEvent::LyricsLoaded(res) => {
@@ -262,10 +304,9 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
                 }
             }
             Err(e) => {
-                app.toast = Some(ToastState::info(
-                    false,
-                    format!("Browse load more failed: {e}"),
-                ));
+                let now = app.now_ms();
+                app.status_bus
+                    .push_info(false, format!("Browse load more failed: {e}"), now);
             }
         },
         WorkerEvent::LyricsPayloadLoaded { video_id, result } => {
@@ -286,71 +327,11 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
         WorkerEvent::GuiConfigLoaded(cfg) => {
             app.mutation_policy = cfg.mutation_policy;
             app.audio_quality = cfg.audio_quality;
+            app.search_controller.load_recent(&cfg.recent_searches);
             app.gui_config = cfg;
         }
-    }
-}
-
-/// Renders floating modals, command palette, persists staged ops, and schedules event-driven repaints.
-pub(crate) fn finish_frame(
-    app: &mut YtmGuiApp,
-    ctx: &eframe::egui::Context,
-    navigated_via_history: bool,
-) {
-    let playlists_slice = app.library.data().map(Vec::as_slice).unwrap_or(&[]);
-    crate::command_palette::show_command_palette(
-        ctx,
-        &mut app.palette_open,
-        &mut app.palette_query,
-        playlists_slice,
-        &mut app.active_tab,
-        &mut app.selected_playlist_id,
-        &mut app.sync_drawer_open,
-        &mut app.loading_playlists,
-        &app.playlist_cache,
-        &app.cmd_tx,
-    );
-    app.focus_search_once = false;
-    if !navigated_via_history {
-        app.nav_history
-            .record(app.active_tab, app.selected_playlist_id.clone());
-    }
-
-    crate::overlays::show_drop_prompt(
-        ctx,
-        &mut app.drop_prompt,
-        &app.playlist_cache,
-        &app.library,
-        &mut app.sync_queue,
-        &mut app.toast,
-    );
-    crate::overlays::show_confirmation_modal(ctx, &mut app.pending_modal, &app.cmd_tx);
-    crate::playlist_meta_modal::show_playlist_meta_modal(
-        ctx,
-        &mut app.meta_modal,
-        &mut app.sync_queue,
-        &mut app.toast,
-    );
-
-    if app.sync_queue.revision() != app.last_persisted_rev {
-        app.mark_staged_persisted();
-        let _ = app
-            .cmd_tx
-            .send(WorkerCmd::SaveStagedOps(app.sync_queue.entries().to_vec()));
-    }
-
-    let window_active =
-        ctx.input(|i| i.viewport().minimized != Some(true) && i.viewport().focused != Some(false));
-    app.player.set_window_active(window_active);
-
-    let actively_working = app.toast.is_some()
-        || app.batch_progress.is_some()
-        || app.session.is_loading()
-        || app.library.is_loading()
-        || !app.loading_playlists.is_empty()
-        || app.player.snapshot().state.is_active();
-    if actively_working {
-        let interval_ms = if window_active { 500 } else { 1500 };
-        ctx.request_repaint_after(std::time::Duration::from_millis(interval_ms));
+        WorkerEvent::SystemThemeChanged(dark) => {
+            app.theme_state.os_dark = dark;
+        }
     }
 }

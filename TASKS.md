@@ -40,19 +40,19 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 ## Phase v0.2.0 — "Dalga": Brand, Theme, Chrome, Session
 
 ### Task 1 — Contract lock & docs
-- [ ] **1.1 Domain contracts**
-  - [ ] Add `ThemeMode`, `AccentPalette`, `UiLang`, `StatusMessage`, `StatusPriority` enums/structs with serde in `ytm-gui` (no parallel bool flags)
-  - [ ] Persist new fields in `GuiAppConfig` with `#[serde(default)]` so old `config.toml` still loads
-  - [ ] verify: unit test loads a v0.1.1 `config.toml` fixture and yields defaults
-- [ ] **1.2 Docs sync**
-  - [ ] Update `SPEC.md`, `ARCHITECTURE.md`, `GLOSSARY.md` for Dalga terms
-  - [ ] verify: `rg -n "ytm-architect" README.md SPEC.md` lists only intentional binary/crate references
+- [x] **1.1 Domain contracts**
+  - [x] Add `ThemeMode`, `AccentPalette`, `UiLang`, `StatusMessage`, `StatusPriority` enums/structs with serde in `ytm-gui` (no parallel bool flags)
+  - [x] Persist new fields in `GuiAppConfig` with `#[serde(default)]` so old `config.toml` still loads
+  - [x] verify: unit test loads a v0.1.1 `config.toml` fixture and yields defaults
+- [x] **1.2 Docs sync**
+  - [x] Update `SPEC.md`, `ARCHITECTURE.md`, `GLOSSARY.md` for Dalga terms
+  - [x] verify: `rg -n "ytm-architect" README.md SPEC.md` lists only intentional binary/crate references
 
 ### Task 2 — Brand & logo
-- [ ] **2.1 Logo generation & vectorization**
+- [x] **2.1 Logo generation & vectorization**
   - [x] Generate dark-variant and light-variant monochrome 3D draft concepts (`concept-a-ribbon-{dark,light}.png` approved by owner)
-  - [ ] Produce clean SVG vector + horizontal `dalga` wordmark + 1024px icon & 16px tray silhouette from Concept A
-  - [ ] verify: final vector/wordmark drafts approved and recorded in `PROGRESS.md`
+  - [x] Produce clean SVG vector + horizontal `dalga` wordmark + 1024px icon & 16px tray silhouette from Concept A
+  - [x] verify: final vector/wordmark drafts approved and recorded in `PROGRESS.md`
 - [x] **2.2 Asset packaging**
   - [x] Store sources under `assets/brand/`; export PNG sizes, `.ico` (Windows), `.desktop` + hicolor icons (Linux)
   - [x] Embed window icon via `ViewportBuilder::with_icon`
@@ -65,110 +65,110 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
   - [x] verify: unit test asserts no other module contains the literal `"Dalga"` (`rg -n 'Dalga' crates/ytm-gui/src` hits only `brand.rs` and tests)
 
 ### Task 3 — Theme engine
-- [ ] **3.1 Palettes**
-  - [ ] Replace constants in `theme.rs` with `Palette` structs for Ultra-Dark and Light surfaces
-  - [ ] Accent palettes: Gold, YTM Pink, Emerald
-  - [ ] verify: unit test asserts WCAG AA contrast (>= 4.5) for text on each surface
-- [ ] **3.2 System theme detection**
-  - [ ] Linux: XDG desktop portal `color-scheme` with `gsettings` fallback; Windows: registry `AppsUseLightTheme`
-  - [ ] Live-follow OS changes when mode is `System`
-  - [ ] verify: unit tests for parser functions (portal value 0/1/2, registry 0/1); manual toggle on Hyprland
-- [ ] **3.3 Dynamic album accent**
-  - [ ] Extract dominant colour off the UI thread (downscaled, quantized), clamp lightness for contrast
-  - [ ] Smooth transition; fall back to selected accent
-  - [ ] verify: unit test on fixture images returns stable colour; frame time unaffected (no work in `update`)
-- [ ] **3.4 Theme controls**
-  - [ ] Top-bar quick switch + Settings page (mode, accent, dynamic accent toggle)
-  - [ ] verify: restart restores selection; clippy + tests green
+- [x] **3.1 Palettes**
+  - [x] Replace constants in `theme.rs` with `Palette` structs for Ultra-Dark and Light surfaces
+  - [x] Accent palettes: Gold, YTM Pink, Emerald
+  - [x] verify: unit test asserts WCAG AA contrast (>= 4.5) for text on each surface
+- [x] **3.2 System theme detection**
+  - [x] Linux: XDG desktop portal `color-scheme` with `gsettings` fallback; Windows: registry `AppsUseLightTheme`
+  - [x] Live-follow OS changes when mode is `System`
+  - [x] verify: unit tests for parser functions (portal value 0/1/2, registry 0/1); manual toggle on Hyprland
+- [x] **3.3 Dynamic album accent**
+  - [x] Extract dominant colour off the UI thread (downscaled, quantized), clamp lightness for contrast
+  - [x] Smooth transition; fall back to selected accent
+  - [x] verify: unit test on fixture images returns stable colour; frame time unaffected (no work in `update`)
+- [x] **3.4 Theme controls**
+  - [x] Top-bar quick switch + Settings page (mode, accent, dynamic accent toggle)
+  - [x] verify: restart restores selection; clippy + tests green
 
 ### Task 4 — Icon system (Lucide)
-- [ ] **4.1 SVG pipeline**
-  - [ ] Vendor required Lucide SVGs under `assets/icons/`; enable `egui_extras` `svg` feature; `icons.rs` exposes typed `Icon` enum
-  - [ ] Tint by theme colour, cache textures
-  - [ ] verify: unit test every `Icon` variant maps to an existing embedded file
-- [ ] **4.2 Replace glyphs**
-  - [ ] Replace every `✓ ✕ ♥ ⚠ ▶ ⏸ ⇄ ⋮⋮ ↻ ⇅ ⊘` and text mute labels across `views/*`, `overlays.rs`, `navigation.rs`, `play_queue.rs`, `interaction.rs`
-  - [ ] verify: `rg -n "[✓✕♥♡⚠▶◀⏸⏹⏮⏭⇄↻⇅⊘♪]" crates/ytm-gui/src --glob '!*_tests.rs'` returns nothing
+- [x] **4.1 SVG pipeline**
+  - [x] Vendor required Lucide SVGs under `assets/icons/`; enable `egui_extras` `svg` feature; `icons.rs` exposes typed `Icon` enum
+  - [x] Tint by theme colour, cache textures
+  - [x] verify: unit test every `Icon` variant maps to an existing embedded file
+- [x] **4.2 Replace glyphs**
+  - [x] Replace every `✓ ✕ ♥ ⚠ ▶ ⏸ ⇄ ⋮⋮ ↻ ⇅ ⊘` and text mute labels across `views/*`, `overlays.rs`, `navigation.rs`, `play_queue.rs`, `interaction.rs`
+  - [x] verify: `rg -n "[✓✕♥♡⚠▶◀⏸⏹⏮⏭⇄↻⇅⊘♪]" crates/ytm-gui/src --glob '!*_tests.rs'` returns nothing
 
 ### Task 5 — i18n (TR/EN)
-- [ ] **5.1 String catalog**
-  - [ ] `i18n` module with `Key` enum and static TR/EN tables; `tr!(Key)` lookup
-  - [ ] verify: test asserts every `Key` has non-empty TR and EN entries
-- [ ] **5.2 Migrate UI strings**
-  - [ ] Move top bar, sidebar, player bar, Settings, Auth, toasts to catalog
-  - [ ] verify: switching language updates UI without restart; `rg` finds no hard-coded English button labels in migrated views
+- [x] **5.1 String catalog**
+  - [x] `i18n` module with `Key` enum and static TR/EN tables; `tr!(Key)` lookup
+  - [x] verify: test asserts every `Key` has non-empty TR and EN entries
+- [x] **5.2 Migrate UI strings**
+  - [x] Move top bar, sidebar, player bar, Settings, Auth, toasts to catalog
+  - [x] verify: switching language updates UI without restart; `rg` finds no hard-coded English button labels in migrated views
 
 ### Task 6 — Application chrome
-- [ ] **6.1 Top bar redesign**
-  - [ ] Back/Forward, centered search box, theme/accent, Mini Player placeholder, profile/settings; remove `Backup All`, `Refresh Library`, shortcut strip (moved to menus/palette)
-  - [ ] verify: screenshot compare in light and dark; `Ctrl+K` palette still lists moved actions
-- [ ] **6.2 Studio Tools menu**
-  - [ ] Collapsible sidebar section containing Dedupe, Sort, Set Ops, Health, Genre Split, Snapshots, Sync
-  - [ ] verify: every former workspace tab reachable; navigation history tests pass
-- [ ] **6.3 Lyrics & Queue drawer**
-  - [ ] Separate player-bar buttons; right drawer with tabs; lyrics usable without opening queue
-  - [ ] verify: unit test for drawer state machine (`Closed | Queue | Lyrics`); manual: lyrics visible with queue closed
-- [ ] **6.4 Album-art Lightbox**
-  - [ ] Click cover → large modal image; click outside or `Esc` closes
-  - [ ] verify: unit test for open/close reducer; manual outside-click and `Esc`
+- [x] **6.1 Top bar redesign**
+  - [x] Back/Forward, centered search box, theme/accent, Mini Player placeholder, profile/settings; remove `Backup All`, `Refresh Library`, shortcut strip (moved to menus/palette)
+  - [x] verify: screenshot compare in light and dark; `Ctrl+K` palette still lists moved actions
+- [x] **6.2 Studio Tools menu**
+  - [x] Collapsible sidebar section containing Dedupe, Sort, Set Ops, Health, Genre Split, Snapshots, Sync
+  - [x] verify: every former workspace tab reachable; navigation history tests pass
+- [x] **6.3 Lyrics & Queue drawer**
+  - [x] Separate player-bar buttons; right drawer with tabs; lyrics usable without opening queue
+  - [x] verify: unit test for drawer state machine (`Closed | Queue | Lyrics`); manual: lyrics visible with queue closed
+- [x] **6.4 Album-art Lightbox**
+  - [x] Click cover → large modal image; click outside or `Esc` closes
+  - [x] verify: unit test for open/close reducer; manual outside-click and `Esc`
 
 ### Task 7 — Status Ribbon
-- [ ] **7.1 Message bus**
-  - [ ] `StatusBus` with priority queue, sticky errors, TTL for results, history ring (50)
-  - [ ] Route existing `ToastState` producers and `WorkerEvent::StatusToast` into it
-  - [ ] verify: unit tests for priority ordering, sticky-until-dismiss, ring eviction
-- [ ] **7.2 Ticker widget**
-  - [ ] Right-to-left scroll with speed setting; click opens history popup; reduced-motion = static fade
-  - [ ] verify: unit test for scroll offset math with injected clock; manual visual check
-- [ ] **7.3 Greetings**
-  - [ ] Embedded TR/EN phrase lists by time of day; rate limit 1/hour; suppressed while playing and focused; Settings toggle
-  - [ ] verify: unit test with injected clock/RNG covers rate limit and suppression
+- [x] **7.1 Message bus**
+  - [x] `StatusBus` with priority queue, sticky errors, TTL for results, history ring (50)
+  - [x] Route existing `ToastState` producers and `WorkerEvent::StatusToast` into it
+  - [x] verify: unit tests for priority ordering, sticky-until-dismiss, ring eviction
+- [x] **7.2 Ticker widget**
+  - [x] Right-to-left scroll with speed setting; click opens history popup; reduced-motion = static fade
+  - [x] verify: unit test for scroll offset math with injected clock; manual visual check
+- [x] **7.3 Greetings**
+  - [x] Embedded TR/EN phrase lists by time of day; rate limit 1/hour; suppressed while playing and focused; Settings toggle
+  - [x] verify: unit test with injected clock/RNG covers rate limit and suppression
 
 ### Task 8 — Instant search engine
-- [ ] **8.1 Core endpoints**
-  - [ ] `ytm-core`: `get_search_suggestions` (`music/get_search_suggestions`) with fixture-tested parser
-  - [ ] verify: fixture test in `ytm-core/tests`
-- [ ] **8.2 Search controller**
-  - [ ] Debounce 100 ms suggestions / 250 ms live results, request IDs to drop stale responses, LRU recent queries persisted
-  - [ ] verify: unit tests with fake client: stale response ignored, debounce coalesces keystrokes
-- [ ] **8.3 Dropdown UI**
-  - [ ] Top match + 3 songs + artist + album; keyboard navigation; `Enter` opens full results with filter tabs
-  - [ ] verify: manual keyboard walkthrough; measured p50 suggestion latency logged in `PROGRESS.md`
+- [x] **8.1 Core endpoints**
+  - [x] `ytm-core`: `get_search_suggestions` (`music/get_search_suggestions`) with fixture-tested parser
+  - [x] verify: fixture test in `ytm-core/tests`
+- [x] **8.2 Search controller**
+  - [x] Debounce 100 ms suggestions / 250 ms live results, request IDs to drop stale responses, LRU recent queries persisted
+  - [x] verify: unit tests with fake client: stale response ignored, debounce coalesces keystrokes
+- [x] **8.3 Dropdown UI**
+  - [x] Top match + 3 songs + artist + album; keyboard navigation; `Enter` opens full results with filter tabs
+  - [x] verify: manual keyboard walkthrough; measured p50 suggestion latency logged in `PROGRESS.md`
 
 ### Task 9 — Session refresh (S1)
-- [ ] **9.1 Browser launcher**
-  - [ ] Cross-platform `open_url` (xdg-open / `start`), configurable browser; builds `watch?v=` URL
-  - [ ] verify: unit test for URL builder; command construction tested without spawning
-- [ ] **9.2 Refresh flow**
-  - [ ] "Refresh Session" button + startup banner; wait ~6–8 s, run browser-cookie import, toast result via Status Ribbon
-  - [ ] Settings toggle for fully automatic refresh (default OFF)
-  - [ ] verify: unit tests for state machine (`Idle | Opening | Importing | Done | Failed`); manual end-to-end on Brave
-- [ ] **9.3 Keyring noise**
-  - [ ] Confirm `YTM_USE_SECRET_SERVICE` opt-in and Wayland no-vsync fixes remain covered by tests
-  - [ ] verify: existing tests `secret_service_is_opt_in...` and `vsync_disabled_on_linux_wayland_only` pass
+- [x] **9.1 Browser launcher**
+  - [x] Cross-platform `open_url` (xdg-open / `start`), configurable browser; builds `watch?v=` URL
+  - [x] verify: unit test for URL builder; command construction tested without spawning
+- [x] **9.2 Refresh flow**
+  - [x] "Refresh Session" button + startup banner; wait ~6–8 s, run browser-cookie import, toast result via Status Ribbon
+  - [x] Settings toggle for fully automatic refresh (default OFF)
+  - [x] verify: unit tests for state machine (`Idle | Opening | Importing | Done | Failed`); manual end-to-end on Brave
+- [x] **9.3 Keyring noise**
+  - [x] Confirm `YTM_USE_SECRET_SERVICE` opt-in and Wayland no-vsync fixes remain covered by tests
+  - [x] verify: existing tests `secret_service_is_opt_in...` and `vsync_disabled_on_linux_wayland_only` pass
 
 ### Task 10 — Offline-first cache (P1)
-- [ ] **10.1 Persisted caches**
-  - [ ] Lyrics + library summaries stored in SQLite alongside playlists; versioned schema migration
-  - [ ] verify: store integration test round-trips and migrates an old DB fixture
-- [ ] **10.2 Stale-while-revalidate**
-  - [ ] Paint from cache first; refresh in background; offline banner when network fails
-  - [ ] verify: test with failing client still yields cached library state
+- [x] **10.1 Persisted caches**
+  - [x] Lyrics + library summaries stored in SQLite alongside playlists; versioned schema migration
+  - [x] verify: store integration test round-trips and migrates an old DB fixture
+- [x] **10.2 Stale-while-revalidate**
+  - [x] Paint from cache first; refresh in background; offline banner when network fails
+  - [x] verify: test with failing client still yields cached library state
 
 ### Task 11 — Jump to YouTube (Y1)
-- [ ] **11.1 Link builder**
-  - [ ] Pure functions for YT Music URL (track/album/artist/playlist), YouTube search URL, `&t=` variant
-  - [ ] verify: table-driven unit tests with URL-encoding edge cases
-- [ ] **11.2 Wiring**
-  - [ ] Context menu, player bar, palette actions; `Ctrl+O`, `Ctrl+Shift+O`
-  - [ ] verify: manual open in default browser; shortcut test in `interaction.rs`
+- [x] **11.1 Link builder**
+  - [x] Pure functions for YT Music URL (track/album/artist/playlist), YouTube search URL, `&t=` variant
+  - [x] verify: table-driven unit tests with URL-encoding edge cases
+- [x] **11.2 Wiring**
+  - [x] Context menu, player bar, palette actions; `Ctrl+O`, `Ctrl+Shift+O`
+  - [x] verify: manual open in default browser; shortcut test in `interaction.rs`
 
 ### Task 12 — README & release v0.2.0
-- [ ] **12.1 Screenshots**
-  - [ ] Capture Home, Search, Lightbox, light/dark pair into `assets/screenshots/`
-  - [ ] verify: files referenced by README exist (`rg -o "assets/[^)\" ]+" README.md | sort -u | xargs ls`)
-- [ ] **12.2 README rewrite (English)**
-  - [ ] Hero `<picture>` logo, badges, features table, install + SHA-256 verification, usage, "Why Dalga"
+- [x] **12.1 Screenshots**
+  - [x] Capture Home, Search, Lightbox, light/dark pair into `assets/screenshots/`
+  - [x] verify: files referenced by README exist (`rg -o "assets/[^)\" ]+" README.md | sort -u | xargs ls`)
+- [x] **12.2 README rewrite (English)**
+  - [x] Hero `<picture>` logo, badges, features table, install + SHA-256 verification, usage, "Why Dalga"
   - [ ] verify: GitHub renders light/dark logos (check after push); links resolve
 - [ ] **12.3 Phase gate & release**
   - [ ] Bump to `0.2.0`; run G1 gates; tag `v0.2.0`; CI builds Linux + Windows; publish with `SHA256SUMS.txt`; write hashes into README + `PROGRESS.md`

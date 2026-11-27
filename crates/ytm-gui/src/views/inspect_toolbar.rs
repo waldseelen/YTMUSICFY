@@ -7,6 +7,7 @@ use ytm_core::{FetchCompleteness, FetchManifest, Playlist};
 use ytm_store::ExportFormat;
 
 use crate::draft_cache::DraftCache;
+use crate::icons::{Icon, icon_text_button, paint_icon};
 use crate::interaction::search_box_with_clear;
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
@@ -145,8 +146,7 @@ pub(crate) fn show_playlist_header(
             p.split.enabled = !p.split.enabled;
         }
         if !p.pl.tracks.is_empty()
-            && ui
-                .button("▶ Play Playlist")
+            && icon_text_button(ui, Icon::Play, "Play Playlist", 13.0, true)
                 .on_hover_text("Play all tracks in order")
                 .clicked()
         {
@@ -156,8 +156,7 @@ pub(crate) fn show_playlist_header(
             });
         }
         if p.editable {
-            if ui
-                .button("✎ Edit Details")
+            if icon_text_button(ui, Icon::Edit, "Edit Details", 13.0, true)
                 .on_hover_text("Rename playlist, update description, or change privacy")
                 .clicked()
             {
@@ -168,8 +167,7 @@ pub(crate) fn show_playlist_header(
                     p.pl.privacy,
                 ));
             }
-            if ui
-                .button("🗑 Stage Delete")
+            if icon_text_button(ui, Icon::Trash, "Stage Delete", 13.0, true)
                 .on_hover_text(
                     "Stage playlist deletion into Sync (requires snapshot & typed confirmation)",
                 )
@@ -193,33 +191,45 @@ pub(crate) fn show_playlist_header(
                 pages_fetched,
                 max_pages,
             } => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(235, 95, 95),
-                    format!(
-                        "⚠ Fetch truncated at {pages_fetched}/{max_pages} pages — mutations are locked until cleanly refreshed."
-                    ),
-                );
+                let err_col = egui::Color32::from_rgb(235, 95, 95);
+                ui.horizontal(|ui| {
+                    paint_icon(ui, Icon::Warn, 14.0, err_col);
+                    ui.colored_label(
+                        err_col,
+                        format!(
+                            "Fetch truncated at {pages_fetched}/{max_pages} pages — mutations are locked until cleanly refreshed."
+                        ),
+                    );
+                });
             }
             FetchCompleteness::Degraded { dropped_renderers } => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(235, 95, 95),
-                    format!(
-                        "⚠ {} unrecognized renderer(s) dropped during parse — mutations are locked until refreshed.",
-                        dropped_renderers.len()
-                    ),
-                );
+                let err_col = egui::Color32::from_rgb(235, 95, 95);
+                ui.horizontal(|ui| {
+                    paint_icon(ui, Icon::Warn, 14.0, err_col);
+                    ui.colored_label(
+                        err_col,
+                        format!(
+                            "{} unrecognized renderer(s) dropped during parse — mutations are locked until refreshed.",
+                            dropped_renderers.len()
+                        ),
+                    );
+                });
             }
             FetchCompleteness::PartialHidden {
                 declared,
                 fetched,
                 hidden_estimate,
             } => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(235, 180, 70),
-                    format!(
-                        "⚠ PartialHidden: fetched {fetched}/{declared} tracks (~{hidden_estimate} hidden/unavailable on YouTube)."
-                    ),
-                );
+                let warn_col = egui::Color32::from_rgb(235, 180, 70);
+                ui.horizontal(|ui| {
+                    paint_icon(ui, Icon::Warn, 14.0, warn_col);
+                    ui.colored_label(
+                        warn_col,
+                        format!(
+                            "PartialHidden: fetched {fetched}/{declared} tracks (~{hidden_estimate} hidden/unavailable on YouTube)."
+                        ),
+                    );
+                });
             }
             FetchCompleteness::Complete => {}
         }

@@ -4,6 +4,7 @@ use eframe::egui;
 use ytm_core::{PlaylistAccess, PlaylistSummary, SearchFilter, SearchPage};
 
 use crate::artwork::ArtworkCache;
+use crate::icons::{Icon, icon_button};
 use crate::navigation::ToastState;
 use crate::playback_ops::PlayAction;
 use crate::state::{AsyncState, WorkerCmd};
@@ -99,7 +100,7 @@ pub fn show(
                 ui.strong(format!("Tracks ({})", page.tracks.len()));
                 for (idx, t) in page.tracks.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("▶").on_hover_text("Play now").clicked() {
+                        if icon_button(ui, Icon::Play, 12.0, true, "Play now").clicked() {
                             actions.push(PlayAction::PlayFromList {
                                 tracks: page.tracks.clone(),
                                 start_idx: idx,

@@ -235,3 +235,37 @@ pub fn parse_search_page(response: &Value) -> Result<SearchPage, CoreError> {
         continuation,
     })
 }
+
+/// Parse InnerTube `music/get_search_suggestions` response into deduplicated suggestion queries.
+pub fn parse_search_suggestions(response: &Value) -> Result<Vec<String>, CoreError> {
+    check_innertube_error(response)?;
+
+    let mut nodes = Vec::new();
+    find_all_by_key(response, "historySuggestionRenderer", &mut nodes);
+    find_all_by_key(response, "searchSuggestionRenderer", &mut nodes);
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for node in nodes {
+        let query = node
+            .get("navigationEndpoint")
+            .and_then(|n| n.get("searchEndpoint"))
+            .and_then(|s| s.get("query"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                node.get("suggestion")
+                    .map(extract_runs_text)
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            });
+        if let Some(q) = query
+            && seen.insert(q.to_ascii_lowercase())
+        {
+            out.push(q);
+        }
+    }
+    Ok(out)
+}

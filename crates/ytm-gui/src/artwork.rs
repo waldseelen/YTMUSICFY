@@ -6,10 +6,12 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant, SystemTime};
 
 use directories::ProjectDirs;
-use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
+use eframe::egui::{self, Color32, ColorImage, TextureHandle, TextureOptions};
 use image::imageops::FilterType;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Semaphore, mpsc as tokio_mpsc};
+
+use crate::theme_accent::extract_dominant_accent_rgba;
 
 const MAX_CACHED_TEXTURES: usize = 160;
 const MAX_IN_FLIGHT: usize = 48;
@@ -18,8 +20,14 @@ const MAX_DISK_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 const FAILED_RETRY_TTL: Duration = Duration::from_secs(60);
 
 enum ArtMsg {
-    Ready { url: String, image: ColorImage },
-    Failed { url: String },
+    Ready {
+        url: String,
+        image: ColorImage,
+        accent: Option<Color32>,
+    },
+    Failed {
+        url: String,
+    },
 }
 
 /// Asynchronous HTTP thumbnail fetcher + bounded disk & GPU texture LRU cache.
@@ -27,6 +35,7 @@ pub struct ArtworkCache {
     req_tx: tokio_mpsc::UnboundedSender<String>,
     res_rx: Receiver<ArtMsg>,
     textures: HashMap<String, TextureHandle>,
+    accents: HashMap<String, Option<Color32>>,
     lru: VecDeque<String>,
     in_flight: HashSet<String>,
     failed: HashMap<String, Instant>,
@@ -65,7 +74,7 @@ impl ArtworkCache {
                     tokio::spawn(async move {
                         let _permit = permit;
                         let msg = match fetch_cached_or_remote(&client, cache_dir, &url).await {
-                            Some(image) => ArtMsg::Ready { url, image },
+                            Some((image, accent)) => ArtMsg::Ready { url, image, accent },
                             None => ArtMsg::Failed { url },
                         };
                         if res_tx.send(msg).is_ok()
@@ -82,6 +91,7 @@ impl ArtworkCache {
             req_tx,
             res_rx,
             textures: HashMap::new(),
+            accents: HashMap::new(),
             lru: VecDeque::new(),
             in_flight: HashSet::new(),
             failed: HashMap::new(),
@@ -92,10 +102,11 @@ impl ArtworkCache {
     pub fn poll(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.res_rx.try_recv() {
             match msg {
-                ArtMsg::Ready { url, image } => {
+                ArtMsg::Ready { url, image, accent } => {
                     self.in_flight.remove(&url);
                     self.failed.remove(&url);
                     let tex = ctx.load_texture(url.clone(), image, TextureOptions::LINEAR);
+                    self.accents.insert(url.clone(), accent);
                     self.insert_lru(url, tex);
                 }
                 ArtMsg::Failed { url } => {
@@ -104,6 +115,12 @@ impl ArtworkCache {
                 }
             }
         }
+    }
+
+    /// Return the precomputed off-thread dominant accent color for `url`, if available.
+    #[must_use]
+    pub fn accent_for(&self, url: &str) -> Option<Color32> {
+        self.accents.get(url).copied().flatten()
     }
 
     /// Return cached texture for `url` or queue async download if unseen or past retry TTL.
@@ -128,6 +145,7 @@ impl ArtworkCache {
             while self.lru.len() >= MAX_CACHED_TEXTURES {
                 if let Some(oldest) = self.lru.pop_front() {
                     self.textures.remove(&oldest);
+                    self.accents.remove(&oldest);
                 }
             }
             self.lru.push_back(url.clone());
@@ -174,14 +192,14 @@ fn disk_cache_path(cache_dir: &Path, url: &str) -> PathBuf {
     cache_dir.join(format!("{hex}.img"))
 }
 
-fn read_disk_cache(cache_dir: &Path, url: &str) -> Option<ColorImage> {
+fn read_disk_cache(cache_dir: &Path, url: &str) -> Option<(ColorImage, Option<Color32>)> {
     let path = disk_cache_path(cache_dir, url);
     let bytes = fs::read(&path).ok()?;
-    let image = decode_image_bytes(&bytes)?;
+    let decoded = decode_image_with_accent(&bytes)?;
     if let Ok(file) = fs::OpenOptions::new().write(true).open(&path) {
         let _ = file.set_modified(SystemTime::now());
     }
-    Some(image)
+    Some(decoded)
 }
 
 fn write_disk_cache(cache_dir: &Path, url: &str, bytes: &[u8], max_bytes: u64) {
@@ -235,7 +253,7 @@ async fn fetch_cached_or_remote(
     client: &reqwest::Client,
     cache_dir: Option<PathBuf>,
     url: &str,
-) -> Option<ColorImage> {
+) -> Option<(ColorImage, Option<Color32>)> {
     if let Some(dir) = cache_dir.clone() {
         let u = url.to_string();
         if let Ok(Some(img)) = tokio::task::spawn_blocking(move || read_disk_cache(&dir, &u)).await
@@ -253,7 +271,7 @@ async fn fetch_cached_or_remote(
         return None;
     }
     let bytes = resp.bytes().await.ok()?;
-    let image = decode_image_bytes(&bytes)?;
+    let decoded = decode_image_with_accent(&bytes)?;
     if let Some(dir) = cache_dir {
         let u = url.to_string();
         let raw = bytes.to_vec();
@@ -262,10 +280,10 @@ async fn fetch_cached_or_remote(
         })
         .await;
     }
-    Some(image)
+    Some(decoded)
 }
 
-pub(crate) fn decode_image_bytes(bytes: &[u8]) -> Option<ColorImage> {
+pub(crate) fn decode_image_with_accent(bytes: &[u8]) -> Option<(ColorImage, Option<Color32>)> {
     let img = image::load_from_memory(bytes).ok()?;
     let resized = if img.width() > 192 || img.height() > 192 {
         img.resize(192, 192, FilterType::Triangle)
@@ -273,8 +291,17 @@ pub(crate) fn decode_image_bytes(bytes: &[u8]) -> Option<ColorImage> {
         img
     };
     let rgba = resized.to_rgba8();
+    let accent = extract_dominant_accent_rgba(rgba.as_raw(), rgba.width(), rgba.height());
     let size = [rgba.width() as usize, rgba.height() as usize];
-    Some(ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()))
+    Some((
+        ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
+        accent,
+    ))
+}
+
+#[cfg(test)]
+pub(crate) fn decode_image_bytes(bytes: &[u8]) -> Option<ColorImage> {
+    decode_image_with_accent(bytes).map(|(img, _)| img)
 }
 
 #[cfg(test)]

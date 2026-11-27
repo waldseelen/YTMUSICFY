@@ -124,9 +124,9 @@ jobs:
           (cd release-files && sha256sum ytm-architect-*) > release-files/SHA256SUMS.txt
           cat artifacts/*.binaries.sha256 >> release-files/SHA256SUMS.txt
           {
-            echo "## ytm-architect ${TAG} — Linux & Windows Release"
+            echo "## Dalga ${TAG} (\`ytm-architect\`) — Linux & Windows Release"
             echo ""
-            echo "Native pure-Rust YouTube Music daily-driver studio (\`ytm-gui\`) + CLI/TUI (\`ytm\`) powered by direct InnerTube POST requests and local \`mpv\` audio playback (no Electron / WebView)."
+            echo "Native pure-Rust YouTube Music desktop player & library studio (\`ytm-gui\`) + CLI/TUI (\`ytm\`) powered by direct InnerTube HTTP requests and local \`mpv\` audio playback (no Electron / WebView)."
             echo ""
             echo "### Downloads"
             echo "- **Linux (x86_64):** \`ytm-architect-${TAG}-linux-x86_64.tar.gz\` (\`ytm-gui\`, \`ytm\`)"
@@ -148,9 +148,9 @@ jobs:
           TAG="${{ steps.prep.outputs.tag }}"
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" release-files/* --clobber
-            gh release edit "${TAG}" --title "ytm-architect ${TAG}" --notes-file release-notes.md
+            gh release edit "${TAG}" --title "Dalga ${TAG}" --notes-file release-notes.md
           else
             gh release create "${TAG}" release-files/* \
-              --title "ytm-architect ${TAG}" \
+              --title "Dalga ${TAG}" \
               --notes-file release-notes.md
           fi
