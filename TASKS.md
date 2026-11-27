@@ -1,4 +1,4 @@
-# TASKS.md — YTMuse Product Roadmap (v0.2.0 → v0.4.0)
+# TASKS.md — YTMuse Product Roadmap (v0.2.0 → v0.5.0)
 
 Execution plan for turning the `ytm-architect` engineering suite into **YTMuse**, an end-user native YouTube Music desktop client (Rust + egui, Linux & Windows). The v0.1.0/v0.1.1 re-architecture plan (Phases 0–5, 43/43 tasks) is complete and archived in git history (checkpoint commit before this file).
 
@@ -26,6 +26,13 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 | P1 | **Offline-first cache:** playlists, library, artwork, lyrics persisted; stale-while-revalidate on startup; library browsable offline, only playback needs network. |
 | P2 | **All of Artist keeps D1 safety:** harvest → dedupe → preview → `SyncQueue` → verified POST. |
 | R1 | **Releases:** v0.2.0 (look, session, README) → v0.3.0 (tray, Mini Player, Home shelves, shortcuts) → v0.4.0 (power features, accessibility). Each ships Linux + Windows artifacts with `SHA256SUMS.txt`. |
+| N1 | **Name is provisional.** `YTMuse` stays through v0.2.0. Owner may rename to a phonetic, Turkish-meaning, ASCII-spelled name (candidates: Ezgi, Ahenk, Sada, Yanki, Nagme); all brand strings therefore live in one constants module (Task 2.4). GitHub/crates.io collision check is run before any rename; trademark search is out of scope. |
+| K1 | **Multi-source player (v0.5.0):** YouTube Music, Radio, Local Files, Video are *sources*; YouTube Music is one of them. |
+| K2 | **Radio:** bundled 551 Turkish stations (from `waldseelen/RadioStack` `stations.m3u`), user M3U/M3U8/XSPF import/export, optional Radio Browser directory search; favourites, categories, ICY Now Playing, auto-retry, offline badge. Local SQLite only, no server/Firebase. |
+| K3 | **Video:** mpv in a separate borderless video window (YT Music video version, local video files); player bar, queue and MPRIS unchanged, no double playback. Embedded libmpv render is deferred to a later release after risk measurement. |
+| K4 | **Local library:** watched folders, tags + embedded covers via `lofty` indexed into SQLite, unified search box, drag-and-drop open, "Open with" registration, local playlists with M3U8 export (never mixed with YT Music playlists). |
+| K5 | **Source abstraction first:** after v0.4.0, `MediaSource { YouTube{video_id}, Radio{station_id,url}, LocalFile{path} }` + `PlayableItem` drive player, queue, session restore and MPRIS. `Track` stays YouTube-specific; saved sessions stay backward compatible via serde defaults. |
+| K6 | **Dependencies not bundled:** mpv, yt-dlp, ffmpeg are detected by a first-run "System Check" screen (found/missing badges, per-platform one-line install command for pacman/apt/winget/scoop, Recheck). README documents the official Windows mpv download and SHA-256. |
 | G1 | **Inherited gates (unchanged):** `cargo fmt --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, no `.rs` file > 400 lines, zero new `#[allow(...)]`, no emoji in UI strings. |
 
 ---
@@ -53,6 +60,9 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 - [ ] **2.3 Rename visible strings**
   - [ ] Window title, top-bar label, About, tray title → `YTMuse`
   - [ ] verify: `rg -n '"ytm-architect"' crates/ytm-gui/src` returns only app-id/config-path constants
+- [ ] **2.4 Central brand constants (N1)**
+  - [ ] `brand.rs` exposes `APP_NAME`, `TAGLINE`, `WINDOW_TITLE`, tray title; every visible brand string reads from it
+  - [ ] verify: unit test asserts no other module contains the literal `"YTMuse"` (`rg -n 'YTMuse' crates/ytm-gui/src` hits only `brand.rs` and tests)
 
 ### Task 3 — Theme engine
 - [ ] **3.1 Palettes**
@@ -287,3 +297,77 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 - [ ] **25.2 Publish**
   - [ ] Bump `0.4.0`, README final polish + screenshots, tag, CI Linux + Windows, `SHA256SUMS.txt`
   - [ ] verify: `gh release view v0.4.0 --json assets`
+
+---
+
+## Phase v0.5.0 — Multi-Source Player: Radio, Local Files, Video
+
+### Task 26 — Source abstraction (K5)
+- [ ] **26.1 Domain model**
+  - [ ] `MediaSource` enum and `PlayableItem` (title, artist, duration, artwork, source) in `ytm-gui` (or a shared module); `From<&Track>` for YouTube
+  - [ ] verify: unit tests for conversions and serde round-trip
+- [ ] **26.2 Player & queue migration**
+  - [ ] `PlayerController`/actor load URL or path from `MediaSource` (no hard-coded `watch_url`); `PlayQueue` holds `PlayableItem`
+  - [ ] verify: existing player/queue tests green; new fake-runtime test plays a `LocalFile` and a `Radio` item
+- [ ] **26.3 Session & MPRIS**
+  - [ ] Playback session snapshot gains `source` with `#[serde(default)]` YouTube fallback; MPRIS metadata per source
+  - [ ] verify: test loads a v0.4.0 session JSON fixture and restores it unchanged
+
+### Task 27 — Radio
+- [ ] **27.1 Station store**
+  - [ ] SQLite tables for stations, categories, favourites; migration from empty
+  - [ ] Seed 551 stations from RadioStack `stations.m3u` (embedded asset, license/source noted in README)
+  - [ ] verify: store test seeds and counts 551 stations across 15 categories
+- [ ] **27.2 M3U/M3U8/XSPF I/O**
+  - [ ] Parser and exporters with fixtures (malformed lines, duplicates, relative URLs)
+  - [ ] verify: round-trip tests; duplicate URLs are merged
+- [ ] **27.3 Radio Browser (opt-in)**
+  - [ ] Directory search by name/country/tag with mirror selection and timeouts; disabled = zero network calls
+  - [ ] verify: fixture parser tests; disabled-path test performs no HTTP call
+- [ ] **27.4 Playback & Now Playing**
+  - [ ] Play via mpv; read `metadata/icy-title` over IPC into Status/player bar; auto-retry with backoff; offline badge after N failures
+  - [ ] verify: unit tests for ICY parsing and retry state machine with injected clock
+- [ ] **27.5 Radio UI**
+  - [ ] Sidebar "Radio" section: categories, favourites, search, import/export, station logo cache
+  - [ ] verify: manual playback of 3 stations on Linux; keyboard navigation works
+
+### Task 28 — Local library (K4)
+- [ ] **28.1 Scanner & tags**
+  - [ ] Watched folders setting; background scan with `lofty` (ID3/FLAC/Vorbis/MP4); embedded cover extraction into artwork cache
+  - [ ] verify: fixture audio files yield expected tags; unreadable files are reported, not fatal
+- [ ] **28.2 Index & watch**
+  - [ ] SQLite index (path, mtime, tags); incremental rescans and file-change watching (`notify`); removed files pruned
+  - [ ] verify: temp-dir test: add, modify, delete file updates the index
+- [ ] **28.3 Views & search**
+  - [ ] Albums/Artists/Songs views; local results appear in the global search dropdown under a "Local" group
+  - [ ] verify: search controller test returns local hits without network
+- [ ] **28.4 Open & playlists**
+  - [ ] Drag-and-drop file/folder open, desktop "Open with" entry, local playlists with M3U8 export
+  - [ ] verify: unit test for drop-path expansion; exported M3U8 re-imports identically
+
+### Task 29 — Video window (K3)
+- [ ] **29.1 Video mode**
+  - [ ] Spawn/reuse mpv video output as a separate borderless window; toggle "Video" on player bar for YT Music tracks that have a video; local video files open the same way
+  - [ ] verify: command-builder unit tests (flags per mode); manual playback with controls and queue in sync
+- [ ] **29.2 Safety**
+  - [ ] Single mpv instance; closing the video window returns to audio-only without stopping the track; no double audio
+  - [ ] verify: fake-runtime test for mode switch preserving position and pause state
+
+### Task 30 — System check & first run (K6)
+- [ ] **30.1 Dependency detector**
+  - [ ] Detect `mpv`, `yt-dlp`, `ffmpeg` (path + version) per platform; pure parser tests
+  - [ ] verify: unit tests with fake `--version` outputs
+- [ ] **30.2 System Check screen**
+  - [ ] Found/missing badges, per-platform install command with copy button, Recheck; shown on first run and from Settings
+  - [ ] verify: manual with `PATH` stripped of `yt-dlp` shows the missing badge and correct command
+- [ ] **30.3 Docs**
+  - [ ] README: dependency section, official Windows mpv link and SHA-256 note
+  - [ ] verify: links resolve (`curl -sI` returns 200/302)
+
+### Task 31 — Release v0.5.0
+- [ ] **31.1 Verification**
+  - [ ] G1 gates; regression of v0.2.0–v0.4.0 flows; radio/local/video manual matrix on Linux; Windows build smoke by owner
+  - [ ] verify: all G1 commands exit 0
+- [ ] **31.2 Publish**
+  - [ ] Bump `0.5.0`, README (multi-source screenshots), tag, CI Linux + Windows, `SHA256SUMS.txt`
+  - [ ] verify: `gh release view v0.5.0 --json assets`
