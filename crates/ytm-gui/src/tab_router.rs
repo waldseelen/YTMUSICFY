@@ -8,7 +8,7 @@ use crate::views;
 
 pub fn show_central_panel(ui: &mut egui::Ui, app: &mut YtmGuiApp) {
     let sync_len = app.sync_queue.len();
-    show_tab_bar(ui, &mut app.active_tab, sync_len, &mut app.sync_drawer_open);
+    show_tab_bar(ui, &mut app.active_tab, sync_len);
     ui.separator();
 
     let sel_id = app.selected_playlist_id.as_deref();

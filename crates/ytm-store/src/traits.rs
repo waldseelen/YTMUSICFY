@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use ytm_core::Playlist;
 
+use crate::db::PlayHistoryEntry;
 use crate::error::StoreError;
 use crate::models::{
     CachedArtistGenre, CachedTrack, CachedTrackEnrichment, Snapshot, SnapshotMetadata,
@@ -49,4 +50,17 @@ pub trait EnrichmentCacheStore: Send + Sync {
         &self,
         entry: &CachedTrackEnrichment,
     ) -> Result<(), StoreError>;
+
+    /// Insert a track into the play history.
+    async fn insert_play_history(
+        &self,
+        video_id: &str,
+        title: &str,
+        artists_json: &str,
+        album: Option<&str>,
+        duration_sec: Option<u32>,
+    ) -> Result<(), StoreError>;
+
+    /// Get recent play history entries, most recent first.
+    async fn get_play_history(&self, limit: usize) -> Result<Vec<PlayHistoryEntry>, StoreError>;
 }

@@ -2,6 +2,7 @@ pub mod app;
 pub mod app_events;
 pub mod app_frame;
 pub mod artwork;
+pub mod audio_fx;
 pub mod auth_store;
 pub mod brand;
 pub mod browser_launch;
@@ -12,10 +13,12 @@ pub mod greetings;
 pub mod i18n;
 pub mod icons;
 pub mod interaction;
+pub mod lastfm;
 pub mod lightbox;
 pub mod media_controls;
 pub mod mini_player;
 pub mod navigation;
+pub mod notifications;
 pub mod overlays;
 pub mod play_queue;
 pub mod playback_ops;
@@ -95,7 +98,7 @@ pub fn run() -> Result<()> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            theme::apply_theme(&cc.egui_ctx);
+            theme::apply_theme(&cc.egui_ctx, false, 1.0);
             #[cfg(feature = "screenshot-harness")]
             let app = {
                 let mut a = YtmGuiApp::new(cc);

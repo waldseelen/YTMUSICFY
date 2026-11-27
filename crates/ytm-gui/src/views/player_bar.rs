@@ -1,9 +1,11 @@
 use eframe::egui;
+use std::time::Duration;
 use ytm_core::{PlaylistAccess, PlaylistSummary, Track};
 
+use crate::audio_fx::AudioEffects;
 use crate::i18n::{Key, ResolvedLang, tr};
-use crate::icons::{Icon, icon_button, icon_text_button};
-use crate::play_queue::PlayQueue;
+use crate::icons::{Icon, icon_button};
+use crate::play_queue::{PlayQueue, RepeatMode};
 use crate::playback_ops::PlayAction;
 use crate::player::{PlayerController, PlayerSnapshot, PlayerState};
 use crate::right_drawer::RightDrawerTab;
@@ -28,6 +30,10 @@ pub struct PlayerBarOutcome {
     pub copy_ytm_url: Option<String>,
     pub apply_pending_configure: bool,
     pub stage_add: Option<(String, String, Track)>,
+    pub apply_audio_filters: Option<String>,
+    pub set_speed: Option<f64>,
+    pub set_sleep_timer: Option<Duration>,
+    pub cancel_sleep_timer: bool,
     pub actions: Vec<PlayAction>,
 }
 
@@ -36,9 +42,11 @@ pub struct PlayerBarCtx<'a> {
     pub queue: &'a PlayQueue,
     pub player: &'a PlayerController,
     pub playlists: &'a [PlaylistSummary],
+    pub favourite_playlist_id: Option<&'a str>,
     pub muted: bool,
     pub right_drawer: RightDrawerTab,
     pub art_tex: Option<&'a egui::TextureHandle>,
+    pub current_effects: &'a mut AudioEffects,
 }
 
 /// Render responsive 3-zone persistent bottom audio player bar (`mpv` IPC + `PlayQueue`).
@@ -48,18 +56,40 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
         queue,
         player,
         playlists,
+        favourite_playlist_id,
         muted,
         right_drawer,
         art_tex,
+        current_effects,
     } = bar;
     let mut out = PlayerBarOutcome::default();
     let snap = player.snapshot();
     let current = queue.current_track();
 
+    let available = ui.available_width();
+    // Responsive min widths: left 180, center 280, right 160 = 620 total minimum
+    // If narrower, left shrinks first, then center, right stays for controls
+    let left_min = (available * 0.25).clamp(140.0, 220.0);
+    let center_min = (available * 0.5).clamp(240.0, 400.0);
+
     ui.horizontal(|ui| {
-        render_left_track_info(ui, lang, current, queue, playlists, art_tex, &mut out);
+        ui.allocate_ui_with_layout(
+            egui::vec2(left_min, ui.available_height()),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_width(left_min);
+                render_left_track_info(ui, lang, current, queue, playlists, art_tex, &mut out);
+            },
+        );
         ui.separator();
-        render_center_transport(ui, lang, queue, &snap, &mut out);
+        ui.allocate_ui_with_layout(
+            egui::vec2(center_min, ui.available_height()),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_width(center_min);
+                render_center_transport(ui, lang, queue, &snap, &mut out);
+            },
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             render_right_controls(
                 ui,
@@ -70,6 +100,9 @@ pub fn show(ui: &mut egui::Ui, bar: PlayerBarCtx<'_>) -> PlayerBarOutcome {
                     snap: &snap,
                     muted,
                     right_drawer,
+                    favourite_playlist_id,
+                    playlists,
+                    current_effects,
                 },
                 &mut out,
             );
@@ -225,16 +258,32 @@ fn render_center_transport(
             {
                 out.toggle_shuffle = true;
             }
-            if icon_button(ui, Icon::Prev, 15.0, has_current, tr(lang, Key::PlayerPrev)).clicked() {
+            if ui
+                .add_enabled(
+                    has_current,
+                    egui::Button::image(Icon::Prev.image(15.0, ui.visuals().text_color())),
+                )
+                .on_hover_text(tr(lang, Key::PlayerPrev))
+                .clicked()
+            {
                 out.previous = true;
             }
-            let (play_icon, play_label) = match &snap.state {
-                PlayerState::Playing { .. } => (Icon::Pause, tr(lang, Key::PlayerPause)),
-                PlayerState::Loading { .. } => (Icon::Refresh, "..."),
-                _ => (Icon::Play, tr(lang, Key::PlayerPlay)),
+            let play_icon = match &snap.state {
+                PlayerState::Playing { .. } => Icon::Pause,
+                PlayerState::Loading { .. } => Icon::Refresh,
+                _ => Icon::Play,
             };
-            if icon_text_button(ui, play_icon, play_label, 15.0, has_current)
-                .on_hover_text("Play / Pause (Space)")
+            let play_hover = match &snap.state {
+                PlayerState::Playing { .. } => tr(lang, Key::PlayerPause),
+                PlayerState::Loading { .. } => "Loading...",
+                _ => tr(lang, Key::PlayerPlay),
+            };
+            if ui
+                .add(
+                    egui::Button::image(play_icon.image(15.0, ui.visuals().text_color()))
+                        .selected(matches!(snap.state, PlayerState::Playing { .. })),
+                )
+                .on_hover_text(format!("{} (Space)", play_hover))
                 .clicked()
             {
                 out.toggle_pause = true;
@@ -243,7 +292,11 @@ fn render_center_transport(
                 out.next = true;
             }
             let rep = queue.repeat_mode();
-            if icon_text_button(ui, rep.icon_kind(), rep.short_label(), 15.0, true)
+            if ui
+                .add(
+                    egui::Button::image(rep.icon_kind().image(15.0, ui.visuals().text_color()))
+                        .selected(rep != RepeatMode::Off),
+                )
                 .on_hover_text(tr(lang, Key::PlayerRepeat))
                 .clicked()
             {
@@ -284,6 +337,9 @@ struct RightControlsCtx<'a> {
     snap: &'a PlayerSnapshot,
     muted: bool,
     right_drawer: RightDrawerTab,
+    favourite_playlist_id: Option<&'a str>,
+    playlists: &'a [PlaylistSummary],
+    current_effects: &'a mut AudioEffects,
 }
 
 fn render_right_controls(ui: &mut egui::Ui, ctx: RightControlsCtx<'_>, out: &mut PlayerBarOutcome) {
@@ -294,15 +350,17 @@ fn render_right_controls(ui: &mut egui::Ui, ctx: RightControlsCtx<'_>, out: &mut
         snap,
         muted,
         right_drawer,
+        favourite_playlist_id,
+        playlists,
+        current_effects,
     } = ctx;
-    if icon_button(
-        ui,
-        Icon::Stop,
-        14.0,
-        snap.state.is_active(),
-        tr(lang, Key::PlayerStop),
-    )
-    .clicked()
+    if ui
+        .add_enabled(
+            snap.state.is_active(),
+            egui::Button::image(Icon::Stop.image(14.0, ui.visuals().text_color())),
+        )
+        .on_hover_text(tr(lang, Key::PlayerStop))
+        .clicked()
     {
         out.stop = true;
     }
@@ -319,47 +377,71 @@ fn render_right_controls(ui: &mut egui::Ui, ctx: RightControlsCtx<'_>, out: &mut
         Icon::VolumeOn
     };
     if ui
-        .add(egui::Button::image_and_text(
-            mute_icon.image(14.0, ui.visuals().text_color()),
-            format!("{:.0}%", snap.volume),
-        ))
-        .on_hover_text(tr(lang, Key::PlayerMute))
+        .add(
+            egui::Button::image(mute_icon.image(14.0, ui.visuals().text_color())),
+        )
+        .on_hover_text(format!("{:.0}% — {}", snap.volume, tr(lang, Key::PlayerMute)))
         .clicked()
     {
         out.toggle_mute = true;
     }
     if ui
         .add(
-            egui::Button::image_and_text(
+            egui::Button::image(
                 Icon::Mic.image(14.0, ui.visuals().text_color()),
-                tr(lang, Key::PlayerLyrics),
             )
             .selected(right_drawer == RightDrawerTab::Lyrics),
         )
+        .on_hover_text(tr(lang, Key::PlayerLyrics))
         .clicked()
     {
         out.toggle_lyrics_drawer = true;
     }
+    // Quick-add to favourite playlist
+    if let (Some(fav_id), Some(track)) = (favourite_playlist_id, current)
+        && !fav_id.is_empty()
+    {
+        let fav_title = playlists
+            .iter()
+            .find(|p| p.id == fav_id)
+            .map(|p| p.title.as_str())
+            .unwrap_or("Favourite Playlist");
+        if ui
+            .add(
+                egui::Button::image(Icon::Plus.image(14.0, ui.visuals().text_color())),
+            )
+            .on_hover_text(format!("{} — {}", fav_title, tr(lang, Key::PlayerQuickAddTooltip)))
+            .clicked()
+        {
+            out.stage_add = Some((fav_id.to_string(), fav_title.to_string(), track.clone()));
+        }
+    }
     let q_len = queue.tracks().len();
     if ui
         .add(
-            egui::Button::image_and_text(
+            egui::Button::image(
                 Icon::ListMusic.image(14.0, ui.visuals().text_color()),
-                format!("{} ({q_len})", tr(lang, Key::PlayerQueue)),
             )
             .selected(right_drawer == RightDrawerTab::Queue),
         )
+        .on_hover_text(format!("{} ({q_len})", tr(lang, Key::PlayerQueue)))
         .clicked()
     {
         out.toggle_queue_drawer = true;
     }
-    if let Some(track) = current
-        && icon_text_button(ui, Icon::Radio, tr(lang, Key::PlayerRadio), 14.0, true).clicked()
-    {
-        out.actions.push(PlayAction::StartRadio(track.clone()));
-    }
     if let Some(track) = current {
-        ui.menu_button("YT", |ui| {
+        if ui
+            .add(
+                egui::Button::image(Icon::Radio.image(14.0, ui.visuals().text_color())),
+            )
+            .on_hover_text(tr(lang, Key::PlayerRadio))
+            .clicked()
+        {
+            out.actions.push(PlayAction::StartRadio(track.clone()));
+        }
+        ui.menu_button(
+            "YT",
+            |ui| {
             let base_url = crate::youtube_links::ytm_track_url(&track.video_id, None);
             let at_url = crate::youtube_links::ytm_track_url(
                 &track.video_id,
@@ -388,6 +470,56 @@ fn render_right_controls(ui: &mut egui::Ui, ctx: RightControlsCtx<'_>, out: &mut
             }
         });
     }
+    // Audio Effects menu
+    ui.menu_button(
+        "FX",
+        |ui| {
+        ui.strong(tr(lang, Key::PlayerEqPreset));
+        for preset in crate::audio_fx::EqPreset::ALL {
+            let selected = current_effects.eq_preset == preset;
+            if ui.selectable_label(selected, preset.label()).clicked() {
+                current_effects.eq_preset = preset;
+                out.apply_audio_filters = Some(preset.filter_string().to_string());
+                ui.close_menu();
+            }
+        }
+        ui.separator();
+        ui.strong(tr(lang, Key::PlayerSpeed));
+        let mut speed_val = current_effects.speed.0;
+        let speed_text = format!("{:.2}x", speed_val as f64 / 100.0);
+        if ui
+            .add(
+                egui::Slider::new(&mut speed_val, 75..=150)
+                    .text(speed_text)
+                    .integer(),
+            )
+            .changed()
+        {
+            current_effects.speed = crate::audio_fx::PlaybackSpeed(speed_val);
+            out.set_speed = Some(current_effects.speed.as_f64());
+        }
+        ui.separator();
+        ui.strong(tr(lang, Key::PlayerSleepTimer));
+        if current_effects.sleep_timer.is_active() {
+            if let Some(remaining) = current_effects.sleep_timer.remaining_str() {
+                ui.label(format!("Remaining: {remaining}"));
+            }
+            if ui.button("Cancel").clicked() {
+                let _ = current_effects.sleep_timer.cancel();
+                out.cancel_sleep_timer = true;
+                ui.close_menu();
+            }
+        } else {
+            for &mins in &[15, 30, 45, 60, 90, 120] {
+                if ui.button(format!("{mins} min")).clicked() {
+                    current_effects.sleep_timer =
+                        crate::audio_fx::SleepTimerState::new(Duration::from_secs(mins * 60));
+                    out.set_sleep_timer = Some(Duration::from_secs(mins * 60));
+                    ui.close_menu();
+                }
+            }
+        }
+    });
     if let Some(codec) = &snap.codec_name {
         let badge = match snap.bitrate_kbps {
             Some(kbps) if kbps > 0 => format!("{} {kbps}k", codec.to_ascii_uppercase()),

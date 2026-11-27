@@ -9,6 +9,18 @@ use crate::error::StoreError;
 use crate::models::{CachedArtistGenre, CachedTrack, CachedTrackEnrichment};
 use crate::traits::EnrichmentCacheStore;
 
+/// A single entry in the play history.
+#[derive(Debug, Clone)]
+pub struct PlayHistoryEntry {
+    pub id: i64,
+    pub video_id: String,
+    pub title: String,
+    pub artists_json: String,
+    pub album: Option<String>,
+    pub duration_sec: Option<u32>,
+    pub played_at: i64,
+}
+
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS track_cache (
     video_id TEXT PRIMARY KEY,
@@ -77,6 +89,19 @@ CREATE TABLE IF NOT EXISTS playback_session (
     session_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS play_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artists_json TEXT NOT NULL,
+    album TEXT,
+    duration_sec INTEGER,
+    played_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_play_history_played_at
+    ON play_history (played_at DESC);
 "#;
 
 /// Local SQLite persistence and atomic disk snapshot store.
@@ -363,6 +388,67 @@ impl EnrichmentCacheStore for SqliteStore {
                 ],
             )?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Insert a track into the play history.
+    async fn insert_play_history(
+        &self,
+        video_id: &str,
+        title: &str,
+        artists_json: &str,
+        album: Option<&str>,
+        duration_sec: Option<u32>,
+    ) -> Result<(), StoreError> {
+        let video_id = video_id.to_string();
+        let title = title.to_string();
+        let artists_json = artists_json.to_string();
+        let album = album.map(str::to_string);
+        let duration = duration_sec.map(|d| d as i64);
+        let played_at = chrono::Utc::now().timestamp_millis();
+        self.with_conn_blocking(move |conn| {
+            conn.execute(
+                "INSERT INTO play_history (video_id, title, artists_json, album, duration_sec, played_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![video_id, title, artists_json, album, duration, played_at],
+            )?;
+            // Cap history at 500 entries
+            conn.execute(
+                "DELETE FROM play_history WHERE id NOT IN (
+                    SELECT id FROM play_history ORDER BY played_at DESC, id DESC LIMIT 500
+                )",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Get recent play history entries, most recent first.
+    async fn get_play_history(&self, limit: usize) -> Result<Vec<PlayHistoryEntry>, StoreError> {
+        let limit = limit as i64;
+        self.with_conn_blocking(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, video_id, title, artists_json, album, duration_sec, played_at
+                 FROM play_history ORDER BY played_at DESC, id DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |r| {
+                Ok(PlayHistoryEntry {
+                    id: r.get(0)?,
+                    video_id: r.get(1)?,
+                    title: r.get(2)?,
+                    artists_json: r.get(3)?,
+                    album: r.get(4)?,
+                    duration_sec: r.get::<_, Option<i64>>(5)?.map(|d| d as u32),
+                    played_at: r.get(6)?,
+                })
+            })?;
+            let mut entries = Vec::new();
+            for row in rows {
+                entries.push(row?);
+            }
+            Ok(entries)
         })
         .await
     }

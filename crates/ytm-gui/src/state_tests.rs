@@ -15,7 +15,7 @@ fn gui_app_config_defaults_missing_governance_fields() {
     assert!(cfg.preferred_external_browser.is_none());
     assert!(cfg.recent_searches.is_empty());
     assert!(cfg.tray_enabled);
-    assert!(cfg.close_to_tray);
+    assert_eq!(cfg.close_action, WindowCloseAction::HideToTray);
     assert!(!cfg.mini_player_opacity_on_idle);
     assert!(cfg.mini_player_layouts.is_empty());
 }

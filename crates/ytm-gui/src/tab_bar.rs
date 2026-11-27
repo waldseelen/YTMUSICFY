@@ -1,7 +1,5 @@
-use eframe::egui::{self, Color32, Stroke};
-
-use crate::icons::Icon;
 use crate::state::GuiTab;
+use eframe::egui::{self, Color32, Stroke};
 
 /// Five primary workspaces replacing the legacy 11-tab flat strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,13 +128,8 @@ pub const fn tab_tooltip(tab: GuiTab) -> &'static str {
     }
 }
 
-/// Renders 5 Primary Workspaces + Sync Staging Drawer toggle + compact sub-view strip.
-pub fn show_tab_bar(
-    ui: &mut egui::Ui,
-    active_tab: &mut GuiTab,
-    sync_len: usize,
-    sync_drawer_open: &mut bool,
-) {
+/// Renders 5 Primary Workspaces + compact sub-view strip.
+pub fn show_tab_bar(ui: &mut egui::Ui, active_tab: &mut GuiTab, sync_len: usize) {
     let active_ws = workspace_of(*active_tab);
 
     ui.horizontal_wrapped(|ui| {
@@ -171,35 +164,6 @@ pub fn show_tab_bar(
                 *active_tab = ws.default_tab();
             }
         }
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let drawer_label = if sync_len > 0 {
-                format!("Sync Drawer ({sync_len})")
-            } else {
-                "Sync Drawer".to_string()
-            };
-            let fill = if *sync_drawer_open {
-                Color32::from_rgb(82, 118, 210)
-            } else if sync_len > 0 {
-                Color32::from_rgb(92, 66, 128)
-            } else {
-                Color32::from_rgb(34, 38, 46)
-            };
-            let text_col = Color32::from_rgb(240, 244, 250);
-            let btn = egui::Button::image_and_text(
-                Icon::Sync.image(14.0, text_col),
-                egui::RichText::new(drawer_label).color(text_col).strong(),
-            )
-            .fill(fill)
-            .corner_radius(5.0);
-            if ui
-                .add(btn)
-                .on_hover_text("Toggle persistent Sync Staging Drawer (Ctrl+Shift+S)")
-                .clicked()
-            {
-                *sync_drawer_open = !*sync_drawer_open;
-            }
-        });
     });
 
     let subs = active_ws.sub_tabs();

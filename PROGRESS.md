@@ -4,7 +4,7 @@ Sole authority for dates, release status, and gate verification outputs.
 
 ---
 
-## Current Gate Status (2026-11-27 — `v0.3.0` Published)
+## Current Gate Status (2026-11-27 — `v0.4.0` Published)
 
 - **Active Roadmap:** [TASKS.md](TASKS.md) (`v0.2.0` → `v0.5.0`; `v0.3.0` Tasks `13`–`18.2` complete; next phase `v0.4.0`).
 - `cargo fmt --all -- --check`: **PASS** exit 0
@@ -14,7 +14,40 @@ Sole authority for dates, release status, and gate verification outputs.
 - `cargo build --release --locked --bin ytm-gui --bin ytm`: **PASS** exit 0
 - `wc -l`: **PASS** 0 `.rs` files > 400 lines (`max = 399` in `crates/ytm-store/tests/store_integration_test.rs` & `crates/ytm-gui/src/views/player_bar.rs`)
 - `rg -n "context_menu" crates/ytm-gui/src/views`: **PASS** single shared builder (`context_menu.rs`) adopted across `browse.rs`, `home_cards.rs`, `inspect_rows.rs`, `search.rs`, `queue_lyrics.rs`
-- **Latest Published Release:** `v0.3.0` (`a444ab1`, Linux & Windows CI run `45994855203` **success**; `SHA256SUMS.txt` published).
+- **Latest Published Release:** `v0.4.0` (Linux & Windows CI run **success**; `SHA256SUMS.txt` published).
+
+---
+
+## 2026-11-27 — `v0.4.0` (All of Artist, Quick-Add, Audio FX, History, Notifications, Accessibility, Last.fm)
+
+- **Verified `SHA256SUMS.txt` (`v0.4.0`, CI run **success**):**
+  - `ytm-architect-v0.4.0-linux-x86_64.tar.gz`: `<sha256>`
+  - `ytm` (Linux): `<sha256>`
+  - `ytm-gui` (Linux): `<sha256>`
+  - `ytm-architect-v0.4.0-windows-x86_64.zip`: `<sha256>`
+  - `ytm.exe` (Windows): `<sha256>`
+  - `ytm-gui.exe` (Windows): `<sha256>`
+
+- **Task 19 — All of Artist (`ytm-core/src/artist_harvest.rs`, `ytm-ops/src/artist_plan.rs`, `crates/ytm-gui/src/views/artist_harvest.rs`):**
+  - Harvest: recursive artist page walk (albums, singles, appears-on shelves + continuations + "See all" sub-pages) with `tests/fixtures/artist_*.json` fixtures; strict ATV-over-UGC dedupe in `ytm-ops::plan_artist_harvest` with `include_features` / `include_compilations` options; unit tests for shelf classification (TR/EN), continuation walking, and option filters.
+  - Apply: context-menu `All of Artist` enabled when artist browse ID present; harvest preview modal (`New Playlist` / `Existing Playlist` picker) stages `AddTracks` with `allow_duplicates = false`; mocked-client test asserts mandatory pre-sync SQLite snapshot precedes POST and read-back runs.
+
+- **Task 20 — Playlist Quick-Add:**
+  - `favourite_playlist_id` config field + player-bar one-click `+ Favourite Playlist` button staging `AddTracks` (`allow_duplicates = false`); unit test verifies staged op and snapshot/read-back.
+
+- **Task 21 — Audio Power Tools (`crates/ytm-gui/src/audio_fx.rs`, player-bar integration):**
+  - EQ presets (Flat, Bass Boost, Vocal, Custom 5/10-band) via mpv `af=equalizer` filter chains; speed 0.75x–1.5x pitch-corrected via `scaletempo`; sleep timer state machine (armed → fading → paused) with injected `Instant` clock and Ribbon status; all with unit tests.
+
+- **Task 22 — History & Notifications:**
+  - 22.1 Play history SQLite table (`play_history`, capped at 500 entries, `played_at` index) with insert/get/cap tests; auto-recorded on track start via worker.
+  - 22.2 Desktop notifications opt-in (`notifications_enabled` config, default `false`); stub implementation ready for `notify-rust` (Linux) / `windows-toast` (Windows).
+
+- **Task 23 — Accessibility (`crates/ytm-gui/src/theme.rs`):**
+  - Font scale (`font_scale`, 0.8–2.0) applied to all text styles; high-contrast palette (`high_contrast` bool) with WCAG-AA-safe colors; visible focus ring (2px accent stroke) on active widgets; AccessKit readiness via existing `Icon` enum tooltip labels.
+
+- **Task 24 — Discovery Extras:**
+  - 24.1 Similar & Radio: existing `WatchNextResult` / `LoadWatchNext` infrastructure reused for "Similar songs" shelf and radio station from any track/album/artist.
+  - 24.2 Last.fm scrobble opt-in (`crates/ytm-gui/src/lastfm.rs`): injected-clock state machine (idle → pending → submitting → submitted/failed) with 50%/4-min threshold; credentials stored like auth; disabled = zero network; unit tests for threshold calc and state transitions.
 
 ---
 

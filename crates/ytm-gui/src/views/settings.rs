@@ -4,7 +4,7 @@ use eframe::egui;
 
 use crate::contracts::{AccentPalette, ThemeMode, UiLang};
 use crate::i18n::{Key, ResolvedLang, tr};
-use crate::state::{GuiAppConfig, MutationPolicy, WorkerCmd};
+use crate::state::{GuiAppConfig, MutationPolicy, WorkerCmd, WindowCloseAction};
 
 /// Dedicated Settings panel editing `config.toml` governance, appearance, ribbon, and enrichment.
 pub fn show(
@@ -112,7 +112,38 @@ pub fn show(
             ui.strong(tr(lang, Key::SettingsTrayHeading));
             ui.checkbox(&mut cfg.tray_enabled, tr(lang, Key::SettingsTrayEnabled));
             ui.add_enabled_ui(cfg.tray_enabled, |ui| {
-                ui.checkbox(&mut cfg.close_to_tray, tr(lang, Key::SettingsCloseToTray));
+                ui.horizontal(|ui| {
+                    ui.label(tr(lang, Key::SettingsCloseAction));
+                    egui::ComboBox::from_id_salt("close_action_combo")
+                        .selected_text(match cfg.close_action {
+                            WindowCloseAction::Quit => tr(lang, Key::CloseActionQuit),
+                            WindowCloseAction::HideToTray => tr(lang, Key::CloseActionHideToTray),
+                            WindowCloseAction::Minimize => tr(lang, Key::CloseActionMinimize),
+                            WindowCloseAction::HideWindow => tr(lang, Key::CloseActionHideWindow),
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut cfg.close_action,
+                                WindowCloseAction::Quit,
+                                tr(lang, Key::CloseActionQuit),
+                            );
+                            ui.selectable_value(
+                                &mut cfg.close_action,
+                                WindowCloseAction::HideToTray,
+                                tr(lang, Key::CloseActionHideToTray),
+                            );
+                            ui.selectable_value(
+                                &mut cfg.close_action,
+                                WindowCloseAction::Minimize,
+                                tr(lang, Key::CloseActionMinimize),
+                            );
+                            ui.selectable_value(
+                                &mut cfg.close_action,
+                                WindowCloseAction::HideWindow,
+                                tr(lang, Key::CloseActionHideWindow),
+                            );
+                        });
+                });
             });
             ui.checkbox(
                 &mut cfg.mini_player_opacity_on_idle,

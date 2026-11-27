@@ -10,6 +10,7 @@ pub mod snapshot;
 pub mod staged_ops;
 pub mod traits;
 
+pub use db::PlayHistoryEntry;
 pub use db::SqliteStore;
 pub use error::StoreError;
 pub use export::{export_playlist_to_path, export_playlist_to_string, import_playlist_from_json};

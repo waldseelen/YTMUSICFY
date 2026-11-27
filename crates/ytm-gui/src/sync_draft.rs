@@ -135,6 +135,37 @@ fn apply_op_to_draft(pl: &mut Playlist, op: &StagedOp) {
             }
             reindex_playlist(pl);
         }
+        StagedOp::SetLikeStatusBatch {
+            video_ids,
+            titles,
+            liked,
+        } if pl.id.eq_ignore_ascii_case("LM") || pl.id.eq_ignore_ascii_case("VLLM") => {
+            if !*liked {
+                let unlike_set: std::collections::HashSet<_> = video_ids.iter().collect();
+                pl.tracks.retain(|t| !unlike_set.contains(&t.video_id));
+            } else {
+                let existing: std::collections::HashSet<_> =
+                    pl.tracks.iter().map(|t| t.video_id.clone()).collect();
+                for (vid, title) in video_ids.iter().zip(titles.iter()) {
+                    if !existing.contains(vid) {
+                        pl.tracks.push(Track {
+                            video_id: vid.clone(),
+                            set_video_id: None,
+                            position: pl.tracks.len(),
+                            title: title.clone(),
+                            artists: Vec::new(),
+                            album: None,
+                            duration_sec: None,
+                            release_year: None,
+                            music_video_type: MusicVideoType::Unknown,
+                            availability: TrackAvailability::Available,
+                            thumbnail_url: None,
+                        });
+                    }
+                }
+            }
+            reindex_playlist(pl);
+        }
         // `CreatePlaylist` creates a new remote playlist not in `base_cache`; `RestoreSnapshot`
         // requires snapshot track loading from `ytm-store` and cannot be projected synchronously.
         _ => {}

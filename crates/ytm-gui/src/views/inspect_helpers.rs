@@ -75,6 +75,53 @@ fn cached_sort_stage_state(
     })
 }
 
+fn is_liked_music_id(id: &str) -> bool {
+    id.eq_ignore_ascii_case("LM") || id.eq_ignore_ascii_case("VLLM")
+}
+
+/// Stage removal of selected tracks: `RemoveTracks` on editable playlists, or `SetLikeStatus(false)` on `LM`.
+pub(crate) fn stage_selected_removals(
+    pl: &Playlist,
+    editable: bool,
+    selected_positions: &HashSet<usize>,
+    sync_queue: &mut SyncQueue,
+) -> Option<(usize, Option<u64>, bool)> {
+    let picked: Vec<Track> = pl
+        .tracks
+        .iter()
+        .filter(|t| selected_positions.contains(&t.position))
+        .cloned()
+        .collect();
+    if is_liked_music_id(&pl.id) {
+        let tracks: Vec<Track> = picked
+            .into_iter()
+            .filter(|t| !t.video_id.is_empty())
+            .collect();
+        let count = tracks.len();
+        if count == 0 {
+            return None;
+        }
+        let video_ids: Vec<String> = tracks.iter().map(|t| t.video_id.clone()).collect();
+        let titles: Vec<String> = tracks.iter().map(|t| t.title.clone()).collect();
+        let eid = sync_queue.push(StagedOp::SetLikeStatusBatch {
+            video_ids,
+            titles,
+            liked: false,
+        });
+        return Some((count, Some(eid), true));
+    }
+    if !editable || picked.is_empty() {
+        return None;
+    }
+    let cnt = picked.len();
+    let eid = sync_queue.push(StagedOp::RemoveTracks {
+        playlist_id: pl.id.clone(),
+        playlist_title: pl.title.clone(),
+        tracks: picked,
+    });
+    Some((cnt, Some(eid), false))
+}
+
 pub fn show_selection_bar(
     ui: &mut egui::Ui,
     pl: &Playlist,
@@ -86,29 +133,27 @@ pub fn show_selection_bar(
     if selected_positions.is_empty() {
         return;
     }
+    let is_lm = is_liked_music_id(&pl.id);
+    let btn_label = if is_lm {
+        "Stage Unlike Selected (Remove from LM)"
+    } else {
+        "Stage Remove Selected"
+    };
     ui.horizontal_wrapped(|ui| {
         ui.label(format!("Selected: {}", selected_positions.len()));
         if ui
-            .add_enabled(editable, egui::Button::new("Stage Remove Selected"))
+            .add_enabled(editable || is_lm, egui::Button::new(btn_label))
             .clicked()
+            && let Some((cnt, eid, unliked)) =
+                stage_selected_removals(pl, editable, selected_positions, sync_queue)
         {
-            let picked: Vec<Track> = pl
-                .tracks
-                .iter()
-                .filter(|t| selected_positions.contains(&t.position))
-                .cloned()
-                .collect();
-            let cnt = picked.len();
-            let eid = sync_queue.push(StagedOp::RemoveTracks {
-                playlist_id: pl.id.clone(),
-                playlist_title: pl.title.clone(),
-                tracks: picked,
-            });
             selected_positions.clear();
-            *toast = Some(ToastState::staged(
-                format!("Staged -{cnt} track removal(s) in Sync."),
-                Some(eid),
-            ));
+            let msg = if unliked {
+                format!("Staged {cnt} unlike(s) to remove from Liked Music in Sync.")
+            } else {
+                format!("Staged -{cnt} track removal(s) in Sync.")
+            };
+            *toast = Some(ToastState::staged(msg, eid));
         }
         if ui.button("Clear Selection").clicked() {
             selected_positions.clear();
@@ -302,87 +347,5 @@ pub fn format_duration(total_secs: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use ytm_core::{MusicVideoType, PlaylistPrivacy, TrackAvailability};
-
-    use super::*;
-
-    fn mk_track(vid: &str, sid: &str, pos: usize) -> Track {
-        Track {
-            video_id: vid.into(),
-            set_video_id: Some(sid.into()),
-            position: pos,
-            title: vid.into(),
-            artists: Vec::new(),
-            album: None,
-            duration_sec: Some(120),
-            release_year: None,
-            music_video_type: MusicVideoType::AudioTrack,
-            availability: TrackAvailability::Available,
-            thumbnail_url: None,
-        }
-    }
-
-    #[test]
-    fn compute_drop_reorder_moves_to_middle_and_end() {
-        let pl = Playlist {
-            id: "PL1".into(),
-            title: "Mix".into(),
-            description: None,
-            privacy: PlaylistPrivacy::Private,
-            owned: true,
-            track_count: 3,
-            tracks: vec![
-                mk_track("V1", "S1", 0),
-                mk_track("V2", "S2", 1),
-                mk_track("V3", "S3", 2),
-            ],
-        };
-        assert_eq!(
-            compute_drop_reorder(&pl, &["S1".into()], 3).expect("end"),
-            vec!["S2", "S3", "S1"]
-        );
-        assert_eq!(
-            compute_drop_reorder(&pl, &["S3".into()], 0).expect("top"),
-            vec!["S3", "S1", "S2"]
-        );
-    }
-
-    #[test]
-    fn sort_stage_memo_hits_same_revision_and_invalidates_on_change() {
-        let ctx = egui::Context::default();
-        let pl = Playlist {
-            id: "PL1".into(),
-            title: "Mix".into(),
-            description: None,
-            privacy: PlaylistPrivacy::Private,
-            owned: true,
-            track_count: 2,
-            tracks: vec![mk_track("Z", "S1", 0), mk_track("A", "S2", 1)],
-        };
-        let sort_asc = InspectSortState {
-            column: InspectColumn::Title,
-            asc: true,
-        };
-        let first = cached_sort_stage_state(&ctx, &pl, DraftRevision(1), sort_asc);
-        let second = cached_sort_stage_state(&ctx, &pl, DraftRevision(1), sort_asc);
-        assert_eq!(first, second);
-        if let (
-            SortStageComputed::Moves { target_sids: a, .. },
-            SortStageComputed::Moves { target_sids: b, .. },
-        ) = (&first, &second)
-        {
-            assert!(Arc::ptr_eq(a, b));
-        } else {
-            panic!("expected Moves");
-        }
-        let sort_desc = InspectSortState {
-            column: InspectColumn::Title,
-            asc: false,
-        };
-        assert!(matches!(
-            cached_sort_stage_state(&ctx, &pl, DraftRevision(2), sort_desc),
-            SortStageComputed::MatchesCurrent
-        ));
-    }
-}
+#[path = "inspect_helpers_tests.rs"]
+mod tests;

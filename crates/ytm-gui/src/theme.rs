@@ -157,7 +157,7 @@ pub struct ThemeState {
     pub dynamic_target: Option<Color32>,
     pub dynamic_current: Option<Color32>,
     pub palette: Palette,
-    last_applied_key: Option<(bool, AccentPalette, Option<Color32>)>,
+    last_applied_key: Option<(bool, AccentPalette, Option<Color32>, bool, i32)>,
 }
 
 impl Default for ThemeState {
@@ -172,9 +172,26 @@ impl Default for ThemeState {
     }
 }
 
+/// Accessibility settings affecting theme rendering.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AccessibilityConfig {
+    pub high_contrast: bool,
+    pub font_scale: f32,
+}
+
+impl Default for AccessibilityConfig {
+    fn default() -> Self {
+        Self {
+            high_contrast: false,
+            font_scale: 1.0,
+        }
+    }
+}
+
 impl ThemeState {
     /// Update active palette and apply `egui::Visuals` only when colors change (zero steady-state churn).
     /// Returns `true` when still animating dynamic accent interpolation.
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_and_apply(
         &mut self,
         ctx: &egui::Context,
@@ -183,6 +200,7 @@ impl ThemeState {
         dynamic_enabled: bool,
         reduced_motion: bool,
         dt: f32,
+        accessibility: AccessibilityConfig,
     ) -> bool {
         let mut animating = false;
         let active_dyn = if dynamic_enabled {
@@ -209,10 +227,21 @@ impl ThemeState {
             ThemeMode::Dark => true,
             ThemeMode::Light => false,
         };
-        let key = (dark, accent, active_dyn);
+        let key = (
+            dark,
+            accent,
+            active_dyn,
+            accessibility.high_contrast,
+            (accessibility.font_scale * 100.0) as i32,
+        );
         if self.last_applied_key != Some(key) {
             self.palette = Palette::resolve(mode, self.os_dark, accent, active_dyn);
-            apply_palette(ctx, &self.palette);
+            apply_palette(
+                ctx,
+                &self.palette,
+                accessibility.high_contrast,
+                accessibility.font_scale,
+            );
             self.last_applied_key = Some(key);
         }
         animating
@@ -220,12 +249,17 @@ impl ThemeState {
 }
 
 /// Apply the initial Ultra-Dark theme once at startup before the first frame.
-pub fn apply_theme(ctx: &egui::Context) {
-    apply_palette(ctx, &Palette::ultra_dark(AccentPalette::Emerald));
+pub fn apply_theme(ctx: &egui::Context, high_contrast: bool, font_scale: f32) {
+    apply_palette(
+        ctx,
+        &Palette::ultra_dark(AccentPalette::Emerald),
+        high_contrast,
+        font_scale,
+    );
 }
 
 /// Apply a resolved `Palette` to `egui::Context` visuals.
-pub fn apply_palette(ctx: &egui::Context, pal: &Palette) {
+pub fn apply_palette(ctx: &egui::Context, pal: &Palette, high_contrast: bool, font_scale: f32) {
     let mut visuals = if pal.dark_mode {
         Visuals::dark()
     } else {
@@ -239,28 +273,57 @@ pub fn apply_palette(ctx: &egui::Context, pal: &Palette) {
     visuals.selection.bg_fill = pal.accent_selection;
     visuals.selection.stroke = Stroke::new(1.0_f32, pal.accent_primary);
 
+    // High contrast mode: increase contrast for better accessibility
+    let (text_primary, border_subtle, accent_primary) = if high_contrast {
+        if pal.dark_mode {
+            (
+                Color32::from_rgb(255, 255, 255),
+                Color32::from_rgb(128, 128, 128),
+                Color32::from_rgb(255, 255, 0),
+            )
+        } else {
+            (
+                Color32::from_rgb(0, 0, 0),
+                Color32::from_rgb(64, 64, 64),
+                Color32::from_rgb(0, 100, 0),
+            )
+        }
+    } else {
+        (pal.text_primary, pal.border_subtle, pal.accent_primary)
+    };
+
     visuals.widgets.noninteractive.bg_fill = pal.bg_panel;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, pal.border_subtle);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, pal.text_primary);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, border_subtle);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_primary);
     visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.inactive.bg_fill = pal.bg_elevated;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, pal.border_subtle);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, pal.text_primary);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, border_subtle);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, text_primary);
     visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.hovered.bg_fill = pal.bg_hover;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, pal.accent_primary);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, pal.text_primary);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, accent_primary);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, text_primary);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.active.bg_fill = pal.accent_selection;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, pal.accent_primary);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, pal.text_primary);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, accent_primary);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, text_primary);
     visuals.widgets.active.corner_radius = CornerRadius::same(4);
 
-    visuals.window_stroke = Stroke::new(1.0_f32, pal.border_subtle);
+    // Focus ring for accessibility - visible focus indicator
+    visuals.widgets.active.fg_stroke = Stroke::new(2.0_f32, accent_primary);
+
+    visuals.window_stroke = Stroke::new(1.0_f32, border_subtle);
     visuals.window_corner_radius = CornerRadius::same(6);
+
+    // Apply font scaling
+    let mut style = (*ctx.style()).clone();
+    style.text_styles.iter_mut().for_each(|(_, font_id)| {
+        font_id.size = (font_id.size * font_scale).clamp(8.0, 48.0);
+    });
+    ctx.set_style(style);
 
     let (pref, target_theme) = if pal.dark_mode {
         (egui::ThemePreference::Dark, egui::Theme::Dark)

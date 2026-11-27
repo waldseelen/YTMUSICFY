@@ -24,6 +24,10 @@ pub(crate) fn sync_theme_and_input(
         app.gui_config.dynamic_accent,
         app.gui_config.reduced_motion,
         dt,
+        crate::theme::AccessibilityConfig {
+            high_contrast: app.gui_config.high_contrast,
+            font_scale: app.gui_config.font_scale,
+        },
     ) {
         ctx.request_repaint();
     }
@@ -237,6 +241,15 @@ pub(crate) fn finish_frame(
     crate::playlist_meta_modal::show_playlist_meta_modal(
         ctx,
         &mut app.meta_modal,
+        &mut app.sync_queue,
+        &mut app.toast,
+    );
+    let harvest_playlists = app.library.data().map(Vec::as_slice).unwrap_or(&[]);
+    crate::views::artist_harvest::show_artist_harvest_modal(
+        ctx,
+        &mut app.artist_harvest_modal,
+        harvest_playlists,
+        &app.playlist_cache,
         &mut app.sync_queue,
         &mut app.toast,
     );

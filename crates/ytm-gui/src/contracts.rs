@@ -75,6 +75,21 @@ pub enum CloseAction {
     Quit,
 }
 
+/// User-facing window close action preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowCloseAction {
+    /// Exit the application completely.
+    Quit,
+    /// Hide window to system tray (requires tray host on Wayland).
+    #[default]
+    HideToTray,
+    /// Minimize to taskbar / dock (always works).
+    Minimize,
+    /// Hide window but keep running in background (no tray icon).
+    HideWindow,
+}
+
 /// Structured message carried by the Status Ribbon bus and history ring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatusMessage {

@@ -124,6 +124,28 @@ pub(crate) fn apply_worker_event(app: &mut YtmGuiApp, evt: WorkerEvent) {
             app.batch_progress = None;
             app.genre_plan = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
         }
+        WorkerEvent::ArtistHarvested(res) => match res {
+            Ok(harvest) => {
+                let now = app.now_ms();
+                app.status_bus.push_info(
+                    true,
+                    format!(
+                        "Harvested {} track candidates from {}.",
+                        harvest.tracks.len(),
+                        harvest.artist_name
+                    ),
+                    now,
+                );
+                app.artist_harvest_modal = Some(
+                    crate::views::artist_harvest::ArtistHarvestModal::new(harvest),
+                );
+            }
+            Err(err) => {
+                let now = app.now_ms();
+                app.status_bus
+                    .push_info(false, format!("Artist harvest failed: {err}"), now);
+            }
+        },
         WorkerEvent::SnapshotsLoaded(res) => {
             app.snapshots = res.map_or_else(AsyncState::Failed, AsyncState::Ready);
         }

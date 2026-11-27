@@ -185,5 +185,15 @@ pub fn post_preview_meta(op: &StagedOp, chunk_size: usize) -> (&'static str, usi
             },
             1,
         ),
+        StagedOp::SetLikeStatusBatch {
+            video_ids, liked, ..
+        } => (
+            if *liked {
+                "POST like/like (batch)"
+            } else {
+                "POST like/removelike (batch)"
+            },
+            video_ids.len(),
+        ),
     }
 }

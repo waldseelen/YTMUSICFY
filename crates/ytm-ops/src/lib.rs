@@ -1,3 +1,4 @@
+pub mod artist_plan;
 pub mod dedupe;
 pub mod error;
 pub mod health;
@@ -7,6 +8,7 @@ pub mod restore_plan;
 pub mod set_ops;
 pub mod sort;
 
+pub use artist_plan::{ArtistHarvestConfig, ArtistHarvestPlan, plan_artist_harvest};
 pub use dedupe::{keeper_score, plan_dedupe};
 pub use error::OpsError;
 pub use health::scan_playlist_health;

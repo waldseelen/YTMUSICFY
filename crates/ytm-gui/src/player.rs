@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use eframe::egui;
 use serde_json::json;
@@ -182,6 +183,26 @@ impl PlayerController {
     /// Immediately apply a deferred `Configure` by restarting `mpv` and resuming at saved position.
     pub fn apply_pending_configure(&self) {
         let _ = self.cmd_tx.send(ActorCmd::ApplyPendingConfigure);
+    }
+
+    /// Set the mpv audio filter chain (EQ, scaletempo, etc.).
+    pub fn set_audio_filters(&self, filters: String) {
+        let _ = self.cmd_tx.send(ActorCmd::SetAudioFilters(filters));
+    }
+
+    /// Set playback speed (0.75x to 1.5x, pitch-corrected).
+    pub fn set_playback_speed(&self, speed: f64) {
+        let _ = self.cmd_tx.send(ActorCmd::SetPlaybackSpeed(speed));
+    }
+
+    /// Start sleep timer with given duration.
+    pub fn set_sleep_timer(&self, duration: Duration) {
+        let _ = self.cmd_tx.send(ActorCmd::SetSleepTimer(duration));
+    }
+
+    /// Cancel sleep timer.
+    pub fn cancel_sleep_timer(&self) {
+        let _ = self.cmd_tx.send(ActorCmd::CancelSleepTimer);
     }
 
     pub fn stop(&self) {

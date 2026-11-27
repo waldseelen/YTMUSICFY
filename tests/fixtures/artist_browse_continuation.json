@@ -1,0 +1,30 @@
+{
+  "onResponseReceivedActions": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "musicCarouselShelfRenderer": {
+              "header": {
+                "musicCarouselShelfBasicHeaderRenderer": {
+                  "title": { "runs": [{ "text": "Appears on" }] }
+                }
+              },
+              "contents": [
+                {
+                  "musicTwoRowItemRenderer": {
+                    "title": { "runs": [{ "text": "Late Night Compilation" }] },
+                    "subtitle": { "runs": [{ "text": "2022" }] },
+                    "navigationEndpoint": {
+                      "browseEndpoint": { "browseId": "MPREb_LATE_NIGHT" }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -125,6 +125,7 @@ pub struct YtmGuiApp {
     pub(crate) sidebar_focused_idx: Option<usize>,
     pub(crate) play_queue: PlayQueue,
     pub(crate) player: PlayerController,
+    pub(crate) audio_effects: crate::audio_fx::AudioEffects,
     pub(crate) media_bridge: OsMediaBridge,
     pub(crate) focus_pane: FocusPane,
     pub(crate) muted: bool,
@@ -138,6 +139,7 @@ pub struct YtmGuiApp {
     pub(crate) lyrics_state: AsyncState<Option<String>>,
     pub(crate) artwork: ArtworkCache,
     pub(crate) meta_modal: Option<PlaylistMetaModal>,
+    pub(crate) artist_harvest_modal: Option<crate::views::artist_harvest::ArtistHarvestModal>,
     pub(crate) tray_ctrl: TrayController,
     pub(crate) mini_player: MiniPlayerState,
     pub(crate) main_window_visible: bool,
@@ -227,6 +229,7 @@ impl eframe::App for YtmGuiApp {
                     focus_search_once: self.focus_search_once,
                     status_bus: &mut self.status_bus,
                     sync_queue: &mut self.sync_queue,
+                    sync_drawer_open: &mut self.sync_drawer_open,
                     mini_player_open: &mut self.mini_player.open,
                     start_instant: self.start_instant,
                     now_ms,
@@ -250,6 +253,7 @@ impl eframe::App for YtmGuiApp {
 
         self.focus_pane = if self.pending_modal.is_some()
             || self.meta_modal.is_some()
+            || self.artist_harvest_modal.is_some()
             || self.palette_open
             || self.lightbox.is_open()
         {
@@ -269,9 +273,11 @@ impl eframe::App for YtmGuiApp {
                     queue: &self.play_queue,
                     player: &self.player,
                     playlists: playlists_for_bar,
+                    favourite_playlist_id: self.gui_config.favourite_playlist_id.as_deref(),
                     muted: self.muted,
                     right_drawer: self.right_drawer,
                     art_tex: current_art.as_ref(),
+                    current_effects: &mut self.audio_effects,
                 },
             ));
         });

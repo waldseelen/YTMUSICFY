@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eframe::egui;
 use serde_json::{Value, json};
@@ -26,6 +27,10 @@ pub(crate) enum ActorCmd {
         video_id: String,
     },
     Ipc(Value),
+    SetAudioFilters(String),
+    SetPlaybackSpeed(f64),
+    SetSleepTimer(Duration),
+    CancelSleepTimer,
     Stop,
     Shutdown,
 }
@@ -252,6 +257,23 @@ pub(crate) fn run_mpv_actor_with<R: MpvRuntime>(
             }
             ActorCmd::Ipc(val) => {
                 let _ = runtime.send(&val);
+            }
+            ActorCmd::SetAudioFilters(filters) => {
+                if filters.is_empty() {
+                    let _ = runtime.send(&json!({ "command": ["af", "set", ""] }));
+                } else {
+                    let _ = runtime.send(&json!({ "command": ["af", "set", filters] }));
+                }
+            }
+            ActorCmd::SetPlaybackSpeed(speed) => {
+                let _ = runtime.send(&json!({ "command": ["set_property", "speed", speed] }));
+            }
+            ActorCmd::SetSleepTimer(_duration) => {
+                // Sleep timer is handled in the UI layer, not mpv
+                // This command just acknowledges the timer was set
+            }
+            ActorCmd::CancelSleepTimer => {
+                // Sleep timer cancelled in UI layer
             }
             ActorCmd::Stop => {
                 prefetched_video_id = None;

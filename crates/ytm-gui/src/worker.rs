@@ -7,7 +7,7 @@ use eframe::egui;
 use tokio::sync::{Mutex as AsyncMutex, mpsc as tokio_mpsc};
 use ytm_core::{InnerTubeClient, InnerTubeClientTrait, ReqwestTransport};
 use ytm_ops::{plan_dedupe, plan_sort};
-use ytm_store::{AppPaths, SnapshotStore, SqliteStore};
+use ytm_store::{AppPaths, EnrichmentCacheStore, SnapshotStore, SqliteStore};
 
 #[path = "worker_jobs.rs"]
 mod worker_jobs;
@@ -306,6 +306,24 @@ async fn handle_cmd(
                 ctx.request_repaint();
             });
         }
+        WorkerCmd::HarvestArtist { artist_id, options } => {
+            let Some(client) = state.client.as_ref().map(Arc::clone) else {
+                let _ = tx.send(WorkerEvent::StatusToast {
+                    ok: false,
+                    message: "Sign in before harvesting an artist.".to_string(),
+                });
+                return;
+            };
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let res = ytm_core::harvest_artist(client.as_ref(), &artist_id, &options)
+                    .await
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(WorkerEvent::ArtistHarvested(res));
+                ctx.request_repaint();
+            });
+        }
         WorkerCmd::PlanDedupeDraft { playlist, config } => {
             let res = plan_dedupe(&playlist, &config).map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::DedupePlanned(res));
@@ -313,6 +331,26 @@ async fn handle_cmd(
         WorkerCmd::PlanSortDraft { playlist, spec } => {
             let res = plan_sort(&playlist, &spec, None).map_err(|e| e.to_string());
             let _ = tx.send(WorkerEvent::SortPlanned(res));
+        }
+        WorkerCmd::RecordPlayHistory {
+            video_id,
+            title,
+            artists_json,
+            album,
+            duration_sec,
+        } => {
+            let store = Arc::clone(&state.store);
+            tokio::spawn(async move {
+                let _ = store
+                    .insert_play_history(
+                        &video_id,
+                        &title,
+                        &artists_json,
+                        album.as_deref(),
+                        duration_sec,
+                    )
+                    .await;
+            });
         }
         // --- Lane 2: Cancellable Background Jobs ---
         WorkerCmd::IndexAllPlaylists { missing_only } => {

@@ -1,3 +1,4 @@
+pub mod artist_harvest;
 pub mod auth;
 pub mod browse_models;
 pub mod client;
@@ -11,6 +12,10 @@ pub mod models;
 pub mod parser;
 pub mod traits;
 
+pub use artist_harvest::{
+    ArtistHarvest, ArtistHarvestOptions, ArtistHarvestTrack, ArtistReleaseRef, ArtistSectionKind,
+    classify_section_title, harvest_artist,
+};
 pub use auth::{
     build_auth_headers, compute_sapisidhash, extract_sapisid, netscape_cookies_to_header,
     parse_auth_input,

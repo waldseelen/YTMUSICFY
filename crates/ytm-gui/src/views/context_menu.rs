@@ -182,8 +182,20 @@ pub fn attach_context_menu(
                     }
                 }
                 ContextActionId::AllOfArtist => {
-                    ui.add_enabled(false, egui::Button::new(tr(lang, Key::CtxAllOfArtist)))
-                        .on_disabled_hover_text(tr(lang, Key::CtxAllOfArtistSoon));
+                    let artist = target.artist_browse();
+                    let clicked = ui
+                        .add_enabled(
+                            spec.enabled && artist.is_some(),
+                            egui::Button::new(tr(lang, Key::CtxAllOfArtist)),
+                        )
+                        .clicked();
+                    if clicked && let Some((artist_name, artist_id)) = artist {
+                        actions.push(PlayAction::HarvestArtist {
+                            artist_id,
+                            artist_name,
+                        });
+                        ui.close_menu();
+                    }
                 }
                 ContextActionId::OpenInYtm => {
                     if ui.button(tr(lang, Key::OpenInYtm)).clicked() {

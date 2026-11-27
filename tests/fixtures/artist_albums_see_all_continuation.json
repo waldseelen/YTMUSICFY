@@ -1,0 +1,19 @@
+{
+  "onResponseReceivedActions": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "musicTwoRowItemRenderer": {
+              "title": { "runs": [{ "text": "Signal Fires" }] },
+              "subtitle": { "runs": [{ "text": "2019" }] },
+              "navigationEndpoint": {
+                "browseEndpoint": { "browseId": "MPREb_SIGNAL_FIRES" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

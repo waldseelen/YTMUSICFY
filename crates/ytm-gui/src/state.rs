@@ -8,7 +8,7 @@ use ytm_enrich::EnrichmentConfig;
 use crate::auth_store::AudioQuality;
 pub use crate::contracts::{
     AccentPalette, CloseAction, MiniPlayerGeometry, MiniPlayerMode, StatusMessage, StatusPriority,
-    ThemeMode, UiLang,
+    ThemeMode, UiLang, WindowCloseAction,
 };
 use crate::sync_queue::StagedEntry;
 
@@ -290,8 +290,16 @@ pub struct GuiAppConfig {
     pub recent_searches: Vec<String>,
     #[serde(default = "default_true")]
     pub tray_enabled: bool,
-    #[serde(default = "default_true")]
-    pub close_to_tray: bool,
+    #[serde(default)]
+    pub close_action: WindowCloseAction,
+    #[serde(default)]
+    pub favourite_playlist_id: Option<String>,
+    #[serde(default)]
+    pub notifications_enabled: bool,
+    #[serde(default)]
+    pub font_scale: f32,
+    #[serde(default)]
+    pub high_contrast: bool,
     #[serde(default)]
     pub mini_player_opacity_on_idle: bool,
     #[serde(default)]
@@ -317,7 +325,11 @@ impl Default for GuiAppConfig {
             preferred_external_browser: None,
             recent_searches: Vec::new(),
             tray_enabled: true,
-            close_to_tray: true,
+            close_action: WindowCloseAction::default(),
+            favourite_playlist_id: None,
+            notifications_enabled: false,
+            font_scale: 1.0,
+            high_contrast: false,
             mini_player_opacity_on_idle: false,
             mini_player_layouts: HashMap::new(),
         }

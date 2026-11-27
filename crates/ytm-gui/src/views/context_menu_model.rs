@@ -196,12 +196,12 @@ pub fn build_menu_spec(
                     enabled: true,
                 });
             }
-            if track
+            let has_artist_browse = track
                 .artists
                 .first()
                 .and_then(|a| a.browse_id.as_ref())
-                .is_some()
-            {
+                .is_some();
+            if has_artist_browse {
                 items.push(ContextMenuItemSpec {
                     id: ContextActionId::GoToArtist,
                     enabled: true,
@@ -209,7 +209,7 @@ pub fn build_menu_spec(
             }
             items.push(ContextMenuItemSpec {
                 id: ContextActionId::AllOfArtist,
-                enabled: false,
+                enabled: has_artist_browse,
             });
             if track
                 .album
@@ -240,7 +240,7 @@ pub fn build_menu_spec(
             });
             items.push(ContextMenuItemSpec {
                 id: ContextActionId::AllOfArtist,
-                enabled: false,
+                enabled: true,
             });
         }
         ContextTarget::Playlist { browse_id, .. } => {
@@ -324,7 +324,7 @@ mod tests {
             ]
         );
         assert!(
-            !t_spec
+            t_spec
                 .iter()
                 .find(|s| s.id == ContextActionId::AllOfArtist)
                 .unwrap()

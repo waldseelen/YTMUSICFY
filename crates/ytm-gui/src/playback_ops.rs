@@ -20,6 +20,10 @@ pub enum PlayAction {
     AppendQueue(Track),
     ToggleLike(Track),
     StartRadio(Track),
+    HarvestArtist {
+        artist_id: String,
+        artist_name: String,
+    },
     OpenBrowse(String),
     OpenBrowseWithParams {
         browse_id: String,
@@ -75,6 +79,19 @@ pub fn dispatch_play_actions(actions: Vec<PlayAction>, app: &mut YtmGuiApp) {
                 });
                 app.toast = Some(ToastState::info(true, "Fetching Radio station tracks..."));
             }
+            PlayAction::HarvestArtist {
+                artist_id,
+                artist_name,
+            } => {
+                let _ = app.cmd_tx.send(WorkerCmd::HarvestArtist {
+                    artist_id,
+                    options: ytm_core::ArtistHarvestOptions::default(),
+                });
+                app.toast = Some(ToastState::info(
+                    true,
+                    format!("Harvesting all releases for {artist_name}..."),
+                ));
+            }
             PlayAction::OpenBrowse(browse_id) => {
                 open_browse_target(browse_id, None, app);
             }
@@ -105,6 +122,17 @@ pub fn start_playing_track(track: &Track, app: &mut YtmGuiApp) {
     if let Ok(json) = serde_json::to_string(&snap) {
         let _ = app.cmd_tx.send(WorkerCmd::SavePlaybackSession(json));
     }
+    // Record play history
+    let artists_json =
+        serde_json::to_string(&track.artists.iter().map(|a| &a.name).collect::<Vec<_>>())
+            .unwrap_or_default();
+    let _ = app.cmd_tx.send(WorkerCmd::RecordPlayHistory {
+        video_id: track.video_id.clone(),
+        title: track.title.clone(),
+        artists_json,
+        album: track.album.as_ref().map(|a| a.name.clone()),
+        duration_sec: track.duration_sec,
+    });
     let _ = app.cmd_tx.send(WorkerCmd::LoadWatchNext {
         video_id: track.video_id.clone(),
         playlist_id: None,
@@ -196,6 +224,35 @@ pub fn apply_player_bar_outcome(out: PlayerBarOutcome, app: &mut YtmGuiApp) {
     }
     if out.toggle_lyrics_drawer {
         app.right_drawer.toggle_lyrics();
+    }
+    // Audio effects
+    if let Some(filters) = out.apply_audio_filters {
+        app.audio_effects.eq_preset = crate::audio_fx::EqPreset::ALL
+            .iter()
+            .find(|p| p.filter_string() == filters)
+            .copied()
+            .unwrap_or_default();
+        app.player.set_audio_filters(filters);
+    }
+    if let Some(speed) = out.set_speed {
+        app.audio_effects.speed = crate::audio_fx::PlaybackSpeed::new(speed);
+        app.player.set_playback_speed(speed);
+    }
+    if let Some(duration) = out.set_sleep_timer {
+        app.audio_effects.sleep_timer = crate::audio_fx::SleepTimerState::new(duration);
+        app.player.set_sleep_timer(duration);
+        app.toast = Some(crate::navigation::ToastState::info(
+            true,
+            format!("Sleep timer set for {} min.", duration.as_secs() / 60),
+        ));
+    }
+    if out.cancel_sleep_timer {
+        let _ = app.audio_effects.sleep_timer.cancel();
+        app.player.cancel_sleep_timer();
+        app.toast = Some(crate::navigation::ToastState::info(
+            true,
+            "Sleep timer cancelled.",
+        ));
     }
     if out.open_lightbox
         && let Some(track) = app.play_queue.current_track()

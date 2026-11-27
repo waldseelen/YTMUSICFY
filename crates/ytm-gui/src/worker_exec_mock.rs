@@ -47,6 +47,7 @@ pub(super) struct MockClient {
     pub(super) fail_add_on: Mutex<Option<String>>,
     pub(super) empty_add_items: Mutex<bool>,
     pub(super) calls: Mutex<Vec<String>>,
+    pub(super) log_fetches: Mutex<bool>,
 }
 
 impl MockClient {
@@ -127,6 +128,9 @@ impl InnerTubeClientTrait for MockClient {
         Self: 'async_trait,
     {
         Box::pin(async move {
+            if *self.log_fetches.lock().unwrap() {
+                self.calls.lock().unwrap().push(format!("fetch:{id}"));
+            }
             self.playlists
                 .lock()
                 .unwrap()

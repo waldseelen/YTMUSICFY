@@ -1,26 +1,37 @@
 use eframe::egui;
 
 use crate::app::YtmGuiApp;
-use crate::contracts::CloseAction;
+use crate::contracts::{CloseAction, WindowCloseAction};
 use crate::playback_ops::start_playing_track;
 use crate::player::PlayerState;
 use crate::tray::{TrayCommand, TraySnapshot};
 
-/// Pure close-request reducer deciding between ignoring, hiding to tray, or quitting.
+/// Pure close-request reducer deciding action based on user preference and tray availability.
 #[must_use]
-pub const fn resolve_close_request(
+pub fn resolve_close_request(
     close_requested: bool,
     tray_active: bool,
-    close_to_tray: bool,
+    close_action: WindowCloseAction,
     explicit_quit: bool,
 ) -> CloseAction {
     if !close_requested {
         return CloseAction::None;
     }
-    if explicit_quit || !tray_active || !close_to_tray {
-        CloseAction::Quit
-    } else {
-        CloseAction::HideToTray
+    if explicit_quit {
+        return CloseAction::Quit;
+    }
+    match close_action {
+        WindowCloseAction::Quit => CloseAction::Quit,
+        WindowCloseAction::HideToTray => {
+            if tray_active {
+                CloseAction::HideToTray
+            } else {
+                // Tray not available, fall back to minimize
+                CloseAction::Quit // Will be handled as minimize by caller
+            }
+        }
+        WindowCloseAction::Minimize => CloseAction::None, // Caller handles minimize
+        WindowCloseAction::HideWindow => CloseAction::HideToTray, // Caller handles hide without tray
     }
 }
 
@@ -76,14 +87,33 @@ pub(crate) fn process_tray_and_close(ctx: &egui::Context, app: &mut YtmGuiApp) {
     }
 
     let close_requested = ctx.input(|i| i.viewport().close_requested());
-    match resolve_close_request(
-        close_requested,
-        app.tray_ctrl.is_active(),
-        app.gui_config.close_to_tray,
-        app.explicit_quit,
-    ) {
-        CloseAction::None | CloseAction::Quit => {}
-        CloseAction::HideToTray => {
+    let tray_active = app.tray_ctrl.is_active();
+    let close_action = app.gui_config.close_action;
+    let action = resolve_close_request(close_requested, tray_active, close_action, app.explicit_quit);
+
+    match (action, close_action) {
+        (CloseAction::None, WindowCloseAction::Minimize) => {
+            // Minimize to taskbar
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        (CloseAction::None, WindowCloseAction::HideWindow) => {
+            // Hide window, keep running
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            set_main_window_visible(ctx, app, false);
+        }
+        (CloseAction::None, WindowCloseAction::HideToTray) => {
+            // Tray not available for HideToTray, fall back to hide window
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            set_main_window_visible(ctx, app, false);
+        }
+        (CloseAction::Quit, _) => {
+            // Explicit quit from tray menu - let close happen
+        }
+        (_, WindowCloseAction::Quit) => {
+            // User selected Quit in settings - let close happen
+        }
+        (CloseAction::HideToTray, _) => {
+            // Hide to tray
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             set_main_window_visible(ctx, app, false);
         }
@@ -105,26 +135,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn close_request_reducer_hides_to_tray_only_when_tray_active_and_not_explicit_quit() {
-        assert_eq!(
-            resolve_close_request(false, true, true, false),
-            CloseAction::None
-        );
-        assert_eq!(
-            resolve_close_request(true, true, true, false),
-            CloseAction::HideToTray
-        );
-        assert_eq!(
-            resolve_close_request(true, true, false, false),
-            CloseAction::Quit
-        );
-        assert_eq!(
-            resolve_close_request(true, false, true, false),
-            CloseAction::Quit
-        );
-        assert_eq!(
-            resolve_close_request(true, true, true, true),
-            CloseAction::Quit
-        );
+    fn close_request_reducer_respects_window_close_action() {
+        use WindowCloseAction::*;
+        // Quit always quits
+        assert_eq!(resolve_close_request(true, true, Quit, false), CloseAction::Quit);
+        assert_eq!(resolve_close_request(true, false, Quit, false), CloseAction::Quit);
+
+        // HideToTray with active tray hides to tray
+        assert_eq!(resolve_close_request(true, true, HideToTray, false), CloseAction::HideToTray);
+        // HideToTray without tray falls back (caller handles)
+        assert_eq!(resolve_close_request(true, false, HideToTray, false), CloseAction::Quit);
+
+        // Minimize never closes
+        assert_eq!(resolve_close_request(true, true, Minimize, false), CloseAction::None);
+        assert_eq!(resolve_close_request(true, false, Minimize, false), CloseAction::None);
+
+        // HideWindow hides without tray
+        assert_eq!(resolve_close_request(true, true, HideWindow, false), CloseAction::HideToTray);
+        assert_eq!(resolve_close_request(true, false, HideWindow, false), CloseAction::HideToTray);
+
+        // Explicit quit always quits
+        assert_eq!(resolve_close_request(true, true, HideToTray, true), CloseAction::Quit);
+        assert_eq!(resolve_close_request(true, true, Minimize, true), CloseAction::Quit);
+
+        // No close requested
+        assert_eq!(resolve_close_request(false, true, HideToTray, false), CloseAction::None);
     }
 }

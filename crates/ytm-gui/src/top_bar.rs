@@ -31,6 +31,7 @@ pub struct TopBarCtx<'a> {
     pub focus_search_once: bool,
     pub status_bus: &'a mut StatusBus,
     pub sync_queue: &'a mut SyncQueue,
+    pub sync_drawer_open: &'a mut bool,
     pub mini_player_open: &'a mut bool,
     pub start_instant: Instant,
     pub now_ms: u64,
@@ -53,6 +54,7 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
         focus_search_once,
         status_bus,
         sync_queue,
+        sync_drawer_open,
         mini_player_open,
         start_instant,
         now_ms,
@@ -163,6 +165,38 @@ pub fn show_top_bar(ui: &mut egui::Ui, ctx: TopBarCtx<'_>) -> egui::Rect {
                     GuiTab::Settings
                 };
             }
+
+            let sync_len = sync_queue.entries().len();
+            let drawer_label = if sync_len > 0 {
+                format!("Sync ({sync_len})")
+            } else {
+                "Sync".to_string()
+            };
+            let fill = if *sync_drawer_open {
+                palette.accent_primary
+            } else if sync_len > 0 {
+                egui::Color32::from_rgb(92, 66, 128)
+            } else {
+                palette.bg_faint
+            };
+            if ui
+                .add_enabled(
+                    true,
+                    egui::Button::image_and_text(
+                        crate::icons::Icon::Sync.image(14.0, palette.text_primary),
+                        egui::RichText::new(drawer_label)
+                            .color(palette.text_primary)
+                            .strong(),
+                    )
+                    .fill(fill)
+                    .corner_radius(5.0),
+                )
+                .on_hover_text("Toggle persistent Sync Staging Drawer (Ctrl+Shift+S)")
+                .clicked()
+            {
+                *sync_drawer_open = !*sync_drawer_open;
+            }
+
             if matches!(session, AsyncState::Failed(_))
                 && ui
                     .small_button(tr(lang, Key::SidebarAuth))

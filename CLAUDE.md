@@ -46,6 +46,8 @@ Binding engineering rules and operational invariants for **Dalga** (workspace `y
    - Keep `.refs/`, `*.sqlite*`, `auth.json`, `browser.json`, and `headers_auth.json` gitignored.
 8. **No Unapproved Remote CI / Git Push Triggers:**
    - Never run `git push`, tag pushes, or remote GitHub Actions workflows (`gh workflow run` or pushing tags/branches that trigger CI) without the user's explicit per-action approval immediately beforehand; remote CI runners consume repository quota.
+9. **Complete Release Notes on Phase Closure:**
+   - Whenever a phase or release closes, document every added feature, user-facing change, and bug fix inside the release notes (GitHub Release body / `.github/workflows/release.yml` changelog section) alongside checksums — never ship a generic boilerplate-only release description.
 
 ---
 

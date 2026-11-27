@@ -98,7 +98,9 @@ fn preflight_pids(op: &StagedOp) -> Vec<&str> {
                 vec![source_playlist_id.as_str(), target_playlist_id.as_str()]
             }
         }
-        StagedOp::CreatePlaylist { .. } | StagedOp::SetLikeStatus { .. } => Vec::new(),
+        StagedOp::CreatePlaylist { .. }
+        | StagedOp::SetLikeStatus { .. }
+        | StagedOp::SetLikeStatusBatch { .. } => Vec::new(),
         other => other.target_playlist_id().into_iter().collect(),
     }
 }
@@ -364,6 +366,25 @@ async fn dispatch_op<C: InnerTubeClientTrait>(
                 (1, 1)
             })
             .map_err(|e| DispatchStop::Fail(0, 1, e.to_string())),
+        StagedOp::SetLikeStatusBatch {
+            video_ids, liked, ..
+        } => {
+            let mut completed = 0;
+            for vid in video_ids {
+                if let Err(e) = client.set_like_status(vid, *liked).await {
+                    return Err(DispatchStop::Fail(
+                        completed,
+                        video_ids.len(),
+                        e.to_string(),
+                    ));
+                }
+                completed += 1;
+            }
+            if !touched_ids.iter().any(|id| id == "LM") {
+                touched_ids.push("LM".to_string());
+            }
+            Ok((completed, video_ids.len()))
+        }
         StagedOp::UpgradeTracks {
             playlist_id,
             upgrades,

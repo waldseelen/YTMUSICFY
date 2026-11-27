@@ -357,6 +357,18 @@ fn render_op_diff_details(ui: &mut egui::Ui, op: &StagedOp) {
                 if *liked { "Like" } else { "Remove Like" }
             ));
         }
+        StagedOp::SetLikeStatusBatch {
+            video_ids,
+            titles,
+            liked,
+        } => {
+            ui.label(format!(
+                "{} {} track(s) in Liked Music: {}",
+                if *liked { "Like" } else { "Remove Like" },
+                video_ids.len(),
+                titles.join(", ")
+            ));
+        }
     }
 }
 
@@ -373,6 +385,8 @@ fn op_badge(op: &StagedOp) -> (Icon, egui::Color32) {
         | StagedOp::MoveTracks { .. }
         | StagedOp::RestoreSnapshot { .. } => (Icon::Sync, egui::Color32::from_rgb(95, 180, 240)),
         StagedOp::UpdatePlaylistMeta { .. } => (Icon::Edit, egui::Color32::from_rgb(235, 190, 80)),
-        StagedOp::SetLikeStatus { .. } => (Icon::Heart, egui::Color32::from_rgb(235, 120, 160)),
+        StagedOp::SetLikeStatus { .. } | StagedOp::SetLikeStatusBatch { .. } => {
+            (Icon::Heart, egui::Color32::from_rgb(235, 120, 160))
+        }
     }
 }

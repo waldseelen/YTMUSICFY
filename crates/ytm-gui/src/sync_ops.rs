@@ -66,6 +66,11 @@ pub enum StagedOp {
         title: String,
         liked: bool,
     },
+    SetLikeStatusBatch {
+        video_ids: Vec<String>,
+        titles: Vec<String>,
+        liked: bool,
+    },
 }
 
 impl StagedOp {
@@ -82,7 +87,9 @@ impl StagedOp {
             Self::MoveTracks {
                 target_playlist_id, ..
             } => Some(target_playlist_id.as_str()),
-            Self::CreatePlaylist { .. } | Self::SetLikeStatus { .. } => None,
+            Self::CreatePlaylist { .. }
+            | Self::SetLikeStatus { .. }
+            | Self::SetLikeStatusBatch { .. } => None,
         }
     }
 
@@ -115,7 +122,8 @@ impl StagedOp {
             } => source_playlist_id == playlist_id || target_playlist_id == playlist_id,
             Self::CreatePlaylist { .. }
             | Self::UpdatePlaylistMeta { .. }
-            | Self::SetLikeStatus { .. } => false,
+            | Self::SetLikeStatus { .. }
+            | Self::SetLikeStatusBatch { .. } => false,
         }
     }
 
@@ -131,12 +139,8 @@ impl StagedOp {
             Self::DeletePlaylist { .. } => "Delete Playlist",
             Self::UpgradeTracks { .. } => "ATV Upgrade",
             Self::RestoreSnapshot { .. } => "Restore Snapshot",
-            Self::SetLikeStatus { liked, .. } => {
-                if *liked {
-                    "Like Track"
-                } else {
-                    "Unlike Track"
-                }
+            Self::SetLikeStatus { liked, .. } | Self::SetLikeStatusBatch { liked, .. } => {
+                if *liked { "Like Track" } else { "Unlike Track" }
             }
         }
     }
@@ -155,9 +159,9 @@ impl StagedOp {
                 target_playlist_title,
                 ..
             } => target_playlist_title.as_str(),
-            Self::CreatePlaylist { title, .. } | Self::SetLikeStatus { title, .. } => {
-                title.as_str()
-            }
+            Self::CreatePlaylist { title, .. } => title.as_str(),
+            Self::SetLikeStatus { title, .. } => title.as_str(),
+            Self::SetLikeStatusBatch { .. } => "Liked Music",
         }
     }
 
@@ -234,6 +238,12 @@ impl StagedOp {
             Self::SetLikeStatus { title, liked, .. } => {
                 let verb = if *liked { "Like" } else { "Unlike" };
                 format!("{verb} '{title}'")
+            }
+            Self::SetLikeStatusBatch {
+                video_ids, liked, ..
+            } => {
+                let verb = if *liked { "Like" } else { "Unlike" };
+                format!("{} {} tracks in Liked Music", verb, video_ids.len())
             }
         }
     }

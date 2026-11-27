@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use ytm_core::{
-    BrowsePage, FetchManifest, LyricsPayload, Playlist, PlaylistSummary, SearchFilter, SearchPage,
-    SessionStatus, Track, WatchNextResult,
+    ArtistHarvest, ArtistHarvestOptions, BrowsePage, FetchManifest, LyricsPayload, Playlist,
+    PlaylistSummary, SearchFilter, SearchPage, SessionStatus, Track, WatchNextResult,
 };
 use ytm_enrich::GenreSplitPlan;
 use ytm_ops::{
@@ -96,6 +96,10 @@ pub enum WorkerCmd {
         browse_id: String,
         params: Option<String>,
     },
+    HarvestArtist {
+        artist_id: String,
+        options: ArtistHarvestOptions,
+    },
     LoadBrowseContinuation {
         browse_id: String,
         token: String,
@@ -113,6 +117,13 @@ pub enum WorkerCmd {
         browse_id: String,
     },
     SetAudioQuality(AudioQuality),
+    RecordPlayHistory {
+        video_id: String,
+        title: String,
+        artists_json: String,
+        album: Option<String>,
+        duration_sec: Option<u32>,
+    },
     IndexAllPlaylists {
         missing_only: bool,
     },
@@ -184,6 +195,7 @@ pub enum WorkerEvent {
         browse_id: String,
         result: Result<BrowsePage, String>,
     },
+    ArtistHarvested(Result<ArtistHarvest, String>),
     BrowseCacheHydrated(BrowsePage),
     BrowseContinuationLoaded {
         browse_id: String,

@@ -1,3 +1,4 @@
+pub mod artist_harvest;
 pub mod auth;
 pub mod browse;
 pub mod components;
