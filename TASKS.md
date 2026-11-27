@@ -1,6 +1,6 @@
-# TASKS.md — YTMuse Product Roadmap (v0.2.0 → v0.5.0)
+# TASKS.md — Dalga Product Roadmap (v0.2.0 → v0.5.0)
 
-Execution plan for turning the `ytm-architect` engineering suite into **YTMuse**, an end-user native YouTube Music desktop client (Rust + egui, Linux & Windows). The v0.1.0/v0.1.1 re-architecture plan (Phases 0–5, 43/43 tasks) is complete and archived in git history (checkpoint commit before this file).
+Execution plan for turning the `ytm-architect` engineering suite into **Dalga**, an end-user native multi-source desktop music & media player (Rust + egui, Linux & Windows; starting with YouTube Music in v0.2.0–v0.4.0, expanding to Radio, Local Files, and Video in v0.5.0). The v0.1.0/v0.1.1 re-architecture plan (Phases 0–5, 43/43 tasks) is complete and archived in git history (checkpoint commit before this file).
 
 Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that must pass before the box is ticked. Dates and gate outputs live only in `PROGRESS.md`.
 
@@ -10,9 +10,9 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 
 | ID | Decision |
 | :--- | :--- |
-| B1 | **Brand:** visible name is **YTMuse** (tagline `YTMuse for YouTube Music`). Applies to window title, app id display name, tray, icons, README. Binary names `ytm-gui` / `ytm` and crate names stay unchanged. |
-| B2 | **Logo set:** two monochrome 3D-perspective logos (dark-theme and light-theme variants), one horizontal wordmark, one 1024px app icon. Generated drafts are shown to the owner before being embedded. |
-| B3 | **README:** centered logo via `<picture>` (auto light/dark on GitHub), badges (version, license, platform), real screenshots (Home, Search, Mini Player, light/dark side by side), feature table, download + SHA-256 verification, short "Why YTMuse" section. |
+| B1 | **Brand:** visible name is **Dalga** (tagline `Dalga — Native Music & Media Player`). Applies to window title, app id display name, tray, icons, README. Binary names `ytm-gui` / `ytm` and crate names stay unchanged. |
+| B2 | **Logo set:** Concept A approved (monochrome 3D continuous ribbon wave: 3 rising sound-wave peaks curling into a sea-wave crest; drafts saved in `assets/brand/drafts/concept-a-ribbon-{dark,light}.png`). Dark & light variants, lowercase geometric wordmark (`dalga`), and 1024px/16px-clean vector SVG/PNG exports. |
+| B3 | **README:** centered logo via `<picture>` (auto light/dark on GitHub), badges (version, license, platform), real screenshots (Home, Search, Mini Player, light/dark side by side), feature table, download + SHA-256 verification, short "Why Dalga" section. |
 | T1 | **Theme:** `ThemeMode = Light | Dark | System`. System follows OS (Linux XDG portal / `gsettings`, Windows registry). Dynamic accent from album art dominant colour over static Ultra-Dark / Apple-style Light surfaces. Selectable accents: Gold, YTM Pink, Emerald. |
 | T2 | **Language:** Turkish + English, switchable in Settings, default = system language else English. |
 | T3 | **Icons:** emoji and font-dependent Unicode glyphs are banned in UI. All icons are embedded Lucide SVGs rendered through `egui_extras` SVG loader and tinted by theme. |
@@ -26,7 +26,7 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 | P1 | **Offline-first cache:** playlists, library, artwork, lyrics persisted; stale-while-revalidate on startup; library browsable offline, only playback needs network. |
 | P2 | **All of Artist keeps D1 safety:** harvest → dedupe → preview → `SyncQueue` → verified POST. |
 | R1 | **Releases:** v0.2.0 (look, session, README) → v0.3.0 (tray, Mini Player, Home shelves, shortcuts) → v0.4.0 (power features, accessibility). Each ships Linux + Windows artifacts with `SHA256SUMS.txt`. |
-| N1 | **Name is provisional.** `YTMuse` stays through v0.2.0. Owner may rename to a phonetic, Turkish-meaning, ASCII-spelled name (candidates: Ezgi, Ahenk, Sada, Yanki, Nagme); all brand strings therefore live in one constants module (Task 2.4). GitHub/crates.io collision check is run before any rename; trademark search is out of scope. |
+| N1 | **Finalized brand name: `Dalga`.** Replaced provisional `YTMuse`; crates.io clean (404), GitHub check only found 0-star `dalga-music`. All brand strings still live in one constants module (Task 2.4) for clean maintainability. |
 | K1 | **Multi-source player (v0.5.0):** YouTube Music, Radio, Local Files, Video are *sources*; YouTube Music is one of them. |
 | K2 | **Radio:** bundled 551 Turkish stations (from `waldseelen/RadioStack` `stations.m3u`), user M3U/M3U8/XSPF import/export, optional Radio Browser directory search; favourites, categories, ICY Now Playing, auto-retry, offline badge. Local SQLite only, no server/Firebase. |
 | K3 | **Video:** mpv in a separate borderless video window (YT Music video version, local video files); player bar, queue and MPRIS unchanged, no double playback. Embedded libmpv render is deferred to a later release after risk measurement. |
@@ -37,7 +37,7 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
 
 ---
 
-## Phase v0.2.0 — "YTMuse": Brand, Theme, Chrome, Session
+## Phase v0.2.0 — "Dalga": Brand, Theme, Chrome, Session
 
 ### Task 1 — Contract lock & docs
 - [ ] **1.1 Domain contracts**
@@ -45,24 +45,24 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
   - [ ] Persist new fields in `GuiAppConfig` with `#[serde(default)]` so old `config.toml` still loads
   - [ ] verify: unit test loads a v0.1.1 `config.toml` fixture and yields defaults
 - [ ] **1.2 Docs sync**
-  - [ ] Update `SPEC.md`, `ARCHITECTURE.md`, `GLOSSARY.md` for YTMuse terms
+  - [ ] Update `SPEC.md`, `ARCHITECTURE.md`, `GLOSSARY.md` for Dalga terms
   - [ ] verify: `rg -n "ytm-architect" README.md SPEC.md` lists only intentional binary/crate references
 
 ### Task 2 — Brand & logo
-- [ ] **2.1 Logo generation**
-  - [ ] Generate dark-variant and light-variant monochrome 3D logos, wordmark, 1024px icon via `image-generator`
-  - [ ] Present drafts to owner; iterate until approved
-  - [ ] verify: owner approval recorded in `PROGRESS.md`
+- [ ] **2.1 Logo generation & vectorization**
+  - [x] Generate dark-variant and light-variant monochrome 3D draft concepts (`concept-a-ribbon-{dark,light}.png` approved by owner)
+  - [ ] Produce clean SVG vector + horizontal `dalga` wordmark + 1024px icon & 16px tray silhouette from Concept A
+  - [ ] verify: final vector/wordmark drafts approved and recorded in `PROGRESS.md`
 - [ ] **2.2 Asset packaging**
   - [ ] Store sources under `assets/brand/`; export PNG sizes, `.ico` (Windows), `.desktop` + hicolor icons (Linux)
   - [ ] Embed window icon via `ViewportBuilder::with_icon`
   - [ ] verify: `file assets/brand/*.png` dimensions match; app launches with icon on Linux
 - [ ] **2.3 Rename visible strings**
-  - [ ] Window title, top-bar label, About, tray title → `YTMuse`
+  - [ ] Window title, top-bar label, About, tray title → `Dalga`
   - [ ] verify: `rg -n '"ytm-architect"' crates/ytm-gui/src` returns only app-id/config-path constants
 - [ ] **2.4 Central brand constants (N1)**
   - [ ] `brand.rs` exposes `APP_NAME`, `TAGLINE`, `WINDOW_TITLE`, tray title; every visible brand string reads from it
-  - [ ] verify: unit test asserts no other module contains the literal `"YTMuse"` (`rg -n 'YTMuse' crates/ytm-gui/src` hits only `brand.rs` and tests)
+  - [ ] verify: unit test asserts no other module contains the literal `"Dalga"` (`rg -n 'Dalga' crates/ytm-gui/src` hits only `brand.rs` and tests)
 
 ### Task 3 — Theme engine
 - [ ] **3.1 Palettes**
@@ -168,7 +168,7 @@ Legend: `[ ]` open · `[x]` done. Every task ends with `verify:` checks that mus
   - [ ] Capture Home, Search, Lightbox, light/dark pair into `assets/screenshots/`
   - [ ] verify: files referenced by README exist (`rg -o "assets/[^)\" ]+" README.md | sort -u | xargs ls`)
 - [ ] **12.2 README rewrite (English)**
-  - [ ] Hero `<picture>` logo, badges, features table, install + SHA-256 verification, usage, "Why YTMuse"
+  - [ ] Hero `<picture>` logo, badges, features table, install + SHA-256 verification, usage, "Why Dalga"
   - [ ] verify: GitHub renders light/dark logos (check after push); links resolve
 - [ ] **12.3 Phase gate & release**
   - [ ] Bump to `0.2.0`; run G1 gates; tag `v0.2.0`; CI builds Linux + Windows; publish with `SHA256SUMS.txt`; write hashes into README + `PROGRESS.md`
